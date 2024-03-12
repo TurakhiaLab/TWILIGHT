@@ -173,7 +173,8 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
 
 void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int grpID)
 {
-    if (node->children.size() == 0) std::cout << node->identifier << '\n';
+    // std::cout << node->identifier << '\n';
+    // if (node->children.size() == 0) std::cout << node->identifier << '\n';
     if (!(node->grpID==-1 || node->grpID==grpID)) return;
 
     if (node->children.size()==0) 
@@ -205,6 +206,7 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
         return;
     }
 
+    if (node->identifier == "node_13") {
     for (size_t i=childIndex+1; i<node->children.size(); i++)
     {
         if (!(node->children[i]->grpID == -1 || node->children[i]->grpID == grpID))
@@ -212,42 +214,67 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
             continue;
         }
         
-        if (node->identifier == "node_11") {
-
+        // if (node->identifier == "node_11") {
+        auto alnStart = std::chrono::high_resolution_clock::now();
         std::vector<std::string> query = node->children[i]->msa;
         if (ref.size() == 0 || query.size() == 0) continue;
         // Malloc 
-        int32_t seqLen = 10000;
-        int32_t seqNum = 10;
+        int32_t seqLen = ref[0].size() + query[0].size();
+        int32_t seqNum = ref.size() + query.size();
         char* hostRef = (char*)malloc(seqLen * seqNum * sizeof(char));
         char* hostQry = (char*)malloc(seqLen * seqNum * sizeof(char));
         char* hostAln = (char*)malloc(seqLen * seqNum * sizeof(char));
         int32_t* hostSeqInfo = (int32_t*)malloc(5 * sizeof(int32_t));
         int16_t* hostParam = (int16_t*)malloc(6 * sizeof(int16_t)); 
-        int8_t* hostTB = (int8_t*)malloc(seqLen*seqLen * sizeof(int8_t)); 
+        // float* hostFreqRef = (float*)malloc(seqLen * 5 * sizeof(float));
+        // float* hostFreqQry = (float*)malloc(seqLen * 5 * sizeof(float));
+        // int32_t* hostH     = (int32_t*)malloc(3 * seqLen * 2 * sizeof(int32_t));
+        // int32_t* hostI     = (int32_t*)malloc(2 * seqLen * 2 * sizeof(int32_t));
+        // int32_t* hostD     = (int32_t*)malloc(2 * seqLen * 2 * sizeof(int32_t));
+        // int32_t* hostWfLL  = (int32_t*)malloc(seqLen * 2 * sizeof(int32_t));
+        // int32_t* hostWfLen = (int32_t*)malloc(seqLen * 2 * sizeof(int32_t));
+        // int8_t* hostTB = (int8_t*)malloc(seqLen*seqLen * sizeof(int8_t)); 
+
         int seqCount = 0;
-        for (int i = 0; i < seqLen*seqNum; ++i) { 
-            hostAln[i] = 0;
+        for (int j = 0; j < seqLen*seqNum; ++j) { 
+            hostAln[j] = 0;
             if (seqCount < ref.size()) {
-                if (i%seqLen < ref[seqCount].size()) {
-                    hostRef[i] = ref[seqCount][i%seqLen];
+                if (j%seqLen < ref[seqCount].size()) {
+                    hostRef[j] = ref[seqCount][j%seqLen];
                 }
-                else hostRef[i] = 0;
+                else hostRef[j] = 0;
             } 
-            else hostRef[i] = 0;
+            else hostRef[j] = 0;
             if (seqCount < query.size()) {
-                if (i%seqLen < query[seqCount].size()) {
-                    hostQry[i] = query[seqCount][i%seqLen];
+                if (j%seqLen < query[seqCount].size()) {
+                    hostQry[j] = query[seqCount][j%seqLen];
                 }
-                else hostQry[i] = 0;
+                else hostQry[j] = 0;
             }
-            else hostQry[i] = 0;
-            if (i%seqLen == seqLen-1) ++seqCount;
-        }
-        for (int i = 0; i < seqLen*seqLen; ++i) {
-            hostTB[i] = 0;
+            else hostQry[j] = 0;
+            if (j%seqLen == seqLen-1) ++seqCount;
         }
 
+        // for (int j = 0; j < seqLen*seqLen; ++j) {
+        //     hostTB[j] = 0;
+        // }
+        
+        // for (int j = 0; j < seqLen*6; ++j) {
+        //     if (j < 2*seqLen) {
+        //         hostWfLL[j] = 0;
+        //         hostWfLen[j] = 0;
+        //     }
+        //     if (j < 4*seqLen) {
+        //         hostD[j] = 0;
+        //         hostI[j] = 0;
+        //     }
+        //     if (j < 5*seqLen) {
+        //         hostFreqRef[j] = 0;
+        //         hostFreqQry[j] = 0;
+        //     }
+        //     hostH[j] = 0;
+        // }
+        
         hostSeqInfo[0] = seqLen;
         hostSeqInfo[1] = ref[0].size();
         hostSeqInfo[2] = query[0].size();
@@ -266,33 +293,83 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
         char* deviceAln;
         int32_t* deviceSeqInfo;
         int16_t* deviceParam;
-        int8_t* deviceTB;
+        // int8_t* deviceTB;
+        // float* deviceFreqRef;
+        // float* deviceFreqQry;
+        // int32_t* deviceH;
+        // int32_t* deviceI;
+        // int32_t* deviceD;
+        // int32_t* deviceWfLL;
+        // int32_t* deviceWfLen;
 
         cudaMalloc((void**)&deviceRef, seqLen * seqNum * sizeof(char));
         cudaMalloc((void**)&deviceQry, seqLen * seqNum * sizeof(char));
         cudaMalloc((void**)&deviceAln, seqLen * seqNum * sizeof(char));
         cudaMalloc((void**)&deviceSeqInfo, 5 * sizeof(int32_t));
         cudaMalloc((void**)&deviceParam, 6 * sizeof(int16_t));
-        cudaMalloc((void**)&deviceTB, seqLen * seqLen * sizeof(int8_t) );
+
+        // cudaMalloc((void**)&deviceTB, seqLen * seqLen * sizeof(int8_t));
+        // cudaMalloc((void**)&deviceH    , 3 * seqLen * 2 * sizeof(int32_t));
+        // cudaMalloc((void**)&deviceI    , 2 * seqLen * 2 * sizeof(int32_t));
+        // cudaMalloc((void**)&deviceD    , 2 * seqLen * 2 * sizeof(int32_t));
+        // cudaMalloc((void**)&deviceWfLL , seqLen * 2 * sizeof(int32_t));
+        // cudaMalloc((void**)&deviceWfLen, seqLen * 2 * sizeof(int32_t));
+        // cudaMalloc((void**)&deviceFreqRef, seqLen * 5 * sizeof(float));
+        // cudaMalloc((void**)&deviceFreqQry, seqLen * 5 * sizeof(float));
+
         // Copy to Device
         cudaMemcpy(deviceRef, hostRef, seqLen * seqNum * sizeof(char), cudaMemcpyHostToDevice);
         cudaMemcpy(deviceQry, hostQry, seqLen * seqNum * sizeof(char), cudaMemcpyHostToDevice);
         cudaMemcpy(deviceAln, hostAln, seqLen * seqNum * sizeof(char), cudaMemcpyHostToDevice);
         cudaMemcpy(deviceSeqInfo, hostSeqInfo, 5 * sizeof(int32_t), cudaMemcpyHostToDevice);
         cudaMemcpy(deviceParam, hostParam, 6 * sizeof(int16_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(deviceTB, hostTB, seqLen * seqLen * sizeof(int8_t), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceTB, hostTB, seqLen * seqLen * sizeof(int8_t), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceFreqRef, hostFreqRef, seqLen * 5 * sizeof(float), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceFreqQry, hostFreqQry, seqLen * 5 * sizeof(float), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceH, hostH, seqLen * 6 * sizeof(int32_t), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceH, hostD, seqLen * 4 * sizeof(int32_t), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceH, hostI, seqLen * 4 * sizeof(int32_t), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceWfLL, hostWfLL, seqLen * 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+        // cudaMemcpy(deviceWfLen, hostWfLen, seqLen * 2 * sizeof(int32_t), cudaMemcpyHostToDevice);
+        
         // cudaDeviceSynchronize();
         int numBlocks = 1; 
-        int blockSize = 512;
+        int blockSize = 1024;
     
-        printf("Before kernel %s\n", cudaGetErrorString(cudaGetLastError()));
-        alignGrpToGrp_cuda<<<numBlocks, blockSize>>>(deviceRef, deviceQry, deviceParam, deviceAln, deviceSeqInfo);
-        cudaDeviceSynchronize();
-        printf("After kernel %s\n", cudaGetErrorString(cudaGetLastError()));
+        // printf("Before kernel %s\n", cudaGetErrorString(cudaGetLastError()));
+        // alignGrpToGrp_cuda<<<numBlocks, blockSize>>>(
+        //     deviceRef, 
+        //     deviceQry, 
+        //     deviceParam, 
+        //     deviceAln, 
+        //     deviceSeqInfo,
+        //     deviceTB,
+        //     deviceFreqRef,
+        //     deviceFreqQry,
+        //     deviceH,
+        //     deviceD,
+        //     deviceI,
+        //     deviceWfLL,
+        //     deviceWfLen
+        // );
 
-        // This will execute after the kernel has completed.
-        // cudaDeviceSynchronize();
-        // Copy to Host
+        alignGrpToGrp_talco<<<numBlocks, blockSize>>>(
+            deviceRef, 
+            deviceQry, 
+            deviceParam, 
+            deviceAln, 
+            deviceSeqInfo
+        );
+
+        // alignGrpToGrp_cuda<<<numBlocks, blockSize>>>(
+        //     deviceRef, 
+        //     deviceQry, 
+        //     deviceParam, 
+        //     deviceAln, 
+        //     deviceSeqInfo
+        // );
+        cudaDeviceSynchronize();
+        // printf("After kernel %s\n", cudaGetErrorString(cudaGetLastError()));
         cudaError_t err;
         // err = cudaMemcpy(hostRef, deviceRef, seqLen * seqNum * sizeof(char), cudaMemcpyDeviceToHost);
         // cudaGetErrorString(err);
@@ -301,24 +378,26 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
         err = cudaMemcpy(hostAln, deviceAln, seqLen * seqNum * sizeof(char), cudaMemcpyDeviceToHost);
         cudaGetErrorString(err);
         cudaDeviceSynchronize();
-        // ref.clear();
+        auto alnEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+        std::cout << "Aln "<<  node->identifier << "," << node->children[i]->identifier <<" in: " <<  alnTime.count() << " ns\n";
+        ref.clear();
 
         
-        // for (int i = 0; i < ref.size() + query.size(); ++i) {
-        //     std::string s = "";
-        //     size_t alnIdx = i * seqLen;
-        //     while (true) {
-        //         if (hostAln[alnIdx] != 'A' && hostAln[alnIdx] != 'C' && hostAln[alnIdx] != 'G' && 
-        //             hostAln[alnIdx] != 'T' && hostAln[alnIdx] != '-' && hostAln[alnIdx] != 'N') break;
-        //         std::cout << hostAln[alnIdx];
-        //         s += hostAln[alnIdx];
-        //         ++alnIdx;
-        //     }
-        //     // std::cout << s << '\n';
-        //     ref.push_back(s);
-        // }
-        
-        
+        for (int j = 0; j < (hostSeqInfo[3] + hostSeqInfo[4]); ++j) {
+            std::string s = "";
+            size_t alnIdx = j * seqLen;
+            // std::cout << j << '\n'; 
+            while (true) {
+                if (hostAln[alnIdx] != 'A' && hostAln[alnIdx] != 'C' && hostAln[alnIdx] != 'G' && 
+                    hostAln[alnIdx] != 'T' && hostAln[alnIdx] != '-' && hostAln[alnIdx] != 'N') break;
+                // std::cout << hostAln[alnIdx];
+                s += hostAln[alnIdx];
+                ++alnIdx;
+            }
+            // std::cout << s << '\n';
+            ref.push_back(s);
+        }        
         
         // for (auto &s: alignments.first) ref.push_back(s);
         // for (auto &s: alignments.second) ref.push_back(s);
@@ -332,7 +411,14 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
         cudaFree(deviceAln);
         cudaFree(deviceParam);
         cudaFree(deviceSeqInfo);
-        cudaFree(deviceTB);
+        // cudaFree(deviceFreqRef);
+        // cudaFree(deviceFreqQry);
+        // cudaFree(deviceH);
+        // cudaFree(deviceD);
+        // cudaFree(deviceI);
+        // cudaFree(deviceTB);
+        // cudaFree(deviceWfLL);
+        // cudaFree(deviceWfLen);
         cudaDeviceSynchronize();
         // free host memory
         free(hostRef);
@@ -340,18 +426,33 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
         free(hostAln);
         free(hostParam);
         free(hostSeqInfo);
-        free(hostTB);
+        // free(hostTB);
+        // free(hostFreqRef);
+        // free(hostFreqQry);
+        // free(hostH);
+        // free(hostD);
+        // free(hostI);
+        // free(hostWfLL);
+        // free(hostWfLen);
 
 
 
 
         // alignGrpToGrp(ref, query, param, alignments);
-        ref.clear();
-        for (auto &s: alignments.first) ref.push_back(s);
-        for (auto &s: alignments.second) ref.push_back(s);
-        alignments.first.clear(); alignments.second.clear();
-        }
+        // ref.clear();
+        // for (auto &s: alignments.first) ref.push_back(s);
+        // for (auto &s: alignments.second) ref.push_back(s);
+        // alignments.first.clear(); alignments.second.clear();
+        // }
     }
+    }
+    // for (int j = 0; j < ref.size(); ++j) {
+    //     for (int k = 0; k < 100; ++k) {
+    //         std::cout << ref[j][k];
+    //     }
+    //     std::cout << '\n';
+    // }
+    // }    
     node->msa = ref;
 
     return;
@@ -366,13 +467,15 @@ void getPostOrderList(Node* node, std::stack<Node*>& msaStack) {
   
     while (!s1.empty()) { 
         current = s1.top(); 
-        s1.pop(); 
         msaStack.push(current); 
+        // std::cout << current->identifier << ','; 
+        s1.pop(); 
         for (auto ch: current->children) {
             if (ch->grpID == current->grpID)
                 s1.push(ch);
         }
     } 
+    // std::cout << '\n';
 }
 
 void alignSubtree(paritionInfo_t * partition, Params& param, msa::utility* util) {
@@ -419,27 +522,6 @@ void alignSubtree(paritionInfo_t * partition, Params& param, msa::utility* util)
 }
 
 
-class NodeGPU 
-{
-public:
-    NodeGPU(char* id, char* msa, Node* parent, int grpID, Node* partitionParent) : 
-        identifier(id),
-        msa(msa),
-        parent(parent),
-        grpID(grpID),
-        partitionParent(partitionParent) {};
-    char* identifier;
-    char* msa;
-    Node* parent;
-    int grpID;
-    Node * partitionParent;
-};
-
-__global__ void testGPU(char** seq, char** id, NodeGPU* nodes) {
-
-}
-
-
 int main(int argc, char** argv) {
 
     std::string seqFileName;
@@ -465,7 +547,7 @@ int main(int argc, char** argv) {
     msa::utility* util = new msa::utility;
 
     // Read Tree (Newick String)
-    std::cout << "Start read tree...\n";
+    // std::cout << "Start read tree...\n";
     Tree* T = readNewick(vm);
     
     printTree(T->root);
@@ -473,23 +555,25 @@ int main(int argc, char** argv) {
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
     // paritionInfo_t * partition = new paritionInfo_t(2,0, "longest"); /*Starting with zero partition*/
     paritionInfo_t * partition = new paritionInfo_t(4,0, "centroid");
-    std::cout << "Start Partition ..... \n";
+    // std::cout << "Start Partition ..... \n";
     partitionTree(T->root, partition);
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
     std::cout << "Partition the tree in: " <<  treeBuiltTime.count() << " ns\n";
-    printLeaves(T->root);
+    // printLeaves(T->root);
 
     // Read Input Sequences (Fasta format)
     readSequences(vm, util);
 
     // Test alignSeqToSeq
     // Node* root = T->root;
-    Params param(2,1,-2,-1,0,0);
+    int marker = 128;
+    int xdrop = 100;
+    Params param(2,-1,-2,-1,xdrop,marker);
 
-    for (auto p: partition->partitionsRoot) {
-        std::cout << p.first << '\t' << p.second.second << '\n';
-    }
+    // for (auto p: partition->partitionsRoot) {
+    //     std::cout << p.first << '\t' << p.second.second << '\n';
+    // }
 
     
     

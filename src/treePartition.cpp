@@ -196,7 +196,7 @@ Node* getLongestEdge(Node* node, int rootID){
     float longestLen = 0;
     size_t totalLeaves = getNumLeaves(node, node->grpID);
     updateLongestEdge (node, node, totalLeaves, longestLen, longestEdge);
-    std::cout << "DEBUG: getLongestEdge " << longestEdge->identifier << '\t' << longestEdge->branchLength << '\n'; 
+    // std::cout << "DEBUG: getLongestEdge " << longestEdge->identifier << '\t' << longestEdge->branchLength << '\n'; 
     // Update branch Length
     Node* traceback = longestEdge;
     bool downTraversal = false;
@@ -438,10 +438,10 @@ void partitionTree(Node* root, paritionInfo_t* partition) {
     size_t numTree2Leaves = getNumLeaves(tree2, tree2->grpID);
     // std::cout << "DEBUG: Tree1 " << tree1->identifier << '\t' << numTree1Leaves 
     //           << "\tTree2 "      << tree2->identifier << '\t' << numTree2Leaves << '\n';
-    printf("=============\nInput tree has %ld leaf nodes.\n", totalLeaves);
-    printf("Subtree 1 tree has %ld leaf nodes.\n", numTree2Leaves);
-    printf("Subtree 2 tree has %ld leaf nodes.\n", numTree1Leaves);
-    printf("==============\n");
+    // printf("=============\nInput tree has %ld leaf nodes.\n", totalLeaves);
+    // printf("Subtree 1 tree has %ld leaf nodes.\n", numTree2Leaves);
+    // printf("Subtree 2 tree has %ld leaf nodes.\n", numTree1Leaves);
+    // printf("==============\n");
     if (root->parent == nullptr) {
         partition->partitionsRoot[tree1->identifier] = std::make_pair(tree1, numTree2Leaves);
     }

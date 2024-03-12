@@ -77,10 +77,28 @@ __global__ void alignGrpToGrp_cuda
     char* query,
     int16_t* param,
     char* alignment,
-    int32_t* seqInfo // ,
+    int32_t* seqInfo
+    // int8_t*  globalTB,
+    // float*   deviceFreqRef,
+    // float*   deviceFreqQry,
+    // int32_t* deviceH,
+    // int32_t* deviceD,
+    // int32_t* deviceI,
+    // int32_t* deviceWfLL,
+    // int32_t* deviceWfLen 
     // int8_t* globalTB
 );
 
+
+__global__ void alignGrpToGrp_talco
+(
+    char* ref,
+    char* query,
+    int16_t* param,
+    char* alignment,
+    int32_t* seqInfo
+    
+);
 
 // __global__ void alignGrpToGrp_cuda1
 // (
