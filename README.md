@@ -13,14 +13,14 @@ make msa-gpu
 
 ## Run Instructions
 ### Help
-'''
+```
 ./msa-gpu -h
-'''
+```
 ### Run baseline
 * To enable output, uncomment test_msa.cpp line 275-282
-'''
+```
 ./test-msa -t ../dataset/gene1.best.treefile -s ../dataset/gene1.aln
-'''
+```
 ### Test traditional approach
 * To enable output, uncomment test_msa.cu line 557-564
 * test_msa.cu line 291 (blockSize) has to match align.cu line 633 (threadNum)
@@ -32,8 +32,8 @@ make msa-gpu
 * comment test_msa.cu line 303-309
 * uncomment test_msa.cu line 295-301
 * There are some bugs
-'''
+```
 ./msa-gpu -t ../dataset/sars_20.nwk -s ../dataset/sars_20.fa 
-'''
+```
 
 
