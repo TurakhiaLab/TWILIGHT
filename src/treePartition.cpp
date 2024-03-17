@@ -523,5 +523,3 @@ void paritionInfo_t::createPartition(Tree* T, paritionInfo_t* partition)
     
     return;
 }
-
-

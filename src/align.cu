@@ -445,7 +445,7 @@ void tracebackGrpToGrp
 }
 
 
-/*
+
 void alignGrpToGrp
 (
     std::vector<std::string>& ref,
@@ -596,7 +596,7 @@ void alignGrpToGrp
     return;
 
 }
-*/
+
 
 
 __device__ float charFreqRef [40000*5];
@@ -630,17 +630,17 @@ __global__ void alignGrpToGrp_cuda(
     // int gs = gridDim.x;
     int idx = bx*bs+tx;
 
-    const size_t threadNum = 512;
-    const int sharedMemSizeL = 4096; // Less Size
-    const int sharedMemSize = 8192;
+    const size_t threadNum = 1024;
+    // const int sharedMemSizeL = 4096; // Less Size
+    // const int sharedMemSize = 8192;
     
-    __shared__ int32_t sharedWfLL  [sharedMemSizeL];
-    __shared__ int32_t sharedWfLen [sharedMemSizeL];
-    __shared__ int8_t  sharedTB    [sharedMemSize];
+    // __shared__ int32_t sharedWfLL  [sharedMemSizeL];
+    // __shared__ int32_t sharedWfLen [sharedMemSizeL];
+    // __shared__ int8_t  sharedTB    [sharedMemSize];
     __shared__ size_t tbSize;
     __shared__ int8_t state;
     __shared__ size_t wfLLSize;
-    __shared__ int32_t leftGrid;
+    // __shared__ int32_t leftGrid;
     // __shared__ int32_t sharedH     [sharedMemSize];
     // __shared__ int32_t sharedD     [sharedMemSize];
     // __shared__ int32_t sharedI     [sharedMemSize];
@@ -673,7 +673,7 @@ __global__ void alignGrpToGrp_cuda(
         
         int tbIdx = 0;
         
-        int maxSeqLen = 20000;
+        int maxSeqLen = 80000;
         int maxLen = refLen > qryLen ? refLen : qryLen;
         __syncthreads();
         if (idx < threadNum) {
@@ -745,13 +745,12 @@ __global__ void alignGrpToGrp_cuda(
                 wfLLSize += 1;
             }
             __syncthreads();
-            
             int32_t numRound = (U[k%3]+1-L[k%3]) / threadNum + 1;
-            if (tx == 0) leftGrid = U[k%3]+1-L[k%3];
+            int32_t leftGrid = U[k%3]+1-L[k%3];
             __syncthreads();
             for (int round = 0; round < numRound; ++round) {
                 if (idx < min(leftGrid, (int32_t)threadNum)) {
-                    // if (idx == 0) printf("round: %d, tbIdx: %d, idx:%d\n",round, tbIdx, idx);
+                    // if (idx == 0) printf("round: %d, leftGrid: %d, tbIdx: %d, idx:%d\n",round, leftGrid, tbIdx, idx);
                     int32_t i=L[k%3]+round*threadNum+idx;
                     int32_t j=(k-i); //j->Query Index
                     int32_t match = -INF, insOp = -INF, delOp = -INF, insExt = -INF, delExt = -INF;
@@ -813,6 +812,7 @@ __global__ void alignGrpToGrp_cuda(
                         tempH = tempD;
                         currentHState = STATE::HD;
                     }
+                   
                     // tempI : I[(k%2)*maxSeqLen+offset]
                     // tempD : D[(k%2)*maxSeqLen+offset]
                     // tempH : globalH[(k%3)*maxSeqLen+offset]
@@ -824,13 +824,17 @@ __global__ void alignGrpToGrp_cuda(
                     globalH[(k%3)*maxSeqLen+offset] = tempH;
                     // sharedTB[tbIdx+idx] = updateState_cuda(currentHState, currentIState, currentDState);
                     globalTB[tbSize+idx] =  updateState_cuda(currentHState, currentIState, currentDState);
+                    // if (idx == min(leftGrid, (int32_t)threadNum)/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, idx, updateState_cuda(currentHState, currentIState, currentDState), tempH, tempD, tempI);
                     // score = tempH;
                     // state = currentHState;
                     // globalH[0] = tempH;
                     // if (tx == min(leftGrid, (int32_t)threadNum)) state = currentHState;
-                    if (idx == min((int)leftGrid, (int)threadNum)) {
+                    if (idx == min((int)leftGrid, (int)threadNum)-1 && round == numRound - 1) {
                         state = currentHState;
+                        
+                        
                     }
+                    
                 }
                 // __syncthreads();
                 // if (tx < min(leftGrid, (int32_t)threadNum)) {
@@ -841,8 +845,9 @@ __global__ void alignGrpToGrp_cuda(
                 if (tx == 0) {
                     tbIdx += min((size_t)leftGrid, (size_t)threadNum);
                     tbSize += min((size_t)leftGrid, (size_t)threadNum);
-                    leftGrid -= min((int)leftGrid, (int)threadNum);
                 }
+                __syncthreads();
+                leftGrid -= min((int)leftGrid, (int)threadNum);
                 // __syncthreads();
                 // if (tbIdx > (sharedMemSize/2)) {
                 //     if (idx < threadNum) {
@@ -893,8 +898,9 @@ __global__ void alignGrpToGrp_cuda(
 
             
             while (refIndex>=0 && qryIndex>=0) {
-                // printf("%d, %d, %d, %d, %d\n", tbIndex, tb, refIndex, qryIndex, alnIdx);
+                
                 currentTB = globalTB[tbIndex];
+                // printf("%d, %d, %d, %d, %d, %d\n", tbIndex, tb, refIndex, qryIndex, state, currentTB);
                 if (state == 0) { 
                     // Current State M
                     state = currentTB & 0x03;
@@ -969,13 +975,14 @@ __global__ void alignGrpToGrp_cuda(
 
     }
     
+    // if (bx == 0 && tx == 0) printf("Finish Alignment!\n");
     return;
 }
 
-__device__ int32_t sL[3];
-__device__ int32_t sU[3];
-__device__ int16_t S  [3*128];
-__device__ int32_t max_score_list [128]; 
+// __device__ int32_t sL[3];
+// __device__ int32_t sU[3];
+// __device__ int16_t S  [3*128];
+// __device__ int32_t max_score_list [128]; 
 
 __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *alignment, int32_t* seqInfo)
 {
@@ -990,7 +997,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
 
     __shared__ bool last_tile;
     __shared__ int8_t tile_aln[2*fLen];
-    // __shared__ int16_t S  [3*fLen];
+    __shared__ int16_t S  [3*fLen];
     __shared__ int32_t CS [3*fLen];
     __shared__ int16_t I  [2*fLen];
     __shared__ int32_t CI [2*fLen];
@@ -1004,14 +1011,14 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
     // __shared__ int32_t sL[3];
     // __shared__ int32_t sU[3];
 
-    // __shared__ int32_t max_score_list [fLen]; 
+    __shared__ int32_t max_score_list [fLen]; 
     // __shared__ int32_t max_score_prime; 
     __shared__ int32_t max_score_ref [fLen]; 
     __shared__ int32_t max_score_query [fLen];
-    __shared__ int32_t max_score_start_addr; 
-    __shared__ int32_t max_score_start_ftr;
-    __shared__ int32_t max_score_ref_idx;    
-    __shared__ int32_t max_score_query_idx;
+    // __shared__ int32_t max_score_start_addr; 
+    // __shared__ int32_t max_score_start_ftr;
+    // __shared__ int32_t max_score_ref_idx;    
+    // __shared__ int32_t max_score_query_idx;
     __shared__ int32_t max_score;
 
     __shared__ bool converged; 
@@ -1025,7 +1032,15 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
     // [4] query_idx
     // [5] globalAlnIdx
     // [6] tile
-    __syncthreads();
+    if (tidx == 0) {
+        last_tile = false;
+    } 
+    if (tidx < 7) {
+        idx[tidx] = 0;
+    }
+        
+
+    // __syncthreads();
     if (bx == 0) {
         int32_t seqLen = seqInfo[0];
         int32_t refLen = seqInfo[1];
@@ -1046,12 +1061,6 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
         int32_t ftr_length [2*fLen];
         int32_t ftr_lower_limit [2*fLen];
         // initialize global values
-        if (tidx == 0) {
-            last_tile = false;
-            for (int i = 0; i < 7; ++i) {
-                idx[i] = 0;
-            }
-        }
         
         __syncthreads();
 
@@ -1067,6 +1076,10 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
             int16_t ftr_length_idx = 0;
             int16_t ftr_lower_limit_idx = 0;
             int32_t max_score_prime = -(p_xdrop+1);
+            int32_t max_score_start_addr; 
+            int32_t max_score_start_ftr;
+            int32_t max_score_ref_idx;    
+            int32_t max_score_query_idx;
             int16_t tb_idx = 0;
             for (size_t sIndx=0; sIndx<3; sIndx++) {
                 L[sIndx] = sIndx;
@@ -1078,18 +1091,15 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
             }
 
             if (tx == 0) {
-                max_score_start_addr = 0; 
-                max_score_start_ftr = 0;
-                max_score_ref_idx = 0;    
-                max_score_query_idx = 0;
+                // max_score_start_addr = 0; 
+                // max_score_start_ftr = 0;
+                // max_score_ref_idx = 0;    
+                // max_score_query_idx = 0;
                 max_score = 0;
                 converged = false;
                 conv_logic = false;
-                // ftr_length_idx = 0;
-                // ftr_lower_limit_idx = 0;
-                // printf("marker: %d, xdrop: %d\n", p_marker, p_xdrop);
             }
-            __syncthreads();
+            // __syncthreads();
             int32_t conv_score = 0; 
             int32_t conv_value = 0; 
             
@@ -1104,13 +1114,6 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
             bool Iptr = false;
             bool Dptr = false; // I and D states; xx00 -> M, x001 -> I (M) open, x101 -> I (I) extend, 0x10 -> D (M) open, 1x10 -> D (D) extend
             // if (tidx == 0) printf("Tile: %d, refIdx: %d, qryIdx: %d\n", tile, reference_idx, query_idx);
-            __syncthreads();
-            if (tidx == 0) {
-                for (size_t sIndx=0; sIndx<3; sIndx++) {
-                    sL[sIndx] = sIndx;
-                    sU[sIndx] = -sIndx;
-                }
-            }
             __syncthreads();
             
             
@@ -1155,7 +1158,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                     // std::cout << "No more cells to compute based on x-drop critieria" << std::endl;
                     // if (tidx == 0) printf("No more cells to compute based on x-drop critieria\n");
-                    if (tidx == 0) printf("No more cells to compute based on x-drop critieria (L, U) = (%d, %d)\n", sL[k%3], sU[k%3]+1);
+                    if (tidx == 0) printf("No more cells to compute based on x-drop critieria (L, U) = (%d, %d)\n", L[k%3], U[k%3]+1);
                     __syncthreads();
                     break;
                 }
@@ -1165,7 +1168,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 // }
                 // __syncthreads();
                 // if (tidx == 0) printf("DEBUG: break 1.2\n");
-                __syncthreads();
+                // __syncthreads();
                 // if (tidx == 0) {
                 if (k <= p_marker) {
                     // printf("ftr length: %d ftr_addr: %d  ftr lower limit: %d idx0: %d, idx1: %d\n", U[k%3] - L[k%3] + 1, ftr_addr, L[k%3], ftr_length_idx, ftr_lower_limit_idx);
@@ -1182,8 +1185,10 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                     // std::cout << "ftr length: " << U[k%3] - L[k%3] + 1 << " ftr_addr: " << ftr_addr << " ftr lower limit: " << L[k%3] << " tb len: " << tb.size() << std::endl;
                     
                 }
+                // int32_t numRound = (U[k%3]+1-L[k%3]) / threadNum + 1;
+                int32_t leftGrid = U[k%3]+1-L[k%3];
                 // }   
-                __syncthreads();
+                //__syncthreads();
                 // if (tidx == 0) printf("DEBUG: break 1.4\n");
                 // Calculate character frequency
                 if (tidx < threadNum) {
@@ -1210,16 +1215,15 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         }
                     }
                 }
-                __syncthreads();
+                // __syncthreads();
                 // if (tidx == 0) printf("DEBUG1: L: %d, %d, %d, U:%d, %d, %d\n", L[k%3], L[(k+1)%3], L[(k+2)%3], U[k%3], U[(k+1)%3], U[(k+2)%3]);
-                int32_t numRound = (U[k%3]+1-L[k%3]) / threadNum + 1;
-                int32_t leftGrid = U[k%3]+1-L[k%3];
-                __syncthreads();
+                
                 // if (tidx == 0) printf("k: %d, Max Score: %d\n", k, max_score);
                 // printf("%d, max: %d\n", tidx, max_score_list[tidx]);
-                for (int round = 0; round < numRound; ++round) {
+                // for (int round = 0; round < numRound; ++round) {
                     if (tidx < min(leftGrid, (int32_t)threadNum)) {
-                        int16_t i=L[k%3]+round*threadNum+tidx;
+                        // int16_t i=L[k%3]+round*threadNum+tidx;
+                        int16_t i=L[k%3]+tidx;
                         int16_t Lprime = max(0, static_cast<int16_t>(k)-static_cast<int16_t>(reference_length) + 1);
                         int16_t j= min(static_cast<int16_t>(k), static_cast<int16_t>(reference_length - 1)) - (i-Lprime);; //j->Query Index
                         if (j < 0) if (tx == 0) { printf("ERROR: j less than 0.\n");}
@@ -1309,7 +1313,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         max_score_list[tidx] = score;
 
                         // printf("No.%d (r,q)=(%d,%d) pre_max:%d, score: %d\n", tidx, i, j, max_score_prime, score);
-                        
+                        // if (tidx == min(leftGrid, (int32_t)threadNum)/2-1) printf("k: %d, idx: %d, H: %d, D: %d, I: %d\n", k, tidx, tempH, tempD, tempI);
                         if (k == p_marker - 1) { // Convergence algorithm
                             CS[(k%3)*fLen+offset] = (3 << 16) | (i & 0xFFFF); 
                             // if(DEBUG) std::cout << "Convergence Unique Id's: " <<  tempCS << "\n";
@@ -1373,26 +1377,24 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                     // Update Max
                     if (max_score_prime < max_score_list[0]) {
                         max_score_prime = max_score_list[0];
-                        if (tidx == 0) {
-                            max_score_prime = max_score_list[0];
-                            if (k <= p_marker) {
-                                max_score_ref_idx = max_score_ref[0];
-                                max_score_query_idx = max_score_query[0];
-                                max_score_start_addr = ftr_addr - (U[k%3] - L[k%3] + 1)  + (max_score_query[0] - L[k%3]);
-                                max_score_start_ftr = k;
-                            }
-                            // printf("max (%d, %d) = %d, %d, %d\n",max_score_ref_idx, max_score_query_idx, max_score_prime, max_score_start_addr, max_score_list[0]);
+                        // if (tidx == 0) {
+                        max_score_prime = max_score_list[0];
+                        if (k <= p_marker) {
+                            max_score_ref_idx = max_score_ref[0];
+                            max_score_query_idx = max_score_query[0];
+                            max_score_start_addr = ftr_addr - (U[k%3] - L[k%3] + 1)  + (max_score_query[0] - L[k%3]);
+                            max_score_start_ftr = k;
                         }
+                            // printf("max (%d, %d) = %d, %d, %d\n",max_score_ref_idx, max_score_query_idx, max_score_prime, max_score_start_addr, max_score_list[0]);
+                        // }
                     }
-                    __syncthreads();
+                    // __syncthreads();
                     
-                    __syncthreads();
-                }
-                __syncthreads();
+                // }
+                // __syncthreads();
                 if (k <= p_marker){
                     tb_idx += min((int)leftGrid, (int)threadNum);
                 }
-                __syncthreads();
                 // if (tidx == 0) printf("DEBUG2: L: %d, %d, %d, U:%d, %d, %d\n", L[k%3], L[(k+1)%3], L[(k+2)%3], U[k%3], U[(k+1)%3], U[(k+2)%3]);
                 int32_t newL = L[k%3];
                 int32_t newU = U[k%3];
@@ -1422,7 +1424,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 int32_t v2 = static_cast<int32_t>(k)+2-static_cast<int32_t>(reference_length);
                 int32_t v3 = newU+1;
                 int32_t Lprime = max(static_cast<int32_t>(0), v2);
-                __syncthreads();
+                // __syncthreads();
                 // if (tidx == 0) printf("newU: %d, + %d = %d ", newU, 1, v3);
                 // if (tidx == 0) printf("v1: %d, v2: %d, v3: %d\n", v1, v2, v3);
                 // if (tidx == 0) printf("DEBUG3: L: %d, %d, %d, U:%d, %d, %d\n", L[k%3], L[(k+1)%3], L[(k+2)%3], U[k%3], U[(k+1)%3], U[(k+2)%3]);
@@ -1463,7 +1465,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                                 break;
                             } 
                         }
-                        // printf("k: %d, %d, %d, %d\n", k, conv_I, conv_D, conv_S);
+                        // printf("k: %d, CONV: %d, %d, %d\n", k, conv_I, conv_D, conv_S);
                         if ((conv_I == conv_D) && (conv_I == conv_S) && (prev_conv_s == conv_S) && (conv_I != -1)){
                             converged = true; 
                             conv_value = prev_conv_s;
@@ -1644,8 +1646,6 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         ftr -= 1;
                         ref_idx--;
                     }
-
-                    
                     tile_aln[aln_idx] = dir;
                     ++aln_idx;    
                     // state = next_state;

@@ -122,6 +122,8 @@ void checkAlignment(std::vector<std::string>& ref)
 
 void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int grpID)
 {
+    // std::cout << node->identifier << '\n';
+    // if (node->children.size() == 0) std::cout << node->identifier << '\n';
     if (!(node->grpID==-1 || node->grpID==grpID)) return;
 
     if (node->children.size()==0) 
@@ -129,35 +131,54 @@ void msaPostOrderTraversal(Node* node, msa::utility* util, Params& param, int gr
         node->msa.push_back(util->seqs[node->identifier]);
         return;
     }
-
     for (auto& child: node->children) msaPostOrderTraversal(child, util, param, grpID);
-
     std::pair<std::vector<std::string>, std::vector<std::string>> alignments;
     std::vector<std::string> ref;
     
     size_t childIndex = 0;
     for (childIndex=0; childIndex<node->children.size(); childIndex++)
     {
-        if (node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID)
+        if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->msa.size() > 0))
         {
             ref = node->children[childIndex]->msa;
             break;
         }
     }
-    
+
+
+    // std::cout << node->identifier << '\n';
+    if (childIndex == node->children.size() - 1) {
+        node->msa = ref;
+        return;
+    }
+
+    // if (node->identifier == "node_11") {
     for (size_t i=childIndex+1; i<node->children.size(); i++)
     {
         if (!(node->children[i]->grpID == -1 || node->children[i]->grpID == grpID))
         {
             continue;
         }
+        auto alnStart = std::chrono::high_resolution_clock::now();
         std::vector<std::string> query = node->children[i]->msa;
+        
         alignGrpToGrp(ref, query, param, alignments);
+        auto alnEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+        std::cout << "Aln "<< node->identifier << "," << node->children[i]->identifier <<" in: " <<  alnTime.count() << " ns\n";
         ref.clear();
         for (auto &s: alignments.first) ref.push_back(s);
         for (auto &s: alignments.second) ref.push_back(s);
         alignments.first.clear(); alignments.second.clear();
     }
+    // }
+    // for (int j = 0; j < ref.size(); ++j) {
+    //     for (int k = 0; k < 1200; ++k) {
+    //         std::cout << ref[j][k];
+    //     }
+    //     std::cout << '\n';
+    // }
+        
     node->msa = ref;
 
     return;
@@ -189,15 +210,15 @@ int main(int argc, char** argv) {
     msa::utility* util = new msa::utility;
 
     // Read Tree (Newick String)
-    std::cout << "Start read tree...\n";
+    // std::cout << "Start read tree...\n";
     Tree* T = readNewick(vm);
     
     printTree(T->root);
 
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
-    paritionInfo_t * partition = new paritionInfo_t(2,0, "longest"); /*Starting with zero partition*/
-    // paritionInfo_t * partition = new paritionInfo_t(4,0, "centroid");
-    std::cout << "Start Longest partition ..... \n";
+    // paritionInfo_t * partition = new paritionInfo_t(2,0, "longest"); /*Starting with zero partition*/
+    paritionInfo_t * partition = new paritionInfo_t(11,0, "centroid");
+    // std::cout << "Start Longest partition ..... \n";
     partitionTree(T->root, partition);
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
@@ -211,17 +232,25 @@ int main(int argc, char** argv) {
 
     // Test alignSeqToSeq
     // Node* root = T->root;
-    Params param(2,1,-2,-1,0,0);
+    Params param(2,-1,-2,-1,0,0);
 
-    /*
+    auto msaStart = std::chrono::high_resolution_clock::now();    
     for (auto &p: partition->partitionsRoot)
-    {
-        std::cout << p.first << std::endl;
+    {   
+        std::cout << "Start MSA on " << p.first << " Size: "<< getNumLeaves(p.second.first, p.second.first->grpID)  << std::endl;
+        auto alnStart = std::chrono::high_resolution_clock::now();
+        // std::cout << "Start MSA on " << p.first << std::endl;
+        // auto alnStart = std::chrono::high_resolution_clock::now();
         msaPostOrderTraversal(p.second.first, util, param, p.second.first->grpID);
-        // break;
+        auto alnEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+        std::cout << "Aln "<<  p.second.first->identifier <<" in: " <<  alnTime.count() << " ns\n";
+       // break;
     }
-
-
+    auto msaEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds msaTime = msaEnd - msaStart;
+    std::cout << "MSA in: " <<  msaTime.count() << " ns\n";
+    /*
     for (auto &p: partition->partitionsRoot)
     {
         if (p.second.first->partitionParent == nullptr) continue;
@@ -240,18 +269,18 @@ int main(int argc, char** argv) {
         p.second.first->msa = ref;
 
     }
+    */    
+
+
+    // for (auto &p: partition->partitionsRoot)
+    // {
+    //     std::cout << p.first << std::endl;
+    //     for (auto& s: p.second.first->msa)
+    //     {
+    //         std::cout << s << "\n";
+    //     }
+    // }
     
-
-
-    for (auto &p: partition->partitionsRoot)
-    {
-        std::cout << p.first << std::endl;
-        for (auto& s: p.second.first->msa)
-        {
-            std::cout << s << "\n";
-        }
-    }
-    */
 
     // std::vector<std::string> refs, querys;
     // std::pair<std::vector<std::string>,std::vector<std::string>> alignments;

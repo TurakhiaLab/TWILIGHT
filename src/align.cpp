@@ -318,7 +318,9 @@ void tracebackGrpToGrp
 
     while (refIndex>=0 && queryIndex>=0)
     {
+        // printf("%d, %d, %d, %d, %d\n", tbIndex, k, refIndex, queryIndex, state);
         currentTB = TB[tbIndex];
+        // printf("%d, %d, %d, %d, %d, %d\n", tbIndex, k, refIndex, queryIndex, state, currentTB);
         if (state == 0) 
         { // Current State M
             state = currentTB & 0x03;
@@ -421,10 +423,10 @@ void alignGrpToGrp
     Params& param,
     std::pair<std::vector<std::string>, std::vector<std::string>>& alignment
 ){
-    if (ref.size() < 1 || query.size() < 1) {fprintf(stderr, "Error: Number of Ref/Query <= 0"); exit(1);}
+    if (ref.size() < 1 || query.size() < 1) {fprintf(stderr, "Error: Number of Ref/Query <= 0\n"); exit(1);}
     int32_t refLen = ref[0].size();
     int32_t queryLen = query[0].size();
-    if (refLen<=0 || queryLen<=0) {fprintf(stderr, "Error: Ref/Query length <= 0"); exit(1);}
+    if (refLen<=0 || queryLen<=0) {fprintf(stderr, "Error: Ref/Query length <= 0\n"); exit(1);}
     
     int maxWFLen = 0; //wavefront length
     if (param.marker != 0) maxWFLen = param.marker+2;
@@ -542,9 +544,9 @@ void alignGrpToGrp
             }
 
             // if (j==0) std::cout << (int)currentHState << "-" << (int)currentIState << "-" << (int)currentDState << "-" << (int)updateState(currentHState, currentIState, currentDState) << std::endl;
-
+            // if (i == U[k%3]) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
             TB.push_back(updateState(currentHState, currentIState, currentDState));
-
+            // if (i == U[k%3]/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
             score = H[k%3][offset];
             state = currentHState;
         }
@@ -558,6 +560,11 @@ void alignGrpToGrp
             std::free(D[sIndx]);
         }
     }
+
+    // for (int i = 1100; i < 1200; ++i) {
+    //     printf("%d,", wfLL[i]);
+    //     if (i%10 == 9) printf("\n");
+    // }
 
     tracebackGrpToGrp (state, TB, wfLL, wfLen, alignment, ref, query);
     // printf("Score: %d\n", score);
