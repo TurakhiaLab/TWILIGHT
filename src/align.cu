@@ -599,29 +599,21 @@ void alignGrpToGrp
 
 
 
-__device__ float charFreqRef [40000*5];
-__device__ float charFreqQry [40000*5];
-__device__ int32_t globalH [3*40000*2];
-__device__ int32_t globalI [2*40000*2];
-__device__ int32_t globalD [2*40000*2];
-__device__ int32_t globalWfLL  [40000*2];
-__device__ int32_t globalWfLen [40000*2];
-__device__ int8_t globalTB [40000*40000];
-
+// __device__ float charFreqRef [40000*5];
+// __device__ float charFreqQry [40000*5];
+// __device__ int32_t globalH [3*40000*2];
+// __device__ int32_t globalI [2*40000*2];
+// __device__ int32_t globalD [2*40000*2];
+// __device__ int32_t globalWfLL  [40000*2];
+// __device__ int32_t globalWfLen [40000*2];
+// __device__ int8_t globalTB [40000*40000];
+/*
 __global__ void alignGrpToGrp_cuda(
     char *ref, 
     char *qry,
     int16_t* param, 
     char *alignment, 
     int32_t* seqInfo
-    // int8_t*  globalTB,
-    // float*   charFreqRef,
-    // float*   charFreqQry,
-    // int32_t* globalH,
-    // int32_t* globalD,
-    // int32_t* globalI,
-    // int32_t* globalWfLL,
-    // int32_t* globalWfLen
     )
 {
     int tx = threadIdx.x;
@@ -644,7 +636,7 @@ __global__ void alignGrpToGrp_cuda(
     // __shared__ int32_t sharedH     [sharedMemSize];
     // __shared__ int32_t sharedD     [sharedMemSize];
     // __shared__ int32_t sharedI     [sharedMemSize];
-// 
+    // 
     // __syncthreads();
     if (bx == 0) {
         int32_t seqLen = seqInfo[0];
@@ -978,11 +970,8 @@ __global__ void alignGrpToGrp_cuda(
     // if (bx == 0 && tx == 0) printf("Finish Alignment!\n");
     return;
 }
+*/
 
-// __device__ int32_t sL[3];
-// __device__ int32_t sU[3];
-// __device__ int16_t S  [3*128];
-// __device__ int32_t max_score_list [128]; 
 
 __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *alignment, int32_t* seqInfo)
 {
@@ -992,62 +981,51 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
     // int gs = gridDim.x;
     int tidx = bx*bs+tx;
 
-    const size_t threadNum = 128;
-    const int fLen = 128; // frontier length (assuming anti-diagonal length cannot exceed 1024)
+    // const size_t threadNum = 128;
+    const int fLen = 256; // frontier length (assuming anti-diagonal length cannot exceed 1024)
+    const int charFreqLen = 256;
 
-    __shared__ bool last_tile;
-    __shared__ int8_t tile_aln[2*fLen];
-    __shared__ int16_t S  [3*fLen];
-    __shared__ int32_t CS [3*fLen];
-    __shared__ int16_t I  [2*fLen];
-    __shared__ int32_t CI [2*fLen];
-    __shared__ int16_t D  [2*fLen];
-    __shared__ int32_t CD [2*fLen];
-    __shared__ int8_t tb  [fLen*fLen];
-    __shared__ float charFreqRef [fLen*5];
-    __shared__ float charFreqQry [fLen*5];
-    // __shared__ int32_t ftr_addr;
-    __shared__ int16_t idx [7]; 
-    // __shared__ int32_t sL[3];
-    // __shared__ int32_t sU[3];
-
-    __shared__ int32_t max_score_list [fLen]; 
-    // __shared__ int32_t max_score_prime; 
-    __shared__ int32_t max_score_ref [fLen]; 
-    __shared__ int32_t max_score_query [fLen];
-    // __shared__ int32_t max_score_start_addr; 
-    // __shared__ int32_t max_score_start_ftr;
-    // __shared__ int32_t max_score_ref_idx;    
-    // __shared__ int32_t max_score_query_idx;
-    __shared__ int32_t max_score;
-
-    __shared__ bool converged; 
-    __shared__ bool conv_logic;
+    int32_t threadNum = seqInfo[6];
+    int32_t blockNum = seqInfo[5];
 
     
-    // [0] ftr_length_idx
-    // [1] ftr_lower_limit_idx
-    // [2] tb_idx
-    // [3] reference_idx
-    // [4] query_idx
-    // [5] globalAlnIdx
-    // [6] tile
-    if (tidx == 0) {
-        last_tile = false;
-    } 
-    if (tidx < 7) {
-        idx[tidx] = 0;
-    }
+    
         
 
     // __syncthreads();
     if (bx == 0) {
+        __shared__ int8_t tile_aln[2*fLen];
+        // __shared__ int16_t S  [3*fLen];
+        __shared__ float S  [3*fLen];
+        __shared__ int32_t CS [3*fLen];
+        // __shared__ int16_t I  [2*fLen];
+        __shared__ float I  [2*fLen];
+        __shared__ int32_t CI [2*fLen];
+        // __shared__ int16_t D  [2*fLen];
+        __shared__ float D  [2*fLen];
+        __shared__ int32_t CD [2*fLen];
+        __shared__ int8_t tb  [64*fLen]; // May be improved to 4 bit
+        __shared__ uint8_t charFreqRef [5*charFreqLen];
+        __shared__ uint8_t charFreqQry [5*charFreqLen];
+        __shared__ uint32_t idx [3]; 
+        // [0] reference_idx
+        // [1] query_idx
+        // [2] globalAlnIdx
+        // __shared__ int32_t max_score_list [fLen]; 
+        __shared__ float max_score_list [fLen]; 
+        __shared__ uint16_t max_score_ref [fLen]; 
+        __shared__ uint16_t max_score_query [fLen];
+        __shared__ float max_score;
+        __shared__ bool last_tile;
+        __shared__ bool converged; 
+        __shared__ bool conv_logic;
+
         int32_t seqLen = seqInfo[0];
         int32_t refLen = seqInfo[1];
         int32_t qryLen = seqInfo[2];
         int32_t refNum = seqInfo[3];
         int32_t qryNum = seqInfo[4];
-
+        
         int16_t p_match = param[0];
         int16_t p_mismatch = param[1];
         int16_t p_gapOpen = param[2];
@@ -1061,14 +1039,21 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
         int32_t ftr_length [2*fLen];
         int32_t ftr_lower_limit [2*fLen];
         // initialize global values
+        if (tidx == 0) {
+            last_tile = false;
+        } 
+        if (tidx < 3) {
+            idx[tidx] = 0;
+        }
         
         __syncthreads();
+        if (tidx == 0) printf("refNum: %d, qryNum: %d\n", refNum, qryNum);
 
 
         while (!last_tile) {
             int32_t inf = p_xdrop + 1;
-            int16_t reference_idx = idx[3];
-            int16_t query_idx = idx[4];
+            int16_t reference_idx = idx[0];
+            int16_t query_idx = idx[1];
             int32_t reference_length = refLen - reference_idx; 
             int32_t query_length = qryLen - query_idx;
             int32_t score = 0; 
@@ -1091,10 +1076,6 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
             }
 
             if (tx == 0) {
-                // max_score_start_addr = 0; 
-                // max_score_start_ftr = 0;
-                // max_score_ref_idx = 0;    
-                // max_score_query_idx = 0;
                 max_score = 0;
                 converged = false;
                 conv_logic = false;
@@ -1113,28 +1094,21 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
 
             bool Iptr = false;
             bool Dptr = false; // I and D states; xx00 -> M, x001 -> I (M) open, x101 -> I (I) extend, 0x10 -> D (M) open, 1x10 -> D (D) extend
-            // if (tidx == 0) printf("Tile: %d, refIdx: %d, qryIdx: %d\n", tile, reference_idx, query_idx);
+            // if (tidx == 0) printf("Tile: %d, refIdx: %d, qryIdx: %d, refLen: %d, qryLen: %d\n", tile, reference_idx, query_idx, reference_length, query_length);
             __syncthreads();
             
             
             // Initialize shared memory
-            if (tidx < threadNum) {
-            // if (tidx == 0) {
-                for (int i = 0; i < 5*fLen; i = i+threadNum) {
-                    charFreqRef[i] = 0;
-                    charFreqQry[i] = 0;
-                    if (i < 3*fLen) {                        
-                        S[i] = -1;
-                        CS[i] = -1;
-                    }
+            if (tidx < fLen) {
+                for (int i = tidx; i < 3*fLen; i = i+fLen) {                     
+                    S[i] = -1;
+                    CS[i] = -1;
                     if (i < 2*fLen) {
                         I[i] = -1;
                         CI[i] = -1;
                         D[i] = -1;
                         CD[i] = -1;
                         tile_aln[i] = -1;
-                        // ftr_length[i] = 0;
-                        // ftr_lower_limit[i] = 0;
                     }
                     if (i < fLen) {
                         max_score_list [i] = -(p_xdrop+1); 
@@ -1144,7 +1118,15 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 }
             }
             // __syncthreads();
-            // if (tidx == 0) printf("DEBUG: break 1\n");
+            //if (tidx == 0) printf("DEBUG: break 1\n");
+            // if (tidx == 0) printf("Tile: %d, refIdx: %d, qryIdx: %d\n", tile, reference_idx, query_idx);
+            // if (tidx == 0) {
+            //     for (int i = 0; i < 10; ++i) printf("%c", ref[reference_idx+i]);
+            //     printf("\n");
+            //     for (int i = 0; i < 10; ++i) printf("%c", qry[query_idx+i]);
+            //     printf("\n");
+            // }
+            
             __syncthreads();
             for (int32_t k = 0; k < reference_length + query_length - 1; k++){
                 if (tidx < fLen) {
@@ -1162,10 +1144,12 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                     __syncthreads();
                     break;
                 }
-                // if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
-                //     fprintf(stderr, "ERROR: anti-diagonal larger than the max limit!\n");
-                //     exit(1);
-                // }
+                if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
+                    // fprintf(stderr, "ERROR: anti-diagonal larger than the max limit!\n");
+                    if (tidx == 0) printf("ERROR: anti-diagonal larger than the max limit!\n");
+                    __syncthreads();
+                    break;
+                }
                 // __syncthreads();
                 // if (tidx == 0) printf("DEBUG: break 1.2\n");
                 // __syncthreads();
@@ -1191,8 +1175,8 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 //__syncthreads();
                 // if (tidx == 0) printf("DEBUG: break 1.4\n");
                 // Calculate character frequency
-                if (tidx < threadNum) {
-                    for (int i = tidx; i < fLen; i += threadNum) {
+                if (tidx < charFreqLen) {
+                    for (int i = tidx; i < charFreqLen; i += charFreqLen) {
                         for (int j = i*5; j < i*5+5; j++) {
                             charFreqRef[j] = 0;
                             charFreqQry[j] = 0;
@@ -1217,7 +1201,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 }
                 // __syncthreads();
                 // if (tidx == 0) printf("DEBUG1: L: %d, %d, %d, U:%d, %d, %d\n", L[k%3], L[(k+1)%3], L[(k+2)%3], U[k%3], U[(k+1)%3], U[(k+2)%3]);
-                
+                if (tidx == 0 and refNum == 5) printf("k: %d, L: %d,  U:%d\n",k, L[k%3], U[k%3]+1);
                 // if (tidx == 0) printf("k: %d, Max Score: %d\n", k, max_score);
                 // printf("%d, max: %d\n", tidx, max_score_list[tidx]);
                 // for (int round = 0; round < numRound; ++round) {
@@ -1225,7 +1209,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         // int16_t i=L[k%3]+round*threadNum+tidx;
                         int16_t i=L[k%3]+tidx;
                         int16_t Lprime = max(0, static_cast<int16_t>(k)-static_cast<int16_t>(reference_length) + 1);
-                        int16_t j= min(static_cast<int16_t>(k), static_cast<int16_t>(reference_length - 1)) - (i-Lprime);; //j->Query Index
+                        int16_t j= min(static_cast<int16_t>(k), static_cast<int16_t>(reference_length - 1)) - (i-Lprime);
                         if (j < 0) if (tx == 0) { printf("ERROR: j less than 0.\n");}
                         int32_t match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
                         int32_t offset = i-L[k%3];
@@ -1239,16 +1223,30 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                                 score_from_prev_tile = tile*10;
                             }
                             float similarScore=0;
-                            for (int l=0; l<5; l++) similarScore+= sqrtf(charFreqRef[5*(i)+l]*charFreqQry[5*(j)+l]);
-                            bool groupMatch = (similarScore>0.95);
-                            if (groupMatch) {
-                                if (offsetDiag < 0) match = p_match + score_from_prev_tile; 
-                                else match = S[(k+1)%3*fLen+offsetDiag] + p_match + score_from_prev_tile; 
+                            float denominator = 0;
+                            float numerator = 0;
+                            for (int l=0; l<5; l++) {
+                                for (int m = 0; m < 5; m++) {
+                                    denominator += charFreqRef[5*(i)+l]*charFreqQry[5*(j)+m];
+                                    if (m == l) numerator += charFreqRef[5*(i)+l]*charFreqQry[5*(j)+m]*p_match;
+                                    else        numerator += charFreqRef[5*(i)+l]*charFreqQry[5*(j)+m]*p_mismatch;
+                                }
+                                
+                                // similarScore += sqrtf(charFreqRef[5*(i)+l]*charFreqQry[5*(j)+l]);
                             }
-                            else {
-                                if (offsetDiag < 0) match = p_mismatch + score_from_prev_tile;
-                                else match = S[(k+1)%3*fLen+offsetDiag] + p_mismatch + score_from_prev_tile;
-                            }
+                            similarScore = numerator/denominator;
+                            // if (k == 0 && tidx == 0) printf("Old: %f, New: %f\n", similarScore, numerator/denominator); 
+                            // bool groupMatch = (similarScore>0.8);
+                            // if (groupMatch) {
+                            //     if (offsetDiag < 0) match = p_match + score_from_prev_tile; 
+                            //     else match = S[(k+1)%3*fLen+offsetDiag] + p_match + score_from_prev_tile; 
+                            // }
+                            // else {
+                            //     if (offsetDiag < 0) match = p_mismatch + score_from_prev_tile;
+                            //     else match = S[(k+1)%3*fLen+offsetDiag] + p_mismatch + score_from_prev_tile;
+                            // }
+                            if (offsetDiag < 0) match = similarScore + score_from_prev_tile;
+                            else                match = S[(k+1)%3*fLen+offsetDiag] + similarScore + score_from_prev_tile;
                             // if (tidx == 0) printf("match: %d\n", match);
                         }
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
@@ -1270,7 +1268,6 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         tempD =  delOp;
                         Iptr = false;
                         Dptr = false;
-                        // if (tile == 4 && k == 68) printf("id: %d, tempI: %d, tempD: %d, match: %d\n", tidx, tempI, tempD, match);
                         if (insExt >= insOp) {
                             tempI = insExt;
                             Iptr = true;
@@ -1313,7 +1310,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         max_score_list[tidx] = score;
 
                         // printf("No.%d (r,q)=(%d,%d) pre_max:%d, score: %d\n", tidx, i, j, max_score_prime, score);
-                        // if (tidx == min(leftGrid, (int32_t)threadNum)/2-1) printf("k: %d, idx: %d, H: %d, D: %d, I: %d\n", k, tidx, tempH, tempD, tempI);
+                        // if (tidx == (U[k%3]-L[k%3])/2) printf("k: %d, idx: %d, H: %d, D: %d, I: %d\n", k, tidx, tempH, tempD, tempI);
                         if (k == p_marker - 1) { // Convergence algorithm
                             CS[(k%3)*fLen+offset] = (3 << 16) | (i & 0xFFFF); 
                             // if(DEBUG) std::cout << "Convergence Unique Id's: " <<  tempCS << "\n";
@@ -1374,11 +1371,12 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         }
                         __syncthreads();
                     }
+                    // if (tidx == 0) printf("max (%d, %d) = %d, %d, %d\n",max_score_ref_idx, max_score_query_idx, max_score_prime, max_score_start_addr, max_score_list[0]);
                     // Update Max
                     if (max_score_prime < max_score_list[0]) {
                         max_score_prime = max_score_list[0];
                         // if (tidx == 0) {
-                        max_score_prime = max_score_list[0];
+                        // max_score_prime = max_score_list[0];
                         if (k <= p_marker) {
                             max_score_ref_idx = max_score_ref[0];
                             max_score_query_idx = max_score_query[0];
@@ -1401,7 +1399,6 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 // if (tidx == 0) printf("k: %d,newL: %d, newU: %d\n",k, L[k%3], U[k%3]);
                 while (newL <= U[k%3]) {         
                     int32_t offset = newL - L[k%3];
-                    // if (tidx == 0) printf("DDDDD: %d, %d, %d, %d\n", newU, L[k%3], offset, S[(k%3)*fLen+offset]);
                     // printf("k: %d,newL: %d, offset: %d\n",S[(k%3)*fLen+offset], L[k%3], offset);
                     if (S[(k%3)*fLen+offset] <= -inf) {
                         newL++;
@@ -1546,8 +1543,6 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                     last_tile = true;
                 }
                 // printf("Before: refidx: %d, qryidx:%d\n", reference_idx, query_idx);
-                reference_idx += conv_ref_idx;
-                query_idx += conv_query_idx;
                 // printf("After: convref: %d, convqry:%d\n", conv_ref_idx, conv_query_idx);
                 // printf("After: refidx: %d, qryidx:%d\n", reference_idx, query_idx);
                 // Start Traceback
@@ -1625,7 +1620,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                             state = 0;
                         }
                     }
-                    // if (tile == 155 || tile == 140) printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d\n", addr, (state & 0xFFFF), ftr, traceback_idx , ftr_lower_limit[ftr]);
+                    // if (tile == 0) printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d, tb_value: %d, dir: %d, aln_idx: %d\n", addr, (state & 0xFFFF), ftr, traceback_idx , ftr_lower_limit[ftr], tb_value, dir, aln_idx);
                     addr = addr - (traceback_idx  - ftr_lower_limit[ftr] + 1) - (ftr_length[ftr - 1]);
 
                     if (dir == 0) {
@@ -1668,10 +1663,12 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 // Write global memory
                 int32_t refIndex = reference_idx;
                 int32_t qryIndex = query_idx;
-                int16_t globalAlnIdx = idx[5];
-                // printf("TB: refidx: %d, qryidx:%d, globalAln: %d\n", refIndex, qryIndex, globalAlnIdx);
+                reference_idx += conv_query_idx;
+                query_idx += conv_ref_idx;
+                int16_t globalAlnIdx = idx[2];
+                // printf("TB: tile: %d, refidx: %d, qryidx:%d, globalAln: %d, aln_idx\n", tile, refIndex, qryIndex, globalAlnIdx, aln_idx);
                 for (int j = aln_idx -1; j >= 0; --j) {
-                    // printf("i: %d, dir:%d, globalAln: %d\n", j, tile_aln[j], globalAlnIdx);
+                    // printf("j: %d, dir:%d, globalAln: %d\n", j, tile_aln[j], globalAlnIdx);
                     if (tile_aln[j] == 0) {
                         for (size_t i=0; i<refNum; i++) alignment[i*seqLen+globalAlnIdx] = ref[i*seqLen+refIndex]; 
                         for (size_t i=0; i<qryNum; i++) alignment[(i+refNum)*seqLen+globalAlnIdx] = qry[i*seqLen+qryIndex]; 
@@ -1690,9 +1687,9 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                     globalAlnIdx++;
                 }
                 // printf("Finish TB of tile %d!!!!\n", tile);
-                idx[3] = reference_idx;
-                idx[4] = query_idx;
-                idx[5] = globalAlnIdx;
+                idx[0] = reference_idx;
+                idx[1] = query_idx;
+                idx[2] = globalAlnIdx;
                 // tile++;
             }
            
