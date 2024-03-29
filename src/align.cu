@@ -1047,7 +1047,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
         }
         
         __syncthreads();
-        if (tidx == 0) printf("refNum: %d, qryNum: %d\n", refNum, qryNum);
+        // if (tidx == 0) printf("refNum: %d, qryNum: %d\n", refNum, qryNum);
 
 
         while (!last_tile) {
@@ -1056,11 +1056,13 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
             int16_t query_idx = idx[1];
             int32_t reference_length = refLen - reference_idx; 
             int32_t query_length = qryLen - query_idx;
-            int32_t score = 0; 
+            // int32_t score = 0; 
+            float score = 0;
             int32_t ftr_addr = 0;
             int16_t ftr_length_idx = 0;
             int16_t ftr_lower_limit_idx = 0;
-            int32_t max_score_prime = -(p_xdrop+1);
+            // int32_t max_score_prime = -(p_xdrop+1);
+            float max_score_prime = static_cast<float>(-(p_xdrop+1));
             int32_t max_score_start_addr; 
             int32_t max_score_start_ftr;
             int32_t max_score_ref_idx;    
@@ -1201,7 +1203,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 }
                 // __syncthreads();
                 // if (tidx == 0) printf("DEBUG1: L: %d, %d, %d, U:%d, %d, %d\n", L[k%3], L[(k+1)%3], L[(k+2)%3], U[k%3], U[(k+1)%3], U[(k+2)%3]);
-                if (tidx == 0 and refNum == 5) printf("k: %d, L: %d,  U:%d\n",k, L[k%3], U[k%3]+1);
+                // if (tidx == 0) if (tile == 462) printf("k: %d, L: %d, U: %d, (%d, %d)\n", k, L[k%3], U[k%3]+1, reference_length, query_length);
                 // if (tidx == 0) printf("k: %d, Max Score: %d\n", k, max_score);
                 // printf("%d, max: %d\n", tidx, max_score_list[tidx]);
                 // for (int round = 0; round < numRound; ++round) {
@@ -1211,12 +1213,14 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         int16_t Lprime = max(0, static_cast<int16_t>(k)-static_cast<int16_t>(reference_length) + 1);
                         int16_t j= min(static_cast<int16_t>(k), static_cast<int16_t>(reference_length - 1)) - (i-Lprime);
                         if (j < 0) if (tx == 0) { printf("ERROR: j less than 0.\n");}
-                        int32_t match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
+                        // int32_t match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
+                        float match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
                         int32_t offset = i-L[k%3];
                         int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
                         int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
                         int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
-                        int score_from_prev_tile = 0;
+                        // int score_from_prev_tile = 0;
+                        float score_from_prev_tile = 0;
                         // if (tidx == 0) printf("O: %d, OD: %d OU: %d, OL: %d\n", offset, offsetDiag, offsetUp, offsetLeft);
                         if ((k==0) || ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3]))) {
                             if (k==0 && tile>0) {
@@ -1309,7 +1313,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                         max_score_ref[tidx] = j;
                         max_score_list[tidx] = score;
 
-                        // printf("No.%d (r,q)=(%d,%d) pre_max:%d, score: %d\n", tidx, i, j, max_score_prime, score);
+                        // if (tile == 462) printf("No.%d (r,q)=(%d,%d) pre_max:%f, score: %f\n", tidx,  max_score_ref[tidx], max_score_query[tidx], max_score_prime, max_score_list[tidx]);
                         // if (tidx == (U[k%3]-L[k%3])/2) printf("k: %d, idx: %d, H: %d, D: %d, I: %d\n", k, tidx, tempH, tempD, tempI);
                         if (k == p_marker - 1) { // Convergence algorithm
                             CS[(k%3)*fLen+offset] = (3 << 16) | (i & 0xFFFF); 
@@ -1361,17 +1365,17 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                     }
                     __syncthreads();
                     // Calculate Max
-                    for (uint32_t r = min(leftGrid, (int32_t)threadNum)/2; r > 0; r >>= 1) {
+                    for (uint32_t r = threadNum/2; r > 0; r >>= 1) {
                         if (tidx < r) {
-                            // printf("Reduction max No.%d & %d, max_score: %d & %d, pre_max: %d\n", tidx, tidx+r, max_score_list[tidx], max_score_list[tidx+r], max_score_prime);
-                            max_score_list[tidx]  = (max_score_list[tidx+r] > max_score_list[tidx]) ? max_score_list[tidx+r] : max_score_list[tidx];
+                            // if (tile == 462) printf("Reduction max No.%d & %d, max_score: %f & %f, pre_max: %f\n", tidx, tidx+r, max_score_list[tidx], max_score_list[tidx+r], max_score_prime);
                             max_score_ref[tidx]   = (max_score_list[tidx+r] > max_score_list[tidx]) ? max_score_ref[tidx+r] : max_score_ref[tidx];
                             max_score_query[tidx] = (max_score_list[tidx+r] > max_score_list[tidx]) ? max_score_query[tidx+r] : max_score_query[tidx];
-
+                            max_score_list[tidx]  = (max_score_list[tidx+r] > max_score_list[tidx]) ? max_score_list[tidx+r] : max_score_list[tidx];
+                           
                         }
                         __syncthreads();
                     }
-                    // if (tidx == 0) printf("max (%d, %d) = %d, %d, %d\n",max_score_ref_idx, max_score_query_idx, max_score_prime, max_score_start_addr, max_score_list[0]);
+                    // if (tidx == 0) if (tile == 462) printf("max (%d, %d) = %f\n",max_score_ref[0], max_score_query[0], max_score_list[0]);
                     // Update Max
                     if (max_score_prime < max_score_list[0]) {
                         max_score_prime = max_score_list[0];
@@ -1540,6 +1544,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                     tb_start_addr = max_score_start_addr;
                     tb_start_ftr = max_score_start_ftr;
                     tb_state = 0;
+                    // printf("MAX: qry: %d, ref: %d, addr:%d, ftr:%d\n", max_score_query_idx, max_score_ref_idx, max_score_start_addr, max_score_start_ftr);
                     last_tile = true;
                 }
                 // printf("Before: refidx: %d, qryidx:%d\n", reference_idx, query_idx);
@@ -1666,9 +1671,12 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
                 reference_idx += conv_query_idx;
                 query_idx += conv_ref_idx;
                 int16_t globalAlnIdx = idx[2];
-                // printf("TB: tile: %d, refidx: %d, qryidx:%d, globalAln: %d, aln_idx\n", tile, refIndex, qryIndex, globalAlnIdx, aln_idx);
+                // printf("TB: tile: %d, refidx: %d, qryidx:%d, globalAln: %d, aln_idx: %d\n", tile, reference_idx, query_idx, globalAlnIdx, aln_idx);
                 for (int j = aln_idx -1; j >= 0; --j) {
                     // printf("j: %d, dir:%d, globalAln: %d\n", j, tile_aln[j], globalAlnIdx);
+                    if (j == aln_idx-1 && tile>0){
+                        continue;
+                    }
                     if (tile_aln[j] == 0) {
                         for (size_t i=0; i<refNum; i++) alignment[i*seqLen+globalAlnIdx] = ref[i*seqLen+refIndex]; 
                         for (size_t i=0; i<qryNum; i++) alignment[(i+refNum)*seqLen+globalAlnIdx] = qry[i*seqLen+qryIndex]; 
