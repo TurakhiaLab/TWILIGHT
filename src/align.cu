@@ -1725,7 +1725,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
 }
 
 
-__global__ void alignGrpToGrp_talco2(char *seqs, int8_t *aln, int32_t* seqIdx, int32_t* len, int32_t* alnLen, int32_t *seqInfo, int16_t* param)
+__global__ void alignGrpToGrp_talco2(/*char *seqs, */ uint8_t* freq, int8_t *aln, /*int32_t* seqIdx,*/ int32_t* len, int32_t* alnLen, int32_t *seqInfo, int16_t* param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -1734,13 +1734,13 @@ __global__ void alignGrpToGrp_talco2(char *seqs, int8_t *aln, int32_t* seqIdx, i
     // int tidx = bx*bs+tx;
 
     // const size_t threadNum = 128;
-    const int fLen = 256; // frontier length (assuming anti-diagonal length cannot exceed 1024)
+    const int fLen = 512; // frontier length (assuming anti-diagonal length cannot exceed 1024)
     
     int32_t threadNum = seqInfo[3];
     int32_t blockNum = seqInfo[4];
     int32_t pairNum = seqInfo[2];    
 
-    // __syncthreads();
+    __syncthreads();
     if (bx < pairNum) {
     // if (bx == 0) {
         __shared__ int8_t tile_aln[2*fLen];
@@ -1753,9 +1753,9 @@ __global__ void alignGrpToGrp_talco2(char *seqs, int8_t *aln, int32_t* seqIdx, i
         // __shared__ int16_t D  [2*fLen];
         __shared__ float D  [2*fLen];
         __shared__ int32_t CD [2*fLen];
-        __shared__ int8_t tb  [64*fLen]; // May be improved to 4 bit
-        __shared__ uint8_t charFreqRef [6*fLen];
-        __shared__ uint8_t charFreqQry [6*fLen];
+        __shared__ int8_t tb  [32*fLen]; // May be improved to 4 bit
+        // __shared__ uint8_t charFreqRef [6*fLen];
+        // __shared__ uint8_t charFreqQry [6*fLen];
         __shared__ uint32_t idx [3]; 
         // [0] reference_idx
         // [1] query_idx
@@ -1774,15 +1774,15 @@ __global__ void alignGrpToGrp_talco2(char *seqs, int8_t *aln, int32_t* seqIdx, i
         int32_t seqNum = seqInfo[1];
         int32_t refLen = len[2*bx];
         int32_t qryLen = len[2*bx+1];
-        int32_t refStartIdx = seqIdx[2*bx];
-        int32_t qryStartIdx = seqIdx[2*bx+1];
-        int32_t refNum = seqIdx[2*bx+1] - seqIdx[2*bx];
-        int32_t qryNum = 0; 
-        if (bx == pairNum-1) qryNum = seqNum - seqIdx[2*bx+1];
-        else                 qryNum = seqIdx[2*bx+2] - seqIdx[2*bx+1]; 
+        // int32_t refStartIdx = seqIdx[2*bx];
+        // int32_t qryStartIdx = seqIdx[2*bx+1];
+        // int32_t refNum = seqIdx[2*bx+1] - seqIdx[2*bx];
+        // int32_t qryNum = 0; 
+        // if (bx == pairNum-1) qryNum = seqNum - seqIdx[2*bx+1];
+        // else                 qryNum = seqIdx[2*bx+2] - seqIdx[2*bx+1]; 
 
         // if (tx == 0) printf("refNum: %d, qryNum: %d\n", refNum, qryNum);
-        if (tx == 0 && bx == 4) printf("refLen: %d, qryLen: %d\n", refLen, qryLen);
+        // if (tx == 0 && bx == 4) printf("refLen: %d, qryLen: %d\n", refLen, qryLen);
        
         int16_t p_match = param[0];
         int16_t p_mismatch = param[1];
@@ -1910,31 +1910,31 @@ __global__ void alignGrpToGrp_talco2(char *seqs, int8_t *aln, int32_t* seqIdx, i
                     ftr_lower_limit_idx += 1;      
                 }
                 __syncthreads();
-                // Calculate character frequency
-                if (tx < fLen) {
-                    for (int j = tx*6; j < tx*6+6; j++) {
-                        charFreqRef[j] = 0;
-                        charFreqQry[j] = 0;
-                    }
-                    for (int j = 0; j < refNum; j++) {
-                        int k = seqLen*(refStartIdx+j);
-                        if      (seqs[k+reference_idx+tx]=='A' || seqs[k+reference_idx+tx]=='a') charFreqRef[tx*6]+=1;
-                        else if (seqs[k+reference_idx+tx]=='C' || seqs[k+reference_idx+tx]=='c') charFreqRef[tx*6+1]+=1;
-                        else if (seqs[k+reference_idx+tx]=='G' || seqs[k+reference_idx+tx]=='g') charFreqRef[tx*6+2]+=1;
-                        else if (seqs[k+reference_idx+tx]=='T' || seqs[k+reference_idx+tx]=='t') charFreqRef[tx*6+3]+=1;
-                        else if (seqs[k+reference_idx+tx]=='N' || seqs[k+reference_idx+tx]=='n') charFreqRef[tx*6+4]+=1;
-                        else charFreqRef[tx*6+5]+=1;
-                    }
-                    for (int j = 0; j < qryNum; j++) {
-                        int k = seqLen*(qryStartIdx+j);
-                        if      (seqs[k+query_idx+tx]=='A' || seqs[k+query_idx+tx]=='a') charFreqQry[tx*6]+=1;
-                        else if (seqs[k+query_idx+tx]=='C' || seqs[k+query_idx+tx]=='c') charFreqQry[tx*6+1]+=1;
-                        else if (seqs[k+query_idx+tx]=='G' || seqs[k+query_idx+tx]=='g') charFreqQry[tx*6+2]+=1;
-                        else if (seqs[k+query_idx+tx]=='T' || seqs[k+query_idx+tx]=='t') charFreqQry[tx*6+3]+=1;
-                        else if (seqs[k+query_idx+tx]=='N' || seqs[k+query_idx+tx]=='n') charFreqQry[tx*6+4]+=1;
-                        else charFreqQry[tx*6+5]+=1;
-                    }
-                }
+                // Calculate character frequency (original method)
+                // if (tx < fLen) {
+                //     for (int j = tx*6; j < tx*6+6; j++) {
+                //         charFreqRef[j] = 0;
+                //         charFreqQry[j] = 0;
+                //     }
+                //     for (int j = 0; j < refNum; j++) {
+                //         int k = seqLen*(refStartIdx+j);
+                //         if      (seqs[k+reference_idx+tx]=='A' || seqs[k+reference_idx+tx]=='a') charFreqRef[tx*6]+=1;
+                //         else if (seqs[k+reference_idx+tx]=='C' || seqs[k+reference_idx+tx]=='c') charFreqRef[tx*6+1]+=1;
+                //         else if (seqs[k+reference_idx+tx]=='G' || seqs[k+reference_idx+tx]=='g') charFreqRef[tx*6+2]+=1;
+                //         else if (seqs[k+reference_idx+tx]=='T' || seqs[k+reference_idx+tx]=='t') charFreqRef[tx*6+3]+=1;
+                //         else if (seqs[k+reference_idx+tx]=='N' || seqs[k+reference_idx+tx]=='n') charFreqRef[tx*6+4]+=1;
+                //         else charFreqRef[tx*6+5]+=1;
+                //     }
+                //     for (int j = 0; j < qryNum; j++) {
+                //         int k = seqLen*(qryStartIdx+j);
+                //         if      (seqs[k+query_idx+tx]=='A' || seqs[k+query_idx+tx]=='a') charFreqQry[tx*6]+=1;
+                //         else if (seqs[k+query_idx+tx]=='C' || seqs[k+query_idx+tx]=='c') charFreqQry[tx*6+1]+=1;
+                //         else if (seqs[k+query_idx+tx]=='G' || seqs[k+query_idx+tx]=='g') charFreqQry[tx*6+2]+=1;
+                //         else if (seqs[k+query_idx+tx]=='T' || seqs[k+query_idx+tx]=='t') charFreqQry[tx*6+3]+=1;
+                //         else if (seqs[k+query_idx+tx]=='N' || seqs[k+query_idx+tx]=='n') charFreqQry[tx*6+4]+=1;
+                //         else charFreqQry[tx*6+5]+=1;
+                //     }
+                // }
                 __syncthreads();
                 
                 // if (tx == 0 && bx == 1 && tile >= 462) printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n",tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
@@ -1958,12 +1958,24 @@ __global__ void alignGrpToGrp_talco2(char *seqs, int8_t *aln, int32_t* seqIdx, i
                         float similarScore = 0;
                         float denominator = 0;
                         float numerator = 0;
+                        // for (int l=0; l<6; l++) {
+                        //     for (int m=0; m<6; m++) {
+                        //         denominator += charFreqRef[6*(j)+l]*charFreqQry[6*(i)+m];
+                        //         if (m == 4 || l == 4) numerator += 0;
+                        //         else if (m == l)      numerator += charFreqRef[6*(j)+l]*charFreqQry[6*(i)+m]*p_match;
+                        //         else                  numerator += charFreqRef[6*(j)+l]*charFreqQry[6*(i)+m]*p_mismatch;
+                        //     }
+                        // }
+                        int refFreqStart = 6*(2*bx)*seqLen;
+                        int qryFreqStart = 6*(2*bx+1)*seqLen;
+                        int refFreqIdx = reference_idx + j;
+                        int qryFreqIdx = query_idx + i;
                         for (int l=0; l<6; l++) {
                             for (int m=0; m<6; m++) {
-                                denominator += charFreqRef[6*(j)+l]*charFreqQry[6*(i)+m];
+                                denominator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m];
                                 if (m == 4 || l == 4) numerator += 0;
-                                else if (m == l)      numerator += charFreqRef[6*(j)+l]*charFreqQry[6*(i)+m]*p_match;
-                                else                  numerator += charFreqRef[6*(j)+l]*charFreqQry[6*(i)+m]*p_mismatch;
+                                else if (m == l)      numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_match;
+                                else                  numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_mismatch;
                             }
                         }
                         similarScore = numerator/denominator;
@@ -2066,7 +2078,7 @@ __global__ void alignGrpToGrp_talco2(char *seqs, int8_t *aln, int32_t* seqIdx, i
                 }
                 __syncthreads();
                 // Calculate Max
-                for (uint32_t r = threadNum/2; r > 0; r >>= 1) {
+                for (uint32_t r = fLen/2; r > 0; r >>= 1) {
                     if (tx < r) {
                         // if (tile == 462) printf("Reduction max No.%d & %d, max_score: %f & %f, pre_max: %f\n", tidx, tidx+r, max_score_list[tidx], max_score_list[tidx+r], max_score_prime);
                         // max_score_ref[tx]   = (max_score_list[tx+r] > max_score_list[tx]) ? max_score_ref[tx+r] : max_score_ref[tx];
