@@ -38,7 +38,8 @@ add_executable (test-msa
 add_executable (msa-gpu
 	        test/test_msa.cu
 		src/tree.cpp
-		src/align.cu)
+		src/align.cu
+		src/TALCO-XDrop.cpp)
 
 target_link_libraries(msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES})
 target_link_libraries(test-align PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES})

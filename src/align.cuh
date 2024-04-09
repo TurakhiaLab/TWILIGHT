@@ -112,6 +112,18 @@ __global__ void alignGrpToGrp_talco2
     int16_t* param
 );
 
+void alignGrpToGrp_talco_cpu
+(
+    // char* seqs,
+    uint8_t* freq,
+    int8_t* aln,
+    // int32_t* seqIdx,
+    int32_t* len,
+    int32_t* alnLen,
+    int32_t* seqInfo,
+    int16_t* param
+);
+
 // __global__ void alignGrpToGrp_cuda1
 // (
 //     char* ref,
