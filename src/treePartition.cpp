@@ -43,8 +43,6 @@ void findLongestBranchLength(Node* node, int grpID, float& maxBranchLength, Node
 
 }
 
-
-
 size_t getNumLeaves(Node* node, int grpID)
 {
     size_t children = 0;
@@ -425,7 +423,14 @@ void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root, par
 
 void partitionTree(Node* root, paritionInfo_t* partition) {
     size_t totalLeaves = getNumLeaves(root, root->grpID);
-    if (totalLeaves <= partition->maxPartitionSize) return;
+    if (totalLeaves <= partition->maxPartitionSize) {
+        if (partition->partitionsRoot.empty()) {
+            setChildrenGrpID(root, root->grpID, 0);
+            size_t numLeaves = getNumLeaves(root, root->grpID);
+            partition->partitionsRoot[root->identifier] = std::make_pair(root, numLeaves);
+        }
+        return;
+    }
     // std::cout << "DEBUG: Now partiotion at " << root->identifier << '\n';
     Node* breakEdge = getBreakingEdge(root, partition->partitionOption);
     
@@ -456,6 +461,35 @@ void partitionTree(Node* root, paritionInfo_t* partition) {
     
     
     return;
+}
+
+void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::unordered_map<std::string, std::pair<Node*, size_t>>& nodes) {
+    if (nodes.find(node->identifier) != nodes.end()) {
+        Node* NodeCopy;
+        if (T->allNodes.size() == 0) {
+            NodeCopy = new Node(node->identifier, 0);
+            NodeCopy->grpID = -1;
+            T->root = NodeCopy;
+        }
+        else {
+            NodeCopy = new Node(node->identifier, parent, 0);
+            NodeCopy->grpID = -1;
+            // T->allNodes[parent->identifier]->children.push_back(NodeCopy);
+        }
+        parent = NodeCopy;
+        T->allNodes[NodeCopy->identifier] = NodeCopy;
+    }
+    for (auto ch: node->children) {
+        preOrderTraversal(parent, ch, T, nodes);
+    }
+    return;
+}
+
+Tree* reconsturctTree(Node* root, std::unordered_map<std::string, std::pair<Node*, size_t>>& partitionRoots) {
+    Tree* T = new Tree();
+    Node* nullNode = nullptr;
+    preOrderTraversal(nullNode, root, T, partitionRoots);
+    return T;
 }
 
 void paritionInfo_t::createPartition(Tree* T, paritionInfo_t* partition)

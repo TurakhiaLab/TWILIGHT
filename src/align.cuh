@@ -90,17 +90,17 @@ __global__ void alignGrpToGrp_cuda
 );
 
 
-__global__ void alignGrpToGrp_talco
-(
-    char* ref,
-    char* query,
-    int16_t* param,
-    char* alignment,
-    int32_t* seqInfo
+// __global__ void alignGrpToGrp_talco
+// (
+//     char* ref,
+//     char* query,
+//     int16_t* param,
+//     char* alignment,
+//     int32_t* seqInfo
     
-);
+// );
 
-__global__ void alignGrpToGrp_talco2
+__global__ void alignGrpToGrp_talco
 (
     // char* seqs,
     uint8_t* freq,

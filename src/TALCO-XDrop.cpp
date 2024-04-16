@@ -322,7 +322,7 @@ void Talco_xdrop::Tile (
         // Initialising variables
         int32_t inf = params.xdrop + 1;
         // int32_t fLen = (1 << 10); // frontier length (assuming anti-diagonal length cannot exceed 1024)
-        int32_t fLen = (1 << 9); // frontier length (assuming anti-diagonal length cannot exceed 256)
+        int32_t fLen = (1 << 11); 
         bool converged = false; bool conv_logic = false;
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
@@ -341,6 +341,7 @@ void Talco_xdrop::Tile (
         std::vector<int32_t> ftr_length;
         std::vector<int32_t> ftr_lower_limit;
         int32_t ftr_addr = 0;
+        int32_t last_k = 0;
 
         int32_t prev_conv_s = -1;
         
@@ -386,7 +387,8 @@ void Talco_xdrop::Tile (
             
             if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
                 fprintf(stderr, "ERROR: anti-diagonal larger than the max limit!\n");
-                exit(1);
+                last_tile = true;
+                break;
             }
 
             if (k <= params.marker) {
@@ -683,7 +685,7 @@ void Talco_xdrop::Tile (
             if (DEBUG) std::cout <<  " conv query idx: " << conv_query_idx << " " << (tb_state&0xFFFF) << " " << conv_ref_idx << " " << conv_value << std::endl;
         } else {
             // Global Alignment
-            int32_t last_k = reference_length + query_length - 2;
+            // int32_t last_k = reference_length + query_length - 2;
             // std::cout << "K:"<< last_k <<" Convergence Unique Id's: " <<  CS[last_k%3][0] <<  " " << CI[last_k%2][0] <<  " " << CD[last_k%2][0] << "\n";
             if (last_k < params.marker) {
                 conv_query_idx = query_length-1;

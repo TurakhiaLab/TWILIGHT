@@ -9,12 +9,23 @@ Node::Node(std::string id, float len){
     parent = nullptr;
 }
 
+
 Node::Node(std::string id, Node* par, float len){
     identifier = id;
     branchLength = len;
     parent = par;
     level = par->level + 1;
     par->children.push_back(this);
+}
+
+size_t Node::getNumLeaves(){
+    size_t num_leaves = 0;
+    if (children.size() == 0) return num_leaves;
+    for (auto ch: children){
+        if (ch->is_leaf()) num_leaves += 1;
+        else num_leaves += ch->getNumLeaves();
+    }
+    return num_leaves;
 }
 
 void stringSplit (std::string const& s, char delim, std::vector<std::string>& words) {
@@ -45,7 +56,6 @@ std::string stripString(std::string s){
 }
 
 Tree::Tree(std::string newickString) {
-
     newickString = stripString(newickString);
 
     Node* treeRoot = nullptr;
@@ -61,6 +71,7 @@ Tree::Tree(std::string newickString) {
 
     numOpen.reserve(s1.size());
     numClose.reserve(s1.size());
+    
 
     for (auto s: s1) {
         size_t no = 0;
@@ -165,3 +176,4 @@ Tree::Tree(std::string newickString) {
     treeRoot->branchLength = -1;
     root = treeRoot;
 }
+
