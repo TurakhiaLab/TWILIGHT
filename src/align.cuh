@@ -32,63 +32,6 @@ struct Params
         match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), marker(marker) {}
 };
 
-void tracebackSeqtoSeq
-(
-    int8_t state,
-    std::vector<int8_t>& TB,
-    std::vector<int32_t>& wfLL,
-    std::vector<int32_t>& wfLen,
-    std::pair<std::string, std::string>& alignment,
-    std::string& ref,
-    std::string& query
-);
-
-void alignSeqToSeq
-(
-    std::string& ref,
-    std::string& query,
-    Params& param,
-    std::pair<std::string, std::string>& alignment
-);
-
-
-void tracebackGrpToGrp
-(
-    int8_t state,
-    std::vector<int8_t>& TB,
-    std::vector<int32_t>& wfLL,
-    std::vector<int32_t>& wfLen,
-    std::pair<std::vector<std::string>, std::vector<std::string>>& alignment,
-    std::vector<std::string>& ref,
-    std::vector<std::string>& query
-);
-
-void alignGrpToGrp
-(
-    std::vector<std::string>& ref,
-    std::vector<std::string>& query,
-    Params& param,
-    std::pair<std::vector<std::string>, std::vector<std::string>>& alignment
-);
-
-__global__ void alignGrpToGrp_cuda
-(
-    char* ref,
-    char* query,
-    int16_t* param,
-    char* alignment,
-    int32_t* seqInfo
-    // int8_t*  globalTB,
-    // float*   deviceFreqRef,
-    // float*   deviceFreqQry,
-    // int32_t* deviceH,
-    // int32_t* deviceD,
-    // int32_t* deviceI,
-    // int32_t* deviceWfLL,
-    // int32_t* deviceWfLen 
-    // int8_t* globalTB
-);
-
 
 // __global__ void alignGrpToGrp_talco
 // (
@@ -103,7 +46,7 @@ __global__ void alignGrpToGrp_cuda
 __global__ void alignGrpToGrp_talco
 (
     // char* seqs,
-    uint8_t* freq,
+    uint16_t* freq,
     int8_t* aln,
     // int32_t* seqIdx,
     int32_t* len,
@@ -112,26 +55,6 @@ __global__ void alignGrpToGrp_talco
     int16_t* param
 );
 
-void alignGrpToGrp_talco_cpu
-(
-    // char* seqs,
-    uint8_t* freq,
-    int8_t* aln,
-    // int32_t* seqIdx,
-    int32_t* len,
-    int32_t* alnLen,
-    int32_t* seqInfo,
-    int16_t* param
-);
-
-// __global__ void alignGrpToGrp_cuda1
-// (
-//     char* ref,
-//     char* query,
-//     int16_t* param,
-//     char* alignment,
-//     int32_t* seqInfo
-// );
 
 enum STATE 
 {
@@ -143,7 +66,5 @@ enum STATE
     DH = 5,
     DD = 6
 };
-
-int8_t updateState(STATE& currentHState, STATE& currentIState, STATE& currentDState);
 
 #endif

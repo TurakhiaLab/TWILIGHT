@@ -795,7 +795,7 @@ __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *
 }
 */
 
-__global__ void alignGrpToGrp_talco(/*char *seqs, */ uint8_t* freq, int8_t *aln, /*int32_t* seqIdx,*/ int32_t* len, int32_t* alnLen, int32_t *seqInfo, int16_t* param)
+__global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln, /*int32_t* seqIdx,*/ int32_t* len, int32_t* alnLen, int32_t *seqInfo, int16_t* param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;

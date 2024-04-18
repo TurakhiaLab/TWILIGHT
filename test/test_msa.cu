@@ -750,7 +750,7 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
         int32_t seqNum = 0;
         int32_t pairNum = alignSize;
         std::vector<std::string> seqs;
-        std::vector<std::vector<uint8_t>> freq;
+        std::vector<std::vector<uint16_t>> freq;
         std::vector<std::pair<int32_t, int32_t>> seqIdx;
         std::vector<std::pair<int32_t, int32_t>> len;
         // store info to array 
@@ -761,7 +761,7 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
             int32_t qryLen = tree->allNodes[nodes[nIdx].second->identifier]->msa[0].size();
             int32_t refLen = tree->allNodes[nodes[nIdx].first->identifier]->msa[0].size();
             refIdx = seqNum;
-            std::vector<uint8_t> temp;
+            std::vector<uint16_t> temp;
             for (int i = 0; i < 12*seqLen; ++i) temp.push_back(0);
             
             assert(temp.size() == 12*seqLen);
@@ -797,7 +797,7 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
             freq.push_back(temp);
         }
         // Malloc
-        uint8_t* hostFreq = (uint8_t*)malloc(12*seqLen * pairNum * sizeof(uint8_t));
+        uint16_t* hostFreq = (uint16_t*)malloc(12*seqLen * pairNum * sizeof(uint16_t));
         int8_t* hostAln = (int8_t*)malloc(2*seqLen * pairNum * sizeof(int8_t));
         int32_t* hostLen = (int32_t*)malloc(2*pairNum * sizeof(int32_t));
         int32_t* hostAlnLen = (int32_t*)malloc(pairNum * sizeof(int32_t));
@@ -834,21 +834,21 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
         hostParam[5] = param.marker;
 
         // Cuda Malloc
-        uint8_t* deviceFreq;
+        uint16_t* deviceFreq;
         int8_t* deviceAln;
         int32_t* deviceLen;
         int32_t* deviceAlnLen;
         int32_t* deviceSeqInfo;
         int16_t* deviceParam;
         auto kernelStart = std::chrono::high_resolution_clock::now();
-        cudaMalloc((void**)&deviceFreq, 12*seqLen * pairNum * sizeof(uint8_t));
+        cudaMalloc((void**)&deviceFreq, 12*seqLen * pairNum * sizeof(uint16_t));
         cudaMalloc((void**)&deviceAln, 2*seqLen * pairNum * sizeof(int8_t));
         cudaMalloc((void**)&deviceLen, 2*pairNum * sizeof(int32_t));
         cudaMalloc((void**)&deviceAlnLen, pairNum * sizeof(int32_t));
         cudaMalloc((void**)&deviceSeqInfo, 7 * sizeof(int32_t));
         cudaMalloc((void**)&deviceParam, 6 * sizeof(int16_t));
         // Copy to device
-        cudaMemcpy(deviceFreq, hostFreq, 12*seqLen * pairNum * sizeof(uint8_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceFreq, hostFreq, 12*seqLen * pairNum * sizeof(uint16_t), cudaMemcpyHostToDevice);
         cudaMemcpy(deviceAln, hostAln, 2*seqLen * pairNum * sizeof(int8_t), cudaMemcpyHostToDevice);
         cudaMemcpy(deviceLen, hostLen, 2*pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
         cudaMemcpy(deviceAlnLen, hostAlnLen, pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
@@ -1070,45 +1070,6 @@ void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
 
 void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util)
 {
-    // assign msa to all nodes
-    /*
-    for (auto n: nodes) {
-        // std::cout << n.first->identifier << '\n';
-        if (n.first->children.size()==0) {
-            tree->allNodes[n.first->identifier]->msa.push_back(util->seqs[n.first->identifier]);
-        }
-        else {
-            if (tree->allNodes[n.first->identifier]->msa.size() == 0) {
-                Node* node = tree->allNodes[n.first->identifier];
-                int grpID = node->grpID;
-                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
-                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
-                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
-                        tree->allNodes[n.first->identifier]->msa = node->children[childIndex]->msa;
-                        break;
-                    }
-                }
-            }
-        }
-        // std::cout << n.second->identifier << '\n';
-        if (n.second->children.size()==0) {
-            tree->allNodes[n.second->identifier]->msa.push_back(util->seqs[n.second->identifier]);
-        }
-        else {
-            if (tree->allNodes[n.second->identifier]->msa.size() == 0) {
-                Node* node = tree->allNodes[n.second->identifier];
-                int grpID = node->grpID;
-                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
-                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
-                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
-                        tree->allNodes[n.second->identifier]->msa = node->children[childIndex]->msa;
-                        break;
-                    }
-                }
-            }
-        }
-    }    
-    */
     // auto kernelStart = std::chrono::high_resolution_clock::now();
 
     for (auto n: nodes) {
@@ -1128,25 +1089,27 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
         int32_t qryStart = tree->allNodes[n.second->identifier]->refStartPos;
         int32_t parentNumRef = refNum - refStart;
         int32_t parentNumQry = qryNum - qryStart;
-        // std::cout << refNum << ',' << qryNum << ',' << refLen << ',' << qryLen << '\n';
-        // std::cout << refStart << ',' << qryStart << ',' << parentNumRef << ',' << parentNumQry << '\n';
+        std::cout << refNum << ',' << qryNum << ',' << refLen << ',' << qryLen << '\n';
+        std::cout << refStart << ',' << qryStart << ',' << parentNumRef << ',' << parentNumQry << '\n';
         if ((parentNumRef == qryNum || parentNumQry == refNum) && tree->allNodes[n.first->identifier]->parent != nullptr) continue; 
         assert(parentNumRef == parentNumQry);
 
         for (int i = 0; i < refNum + qryStart; ++i) alignment.push_back("");
-        // for (int i = 0; i < refLen; ++i) allGapsR.push_back(true);
-        // for (int i = 0; i < qryLen; ++i) allGapsQ.push_back(true);
-        // for (int j = refStart; j < refNum; ++j) {
-        //     for (int r = 0; r < refLen; ++r) {
-        //         if (!allGapsR[r]) continue;
-        //         if (reference[j][r] != '-') allGapsR[r] = false;
+        
+        // for (int i = 0; i < refNum + qryStart; ++i) alignment.push_back("");
+        // for (int r = 0; r < refLen; ++r) if (reference[refStart][r] == '-') allGapsR.push_back(r);
+        // for (int j = refStart+1; j < refNum; ++j) {
+        //     for (int k = allGapsR.size(); k >= 0; --k) {
+        //         if (reference[j][allGapsR[k]] != '-') allGapsR.erase(allGapsR.begin()+k);
         //     }
+        //     if (allGapsR.empty()) break;
         // }
-        // for (int j = qryStart; j < qryNum; ++j) {
-        //     for (int q = 0; q < qryLen; ++q) {
-        //         if (!allGapsQ[q]) continue;
-        //         if (query[j][q] != '-') allGapsQ[q] = false;
+        // for (int q = 0; q < qryLen; ++q) if (query[qryStart][q] == '-') allGapsQ.push_back(q);
+        // for (int j = qryStart+1; j < qryNum; ++j) {
+        //     for (int k = allGapsQ.size(); k >= 0; --k) {
+        //         if (query[j][allGapsR[k]] != '-') allGapsQ.erase(allGapsQ.begin()+k);
         //     }
+        //     if (allGapsQ.empty()) break;
         // }
 
         for (int i = 0; i < seqLen; ++i) {
@@ -1179,9 +1142,12 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
             // if (tree->allNodes[n.first->identifier]->identifier == "node_102") printf("(%d,%d)\n", rIdx, qIdx);
             // if (rIdx > 6400 && rIdx < 6700) std::cout << allGapsR[rIdx] << ',' << allGapsQ[qIdx] << '\n';
             if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
-                for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
-                for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
-                for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += reference[i][rIdx];
+                for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += reference[i][rIdx]; 
+                for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+                // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
+                // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
+                // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += reference[i][rIdx];
                 qIdx++;rIdx++;
             }
             else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
@@ -1192,9 +1158,12 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                     ++k;
                 }
                 for (size_t g = 0; g < consecGap; ++g) {
-                    for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
-                    for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
                     rIdx += 1;
                 }
                 // if (k == refLen - 1) break;
@@ -1209,9 +1178,12 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                 }
                 // std::cout << "Q:" << qIdx << "consecGap: " << consecGap << '\n';
                 for (size_t g = 0; g < consecGap; ++g) {
-                    for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
-                    for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
                     qIdx += 1;
                 }
                 // if (k == qryLen - 1) break;
@@ -1224,9 +1196,12 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                     ++kr;
                 }
                 for (size_t g = 0; g < consecGap; ++g) {
-                    for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
-                    for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
                     rIdx += 1;
                 }
                 consecGap = 0;
@@ -1235,25 +1210,35 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                     ++kq;
                 }
                 for (size_t g = 0; g < consecGap; ++g) {
-                    for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
-                    for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+                   
                     qIdx += 1;
                 }
             }
         }
         if (rIdx < refLen) {
             for (size_t g = rIdx; g < refLen; ++g) {
-                for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][g]; 
-                for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
-                for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+                for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
+                // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][g]; 
+                // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
+                // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
             }
         }
         if (qIdx < qryLen) {
             for (size_t g = qIdx; g < qryLen; ++g) {
-                for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
-                for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][g];;
-                for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
+                // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][g];;
+                // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-'; 
             }
         }
         
