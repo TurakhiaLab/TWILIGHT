@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <boost/program_options.hpp> 
+// #include <tbb/parallel_for.h>
 #include "../src/kseq.h"
 #include "zlib.h"
 
@@ -688,6 +689,7 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
 }
 */
 
+
 void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
 {
 
@@ -879,6 +881,304 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
             std::cout << "KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
         }
 
+        auto reAlnStart = std::chrono::high_resolution_clock::now();
+
+        
+
+        for (int k = 0; k < pairNum; ++k) {
+            std::vector<std::string> alignment;
+            int32_t refNum = seqIdx[k].second - seqIdx[k].first;
+            int32_t qryNum = (k != pairNum-1) ? seqIdx[k+1].first - seqIdx[k].second : seqNum - seqIdx[k].second;
+            int32_t refStart = seqIdx[k].first;
+            int32_t qryStart = seqIdx[k].second;
+            int32_t refIndex = 0;
+            int32_t qryIndex = 0;
+            // printf("k: %d, refNum: %d, qryNum: %d\n", k, refNum, qryNum);
+            // printf("k: %d, length: %d\n", k, hostAlnLen[k]);
+            for (int j = 0; j < qryNum + refNum; ++j) alignment.push_back("");
+            int nIdx = k + r*numBlocks;
+            // printf("k: %d, length: %d, %s\n", k, hostAlnLen[k], nodes[nIdx].first->identifier.c_str());
+            // for (int j = hostAlnLen[k] - 1; j >= 0; --j) {
+            if (hostAlnLen[k] <= 0) {
+                std::vector<std::string> reference, query;
+                std::vector<int8_t> aln;
+                for (auto s: tree->allNodes[nodes[nIdx].first->identifier]->msa) reference.push_back(s);
+                for (auto s: tree->allNodes[nodes[nIdx].second->identifier]->msa) query.push_back(s);
+                Talco_xdrop::Params talco_params(param.match, param.mismatch, param.gapOpen, param.gapExtend, param.xdrop, param.marker);
+                Talco_xdrop::Align (
+                    talco_params,
+                    reference,
+                    query,
+                    aln
+                );
+                for (int j = 0; j < aln.size(); ++j) {
+                    // std::cout << j << ',' << refIndex << ',' << qryIndex << '\n';
+                    if ((aln[j] & 0xFFFF) == 0) {
+                        for (size_t i=0; i<refNum; i++) alignment[i]        += reference[i][refIndex]; 
+                        for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += query[i][qryIndex];
+                        qryIndex++;refIndex++;
+                    }
+                    else if ((aln[j] & 0xFFFF) == 2) {
+                        for (size_t i=0; i<refNum; i++) alignment[i]        += reference[i][refIndex]; 
+                        for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += '-';
+                            refIndex++;
+                        }
+                    else {
+                        for (size_t i=0; i<refNum; i++) alignment[i]        += '-'; 
+                        for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += query[i][qryIndex];
+                        qryIndex++;
+                    }
+                }
+                printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", k, tree->allNodes[nodes[nIdx].first->identifier]->identifier.c_str(), aln.size());
+                // std::cout << "Start: " << tree->allNodes[nodes[nIdx].first->identifier]->identifier << '\n';
+                // std::cout << "CPU fallback on No. " << k << ", Alignment Length: "<< aln.size() << '\n';
+                // tree->allNodes[nodes[nIdx].first->identifier]->msa.clear();
+                // tree->allNodes[nodes[nIdx].first->identifier]->msa = alignment;
+                
+            }
+            else {
+                for (int j = 0; j < hostAlnLen[k]; ++j) {
+                    if ((hostAln[k*2*seqLen+j] & 0xFFFF) == 0) {
+                        for (size_t i=0; i<refNum; i++) alignment[i] += seqs[refStart+i][refIndex]; 
+                        for (size_t i=0; i<qryNum; i++) alignment[(i+refNum)] += seqs[qryStart+i][qryIndex];
+                        qryIndex++;refIndex++;
+                    }
+                    else if ((hostAln[k*2*seqLen+j] & 0xFFFF) == 2) {
+                        for (size_t i=0; i<refNum; i++) alignment[i] += seqs[refStart+i][refIndex];  
+                        for (size_t i=0; i<qryNum; i++) alignment[(i+refNum)] += "-"; 
+                        refIndex++;
+                    }
+                    else {
+                        for (size_t i=0; i<refNum; i++) alignment[i] += "-"; 
+                        for (size_t i=0; i<qryNum; i++) alignment[(i+refNum)] += seqs[qryStart+i][qryIndex]; 
+                        qryIndex++;
+                    }
+                }
+                // tree->allNodes[nodes[nIdx].first->identifier]->msa = alignment;
+            }
+            tree->allNodes[nodes[nIdx].first->identifier]->refStartPos = refNum;
+            tree->allNodes[nodes[nIdx].first->identifier]->msa.clear();
+            tree->allNodes[nodes[nIdx].first->identifier]->msa = alignment;
+            if (alignSize < 10) printf("(refNum, qryNum) = (%d, %d), lenght: %d\n", refNum, qryNum, alignment[0].size());
+            // std::cout << "Finish: " << tree->allNodes[nodes[nIdx].first->identifier]->identifier << ',' << tree->allNodes[nodes[nIdx].second->identifier]->identifier << '\n';
+        }     
+        
+        auto reAlnEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds reAlnTime = reAlnEnd - reAlnStart;
+        printf("Round. %d align %d pairs. reAlnTime: %d ms\n", r, alignSize, reAlnTime.count() / 1000000);
+        // free memory
+        cudaFree(deviceFreq);
+        cudaFree(deviceAlnLen);
+        cudaFree(deviceAln);
+        cudaFree(deviceParam);
+        cudaFree(deviceSeqInfo);
+        cudaDeviceSynchronize();
+        free(hostFreq);
+        free(hostAlnLen);
+        free(hostAln);
+        free(hostParam);
+        free(hostSeqInfo);
+        
+    }
+    return;
+}
+
+
+/*
+void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
+{
+
+    // assign msa to all nodes
+    for (auto n: nodes) {
+        // std::cout << n.first->identifier << '\n';
+        if (n.first->children.size()==0) {
+            tree->allNodes[n.first->identifier]->msa.push_back(util->seqs[n.first->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.first->identifier]->msa.size() == 0) {
+                Node* node = tree->allNodes[n.first->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
+                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.first->identifier]->msa = node->children[childIndex]->msa;
+                        break;
+                    }
+                }
+            }
+        }
+        // std::cout << n.second->identifier << '\n';
+        if (n.second->children.size()==0) {
+            tree->allNodes[n.second->identifier]->msa.push_back(util->seqs[n.second->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.second->identifier]->msa.size() == 0) {
+                Node* node = tree->allNodes[n.second->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
+                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.second->identifier]->msa = node->children[childIndex]->msa;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    int numBlocks = 1024; 
+    int blockSize = 512;
+
+    
+    // int alignSize = nodes.size() < numBlocks ? nodes.size() : numBlocks;
+    // get maximum sequence/profile length 
+    int32_t seqLen = 0;
+    for (auto n: nodes) {
+        int32_t qryLen = tree->allNodes[n.second->identifier]->msa[0].size();
+        int32_t refLen = tree->allNodes[n.first->identifier]->msa[0].size();
+        int32_t tempMax = max(qryLen, refLen);
+        seqLen = max(seqLen, tempMax);
+    }
+    int round = nodes.size() / numBlocks + 1;
+    for (int r = 0; r < round; ++r) {
+        int alignSize = (nodes.size() - r*numBlocks) < numBlocks ? (nodes.size() - r*numBlocks) : numBlocks;
+        if (alignSize == 0) break;
+        // store all sequences to array
+        int32_t seqNum = 0;
+        int32_t pairNum = alignSize;
+        std::vector<std::string> seqs;
+        std::vector<std::vector<uint16_t>> freq;
+        std::vector<std::pair<int32_t, int32_t>> seqIdx;
+        std::vector<std::pair<int32_t, int32_t>> len;
+        // store info to array 
+        for (int n = 0; n < alignSize; ++n) {
+            int32_t nIdx = n + r*numBlocks;
+            int32_t qryIdx = 0;
+            int32_t refIdx = 0;
+            int32_t qryLen = tree->allNodes[nodes[nIdx].second->identifier]->msa[0].size();
+            int32_t refLen = tree->allNodes[nodes[nIdx].first->identifier]->msa[0].size();
+            refIdx = seqNum;
+            
+            // std::vector<uint16_t> temp;
+            // for (int i = 0; i < 12*seqLen; ++i) temp.push_back(0);
+            uint16_t *temp = new uint16_t[12*seqLen]; 
+            // assert(temp.size() == 12*seqLen);
+            tbb::blocked_range<int> rangeRef(0, refLen);
+            for (auto seq: tree->allNodes[nodes[nIdx].first->identifier]->msa) {
+                tbb::parallel_for(rangeRef, [=](const tbb::blocked_range<int>& rangeRef) {
+                for (int s = rangeRef.begin(); s != rangeRef.end(); s++) {
+                    if      (seq[s] == 'A' || seq[s] == 'a') temp[6*s+0]+=1;
+                    else if (seq[s] == 'C' || seq[s] == 'c') temp[6*s+1]+=1;
+                    else if (seq[s] == 'G' || seq[s] == 'g') temp[6*s+2]+=1;
+                    else if (seq[s] == 'T' || seq[s] == 't') temp[6*s+3]+=1;
+                    else if (seq[s] == 'N' || seq[s] == 'n') temp[6*s+4]+=1;
+                    else                                     temp[6*s+5]+=1;
+                }
+                });
+                ++seqNum;
+                seqs.push_back(seq);
+            }
+            qryIdx = seqNum;
+            for (auto seq: tree->allNodes[nodes[nIdx].second->identifier]->msa) {
+                for (int s = 0; s < qryLen; ++s) {
+                    if      (seq[s] == 'A' || seq[s] == 'a') temp[6*(seqLen+s)+0]+=1;
+                    else if (seq[s] == 'C' || seq[s] == 'c') temp[6*(seqLen+s)+1]+=1;
+                    else if (seq[s] == 'G' || seq[s] == 'g') temp[6*(seqLen+s)+2]+=1;
+                    else if (seq[s] == 'T' || seq[s] == 't') temp[6*(seqLen+s)+3]+=1;
+                    else if (seq[s] == 'N' || seq[s] == 'n') temp[6*(seqLen+s)+4]+=1;
+                    else                                     temp[6*(seqLen+s)+5]+=1;
+                }
+                ++seqNum;
+                seqs.push_back(seq);
+            }
+            // printf("len: (%d, %d), num: (%d, %d)\n", refLen, qryLen, refIdx, qryIdx);
+            seqIdx.push_back(std::make_pair(refIdx, qryIdx));
+            len.push_back(std::make_pair(refLen, qryLen));
+            // freq.push_back(temp);
+        }
+        // Malloc
+        uint16_t* hostFreq = (uint16_t*)malloc(12*seqLen * pairNum * sizeof(uint16_t));
+        int8_t* hostAln = (int8_t*)malloc(2*seqLen * pairNum * sizeof(int8_t));
+        int32_t* hostLen = (int32_t*)malloc(2*pairNum * sizeof(int32_t));
+        int32_t* hostAlnLen = (int32_t*)malloc(pairNum * sizeof(int32_t));
+        int32_t* hostSeqInfo = (int32_t*)malloc(7 * sizeof(int32_t));
+        int16_t* hostParam = (int16_t*)malloc(6 * sizeof(int16_t)); 
+        // Store Info to host mem
+        for (int j = 0; j < 2*pairNum; ++j) { 
+            if (j%2 == 0) hostLen[j] = len[j/2].first;
+            else          hostLen[j] = len[j/2].second;
+        }
+        for (int j = 0; j < pairNum; ++j) {
+            for (int l = 0; l < 12*seqLen; ++l) {
+                hostFreq[12*seqLen*j+l] = freq[j][l];
+            }
+        }
+        for (int j = 0; j < 2*seqLen*pairNum; ++j) { 
+            hostAln[j] = 0;
+        }
+        for (int j = 0; j < pairNum; ++j) { 
+            hostAlnLen[j] = 0;
+        }
+        hostSeqInfo[0] = seqLen;
+        hostSeqInfo[1] = seqNum;
+        hostSeqInfo[2] = pairNum;
+        hostSeqInfo[3] = numBlocks;
+        hostSeqInfo[4] = blockSize;
+        hostSeqInfo[5] = numBlocks;
+        hostSeqInfo[6] = blockSize;
+        hostParam[0] = param.match;
+        hostParam[1] = param.mismatch;
+        hostParam[2] = param.gapOpen;
+        hostParam[3] = param.gapExtend;
+        hostParam[4] = param.xdrop;
+        hostParam[5] = param.marker;
+
+        // Cuda Malloc
+        uint16_t* deviceFreq;
+        int8_t* deviceAln;
+        int32_t* deviceLen;
+        int32_t* deviceAlnLen;
+        int32_t* deviceSeqInfo;
+        int16_t* deviceParam;
+        auto kernelStart = std::chrono::high_resolution_clock::now();
+        cudaMalloc((void**)&deviceFreq, 12*seqLen * pairNum * sizeof(uint16_t));
+        cudaMalloc((void**)&deviceAln, 2*seqLen * pairNum * sizeof(int8_t));
+        cudaMalloc((void**)&deviceLen, 2*pairNum * sizeof(int32_t));
+        cudaMalloc((void**)&deviceAlnLen, pairNum * sizeof(int32_t));
+        cudaMalloc((void**)&deviceSeqInfo, 7 * sizeof(int32_t));
+        cudaMalloc((void**)&deviceParam, 6 * sizeof(int16_t));
+        // Copy to device
+        cudaMemcpy(deviceFreq, hostFreq, 12*seqLen * pairNum * sizeof(uint16_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceAln, hostAln, 2*seqLen * pairNum * sizeof(int8_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceLen, hostLen, 2*pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceAlnLen, hostAlnLen, pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceSeqInfo, hostSeqInfo, 7 * sizeof(int32_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceParam, hostParam, 6 * sizeof(int16_t), cudaMemcpyHostToDevice);
+
+        // printf("Before kernel %s\n", cudaGetErrorString(cudaGetLastError()));
+        alignGrpToGrp_talco<<<numBlocks, blockSize>>>(
+            deviceFreq,
+            deviceAln, 
+            deviceLen,
+            deviceAlnLen,
+            deviceSeqInfo, 
+            deviceParam
+        );
+
+        cudaDeviceSynchronize();
+        // printf("After kernel %s\n", cudaGetErrorString(cudaGetLastError()));
+        // Copy to host
+        cudaMemcpy(hostAln, deviceAln, 2*seqLen * pairNum * sizeof(int8_t), cudaMemcpyDeviceToHost);
+        cudaMemcpy(hostAlnLen, deviceAlnLen, pairNum * sizeof(int32_t), cudaMemcpyDeviceToHost);
+        auto kernelEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
+        if (round > 1) {
+            printf("Round. %d align %d pairs. KernelTime: %d ms\n", r, alignSize, kernelTime.count() / 1000000);
+        }
+        else {
+            std::cout << "KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
+        }
+
         for (int k = 0; k < pairNum; ++k) {
             std::vector<std::string> alignment;
             int32_t refNum = seqIdx[k].second - seqIdx[k].first;
@@ -972,6 +1272,7 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
     }
     return;
 }
+*/
 
 void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
 {
@@ -1067,13 +1368,13 @@ void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
     return;
 }
 
-
+/*
 void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util)
 {
     // auto kernelStart = std::chrono::high_resolution_clock::now();
 
     for (auto n: nodes) {
-        // std::cout << tree->allNodes[n.first->identifier]->identifier << ',' << tree->allNodes[n.second->identifier]->identifier << '\n';
+        std::cout << tree->allNodes[n.first->identifier]->identifier << ',' << tree->allNodes[n.second->identifier]->identifier << '\n';
         std::vector<bool> allGapsR, allGapsQ;
         std::vector<std::string> reference, query;
         std::vector<std::string> alignment;
@@ -1092,7 +1393,7 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
         std::cout << refNum << ',' << qryNum << ',' << refLen << ',' << qryLen << '\n';
         std::cout << refStart << ',' << qryStart << ',' << parentNumRef << ',' << parentNumQry << '\n';
         if ((parentNumRef == qryNum || parentNumQry == refNum) && tree->allNodes[n.first->identifier]->parent != nullptr) continue; 
-        assert(parentNumRef == parentNumQry);
+        // assert(parentNumRef == parentNumQry);
 
         for (int i = 0; i < refNum + qryStart; ++i) alignment.push_back("");
         
@@ -1111,7 +1412,7 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
         //     }
         //     if (allGapsQ.empty()) break;
         // }
-
+        auto calGapStart = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < seqLen; ++i) {
             if (i < refLen) {
                 bool allGaps = true;
@@ -1134,114 +1435,187 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                 allGapsQ.push_back(allGaps);
             }
         }
-        
+        auto calGapEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds calGapTime = calGapEnd - calGapStart;
+        std::cout << "CalGapTime "<< calGapTime.count() / 1000000<< " ms\n";
+
         int32_t rIdx = 0, qIdx = 0;
         assert(allGapsR.size() == refLen);
         assert(allGapsQ.size() == qryLen);
+        auto mergeStart = std::chrono::high_resolution_clock::now();
+        // while (rIdx < refLen && qIdx < qryLen) {
+        //     if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
+        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += reference[i][rIdx]; 
+        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+        //         // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
+        //         // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
+        //         // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += reference[i][rIdx];
+        //         qIdx++;rIdx++;
+        //     }
+        //     else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
+        //         int consecGap = 0;
+        //         int k = rIdx;
+        //         while (allGapsR[k] && k < refLen) {
+        //             ++consecGap;
+        //             ++k;
+        //         }
+        //         for (size_t g = 0; g < consecGap; ++g) {
+        //             // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
+        //             // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
+        //             // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+        //             for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //             for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+        //             for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
+        //             rIdx += 1;
+        //         }
+        //         // if (k == refLen - 1) break;
+        //     }
+        //     else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
+                
+        //         int consecGap = 0;
+        //         int k = qIdx;
+        //         while (allGapsQ[k] && k < qryLen) {
+        //             ++consecGap;
+        //             ++k;
+        //         }
+        //         // std::cout << "Q:" << qIdx << "consecGap: " << consecGap << '\n';
+        //         for (size_t g = 0; g < consecGap; ++g) {
+        //             // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
+        //             // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
+        //             // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+        //             for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //             for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //             for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+        //             qIdx += 1;
+        //         }
+        //         // if (k == qryLen - 1) break;
+        //     }
+        //     else {
+        //         int consecGap = 0;
+        //         int kr = rIdx, kq = qIdx;
+        //         while (allGapsR[rIdx] && kr < refLen) {
+        //             ++consecGap;
+        //             ++kr;
+        //         }
+        //         for (size_t g = 0; g < consecGap; ++g) {
+        //             // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
+        //             // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
+        //             // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+        //             for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //             for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+        //             for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+        //             rIdx += 1;
+        //         }
+        //         consecGap = 0;
+        //         while (allGapsQ[qIdx] && kq < qryLen) {
+        //             ++consecGap;
+        //             ++kq;
+        //         }
+        //         for (size_t g = 0; g < consecGap; ++g) {
+        //             // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
+        //             // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
+        //             // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+        //             for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //             for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //             for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+                   
+        //             qIdx += 1;
+        //         }
+        //     }
+        // }
+        
+        bool preGap = 0; // 0: ref, 1: qry
+
+        std::string rr = "", qr = ""; 
         while (rIdx < refLen && qIdx < qryLen) {
-            // if (tree->allNodes[n.first->identifier]->identifier == "node_102") printf("(%d,%d)\n", rIdx, qIdx);
-            // if (rIdx > 6400 && rIdx < 6700) std::cout << allGapsR[rIdx] << ',' << allGapsQ[qIdx] << '\n';
             if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += reference[i][rIdx]; 
                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
-                // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
-                // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
-                // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += reference[i][rIdx];
                 qIdx++;rIdx++;
             }
             else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
-                int consecGap = 0;
-                int k = rIdx;
-                while (allGapsR[k] && k < refLen) {
-                    ++consecGap;
-                    ++k;
-                }
-                for (size_t g = 0; g < consecGap; ++g) {
-                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
-                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
-                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
-                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
-                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
-                    rIdx += 1;
-                }
-                // if (k == refLen - 1) break;
-            }
-            else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
-                
-                int consecGap = 0;
-                int k = qIdx;
-                while (allGapsQ[k] && k < qryLen) {
-                    ++consecGap;
-                    ++k;
-                }
-                // std::cout << "Q:" << qIdx << "consecGap: " << consecGap << '\n';
-                for (size_t g = 0; g < consecGap; ++g) {
-                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
-                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
-                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
-                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
-                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
-                    qIdx += 1;
-                }
-                // if (k == qryLen - 1) break;
-            }
-            else {
-                int consecGap = 0;
-                int kr = rIdx, kq = qIdx;
-                while (allGapsR[rIdx] && kr < refLen) {
-                    ++consecGap;
-                    ++kr;
-                }
-                for (size_t g = 0; g < consecGap; ++g) {
-                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][rIdx]; 
-                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
-                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
-                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
-                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
-                    rIdx += 1;
-                }
-                consecGap = 0;
-                while (allGapsQ[qIdx] && kq < qryLen) {
-                    ++consecGap;
-                    ++kq;
-                }
-                for (size_t g = 0; g < consecGap; ++g) {
-                    // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
-                    // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][qIdx];
-                    // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
-                    for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-                    for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
-                    for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
-                   
-                    qIdx += 1;
-                }
-            }
-        }
-        if (rIdx < refLen) {
-            for (size_t g = rIdx; g < refLen; ++g) {
                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
-                // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][g]; 
-                // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
-                // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+                rIdx += 1;
+                preGap = 0;
             }
-        }
-        if (qIdx < qryLen) {
-            for (size_t g = qIdx; g < qryLen; ++g) {
-                // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
-                // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][g];;
-                // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+            else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
-                for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-'; 
+                for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+                qIdx += 1;
+                preGap = 1;
+            }
+            else {
+                int consecGapR = 0, consecGapQ = 0;
+                int kr = rIdx, kq = qIdx;
+                while (allGapsR[rIdx] && kr < refLen) {
+                    ++consecGapR;
+                    ++kr;
+                }
+                while (allGapsQ[qIdx] && kq < qryLen) {
+                    ++consecGapQ;
+                    ++kq;
+                }
+                if (!preGap) {
+                    for (size_t g = 0; g < consecGapR; ++g) {
+                        for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                        for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+                        for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+                        rIdx += 1;
+                    }
+                    for (size_t g = 0; g < consecGapQ; ++g) {
+                        for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                        for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                        for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+                        qIdx += 1;
+                    }
+                }
+                else {
+                    for (size_t g = 0; g < consecGapQ; ++g) {
+                        for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                        for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                        for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+                        qIdx += 1;
+                    }
+                    for (size_t g = 0; g < consecGapR; ++g) {
+                        for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                        for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+                        for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+                        rIdx += 1;
+                    }
+                }   
             }
         }
         
+        printf("rIdx:%d, qIdx:%d, refLen:%d, qryLen:%d, alnLen: %d\n", rIdx, qIdx, refLen, qryLen, alignment[0].size());
+        // if (rIdx < refLen) {
+        //     for (size_t g = rIdx; g < refLen; ++g) {
+        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
+        //         // for (size_t i=0; i<refStart; i++)      alignment[i]          += reference[i][g]; 
+        //         // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += '-';
+        //         // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+        //     }
+        // }
+        // if (qIdx < qryLen) {
+        //     for (size_t g = qIdx; g < qryLen; ++g) {
+        //         // for (size_t i=0; i<refStart; i++)      alignment[i]          += '-'; 
+        //         // for (size_t i=0; i<qryStart; i++)      alignment[i+refStart] += query[i][g];;
+        //         // for (size_t i=refStart; i<refNum; i++) alignment[i+qryStart] += '-';
+        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-'; 
+        //     }
+        // }
+        
+        auto mergeEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
+        std::cout << "MergeTime "<< mergeTime.count() / 1000000<< " ms\n";
         tree->allNodes[n.first->identifier]->refStartPos = refStart+qryStart;
         tree->allNodes[n.first->identifier]->msa.clear();
         tree->allNodes[n.first->identifier]->msa = alignment;
@@ -1254,6 +1628,265 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
 
     return;
 }
+*/
+
+void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util)
+{
+    // auto kernelStart = std::chrono::high_resolution_clock::now();
+
+    for (auto n: nodes) {
+        std::cout << tree->allNodes[n.first->identifier]->identifier << ',' << tree->allNodes[n.second->identifier]->identifier << '\n';
+        std::cout << "Level:" << n.first->level << ',' << n.second->level << '\n';
+        bool sameLevel = (n.first->level == n.second->level); 
+        std::vector<bool> allGapsR, allGapsQ;
+        std::vector<std::string> reference, query;
+        std::vector<std::string> alignment;
+        // std::vector<int8_t> aln;
+        for (auto s: tree->allNodes[n.first->identifier]->msa) reference.push_back(s);
+        for (auto s: tree->allNodes[n.second->identifier]->msa) query.push_back(s);
+        int32_t refLen = reference[0].size();
+        int32_t qryLen = query[0].size();
+        int32_t refNum = reference.size();
+        int32_t qryNum = query.size();
+        int32_t seqLen = max(refLen, qryLen);
+        int32_t refCut = tree->allNodes[n.first->identifier]->refStartPos;
+        int32_t qryCut = tree->allNodes[n.second->identifier]->refStartPos;
+        // Overlapped sequence storage (up, down) = (self, parent)
+        // Ref's level is always less or equal than Qry'level
+        // Merge nodes with the same parent, overlapped sequences = down
+        // Merge node with its parent, overlapped sequences = ref: up, qry: down
+        int32_t overlapNumRef = (n.first->parent == nullptr) ? refNum : (sameLevel) ? refNum - refCut : refCut;
+        int32_t overlapNumQry = qryNum - qryCut;
+        std::cout << refNum << ',' << qryNum << ',' << refLen << ',' << qryLen << '\n';
+        std::cout << refCut << ',' << qryCut << ',' << overlapNumRef << ',' << overlapNumQry << '\n';
+        if ((overlapNumRef == qryNum || overlapNumQry == refNum) && tree->allNodes[n.first->identifier]->parent != nullptr) continue; 
+        assert(overlapNumRef == overlapNumQry);
+
+        for (int i = 0; i < refNum + qryNum - overlapNumRef; ++i) alignment.push_back("");
+        
+        // for (int i = 0; i < refNum + qryStart; ++i) alignment.push_back("");
+        // for (int r = 0; r < refLen; ++r) if (reference[refStart][r] == '-') allGapsR.push_back(r);
+        // for (int j = refStart+1; j < refNum; ++j) {
+        //     for (int k = allGapsR.size(); k >= 0; --k) {
+        //         if (reference[j][allGapsR[k]] != '-') allGapsR.erase(allGapsR.begin()+k);
+        //     }
+        //     if (allGapsR.empty()) break;
+        // }
+        // for (int q = 0; q < qryLen; ++q) if (query[qryStart][q] == '-') allGapsQ.push_back(q);
+        // for (int j = qryStart+1; j < qryNum; ++j) {
+        //     for (int k = allGapsQ.size(); k >= 0; --k) {
+        //         if (query[j][allGapsR[k]] != '-') allGapsQ.erase(allGapsQ.begin()+k);
+        //     }
+        //     if (allGapsQ.empty()) break;
+        // }
+
+        auto calGapStart = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < seqLen; ++i) {
+            if (i < refLen) {
+                bool allGaps = true;
+                int refStart = (sameLevel) ? refCut : 0;
+                for (int j = refStart; j < refStart+overlapNumRef; ++j) {
+                    if (reference[j][i] != '-') {
+                        allGaps = false;
+                        break;
+                    }
+                }
+                allGapsR.push_back(allGaps);
+            }
+            if (i < qryLen) {
+                bool allGaps = true;
+                int qryStart = qryCut;
+                for (int j = qryStart; j < qryStart+overlapNumQry; ++j) {
+                    if (query[j][i] != '-') {
+                        allGaps = false;
+                        break;
+                    }
+                }
+                allGapsQ.push_back(allGaps);
+            }
+        }
+        auto calGapEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds calGapTime = calGapEnd - calGapStart;
+        std::cout << "CalGapTime "<< calGapTime.count() / 1000000<< " ms\n";
+        std::cout << std::count (allGapsR.begin(), allGapsR.end(), true) << '\n';
+        std::cout << std::count (allGapsQ.begin(), allGapsQ.end(), true) << '\n';
+        int32_t rIdx = 0, qIdx = 0;
+        assert(allGapsR.size() == refLen);
+        assert(allGapsQ.size() == qryLen);
+        auto mergeStart = std::chrono::high_resolution_clock::now();
+        while (rIdx < refLen && qIdx < qryLen) {
+            if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
+                for (size_t i=0; i<qryCut; i++)      alignment[i] += query[i][qIdx];
+                for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += reference[i][rIdx];
+                qIdx++;rIdx++;
+            }
+            else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
+                int consecGap = 0;
+                int k = rIdx;
+                while (allGapsR[k] && k < refLen) {
+                    ++consecGap;
+                    ++k;
+                }
+                // std::cout << "R:" << rIdx << " consecGap: " << consecGap << '\n';
+                for (size_t g = 0; g < consecGap; ++g) {
+                    for (size_t i=0; i<qryCut; i++)      alignment[i] += '-';
+                    for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += reference[i][rIdx];            
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+                    // for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
+                    rIdx += 1;
+                }
+                // if (k == refLen - 1) break;
+            }
+            else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
+                
+                int consecGap = 0;
+                int k = qIdx;
+                while (allGapsQ[k] && k < qryLen) {
+                    ++consecGap;
+                    ++k;
+                }
+                
+                // std::cout << "Q:" << qIdx << " consecGap: " << consecGap << '\n';
+                for (size_t g = 0; g < consecGap; ++g) {
+                    for (size_t i=0; i<qryCut; i++)      alignment[i] += query[i][qIdx];
+                    for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += '-';            
+                    
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                    // for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+                    qIdx += 1;
+                }
+                // if (k == qryLen - 1) break;
+            }
+            else {
+                int consecGap = 0;
+                int kr = rIdx, kq = qIdx;
+                while (allGapsR[kr] && kr < refLen) {
+                    ++consecGap;
+                    ++kr;
+                }
+                // std::cout << "dR:" << rIdx << " consecGap: " << consecGap << '\n';
+                for (size_t g = 0; g < consecGap; ++g) {
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+                    // for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+                    for (size_t i=0; i<qryCut; i++)      alignment[i] += '-';
+                    for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += reference[i][rIdx];            
+                    rIdx += 1;
+                }
+                consecGap = 0;
+                while (allGapsQ[kq] && kq < qryLen) {
+                    ++consecGap;
+                    ++kq;
+                }
+                // std::cout << "dQ:" << qIdx << " consecGap: " << consecGap << '\n';
+                for (size_t g = 0; g < consecGap; ++g) {
+                    // for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+                    // for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+                    // for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+                    for (size_t i=0; i<qryCut; i++)      alignment[i] += query[i][qIdx];
+                    for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += '-';            
+                    qIdx += 1;
+                }
+            }
+        }
+        
+        // bool preGap = 0; // 0: ref, 1: qry
+        // std::string rr = "", qr = ""; 
+        // while (rIdx < refLen && qIdx < qryLen) {
+        //     if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
+        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += reference[i][rIdx]; 
+        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+        //         qIdx++;rIdx++;
+        //     }
+        //     else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
+        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
+        //         rIdx += 1;
+        //         preGap = 0;
+        //     }
+        //     else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
+        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+        //         qIdx += 1;
+        //         preGap = 1;
+        //     }
+        //     else {
+        //         int consecGapR = 0, consecGapQ = 0;
+        //         int kr = rIdx, kq = qIdx;
+        //         while (allGapsR[rIdx] && kr < refLen) {
+        //             ++consecGapR;
+        //             ++kr;
+        //         }
+        //         while (allGapsQ[qIdx] && kq < qryLen) {
+        //             ++consecGapQ;
+        //             ++kq;
+        //         }
+        //         if (!preGap) {
+        //             for (size_t g = 0; g < consecGapR; ++g) {
+        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+        //                 rIdx += 1;
+        //             }
+        //             for (size_t g = 0; g < consecGapQ; ++g) {
+        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+        //                 qIdx += 1;
+        //             }
+        //         }
+        //         else {
+        //             for (size_t g = 0; g < consecGapQ; ++g) {
+        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
+        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
+        //                 qIdx += 1;
+        //             }
+        //             for (size_t g = 0; g < consecGapR; ++g) {
+        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
+        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
+        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
+        //                 rIdx += 1;
+        //             }
+        //         }   
+        //     }
+        // }
+        
+        printf("rIdx:%d, qIdx:%d, refLen:%d, qryLen:%d, alnLen: %d\n", rIdx, qIdx, refLen, qryLen, alignment[0].size());
+        if (rIdx < refLen) {
+            for (size_t g = rIdx; g < refLen; ++g) {
+                for (size_t i=0; i<qryCut; i++)      alignment[i] += '-';
+                for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += reference[i][g];            
+            }
+        }
+        if (qIdx < qryLen) {
+            for (size_t g = qIdx; g < qryLen; ++g) {
+                for (size_t i=0; i<qryCut; i++)      alignment[i] += query[i][g];
+                for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += '-';            
+            }
+        }
+        
+        auto mergeEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
+        std::cout << "MergeTime "<< mergeTime.count() / 1000000<< " ms\n";
+        tree->allNodes[n.first->identifier]->refStartPos = qryCut + refCut;
+        tree->allNodes[n.first->identifier]->msa.clear();
+        tree->allNodes[n.first->identifier]->msa = alignment;
+        // std::cout << "Check (Length, SeqNum) = ("<< alignment[0].size() << ", " << alignment.size() << ')' << '\n';
+    }
+    
+    // auto kernelEnd = std::chrono::high_resolution_clock::now();
+    // std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
+    // std::cout << "RunTime "<< kernelTime.count() / 1000<< " us\n";
+
+    return;
+}
+
 
 void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode) {
     int hierIdx = 0;
@@ -1574,9 +2207,10 @@ int main(int argc, char** argv) {
             type1Aln.push_back(std::make_pair(T->allNodes[m->identifier], T->allNodes[n.second->identifier]));
         }
     }
-    // for (auto n: type1Aln) {
-    //     std::cout << n.first->identifier << ',' << n.second->identifier << '\n';
-    // }
+    for (auto n: type1Aln) {
+        std::cout << n.first->identifier << '(' << T->allNodes[n.first->identifier]->msa.size() << ')'
+                  << n.second->identifier << '(' << T->allNodes[n.second->identifier]->msa.size() << ")\n";
+    }
     auto alnStart = std::chrono::high_resolution_clock::now();
     if (machine == "cpu" || machine == "CPU" || machine == "Cpu") {
         msaPostOrderTraversal_cpu(T, type1Aln, util, param);
@@ -1592,58 +2226,106 @@ int main(int argc, char** argv) {
     std::chrono::nanoseconds alnTime = alnEnd - alnStart;
     if (type1Aln.size() > 1) std::cout << "Create type 2 alignment "<<  type1Aln.size() <<" pairs in " <<  alnTime.count() / 1000000 << " ms\n";
     else                     std::cout << "Create type 2 alignment "<<  type1Aln.size() <<" pair in "  <<  alnTime.count() / 1000000 << " ms\n";
-    
+    hier.clear();
     
 
     paritionInfo_t * newPartition = new paritionInfo_t(std::numeric_limits<size_t>::max(), 0, "centroid");
     // std::cout << "Start Partition ..... \n";
     partitionTree(newT->root, newPartition);
-    hier.clear();
+    
+    
+    std::vector<std::pair<Node*, Node*>> mergePairs;
     for (auto &p: newPartition->partitionsRoot)
     {
         std::stack<Node*> msaStack;
         getPostOrderList(p.second.first, msaStack);
-        std::vector<std::pair<std::pair<Node*, Node*>, int>> subhier;
+        std::map<int, std::vector<Node*>> nodeLevel;
+        // std::vector<std::pair<std::pair<Node*, Node*>, int>> subhier;
         int grpID = p.second.first->grpID;
-        getMsaHierachy(subhier, msaStack, grpID, 1);
+        // getMsaHierachy(subhier, msaStack, grpID, 1);
         while (!msaStack.empty()) {
-            // std::cout << msaStack.top()->identifier << ',' << msaStack.top()->level << ',';
+            std::cout << msaStack.top()->identifier << ',' << msaStack.top()->level << ',';
+            if (nodeLevel.find(msaStack.top()->level) == nodeLevel.end()) {
+                std::vector<Node*> temp;
+                temp.push_back(msaStack.top());
+                nodeLevel[msaStack.top()->level] = temp;
+            }
+            else {
+                nodeLevel[msaStack.top()->level].push_back(msaStack.top());
+            }
             msaStack.pop();
         }
-        // std::cout << '\n';
-        for (auto h: subhier) {
-            while (hier.size() < h.second+1) {
-                std::vector<std::pair<Node*, Node*>> temp;
-                hier.push_back(temp);
+        std::map<int, std::vector<Node*>>::reverse_iterator iter;
+        for (iter=nodeLevel.rbegin(); iter!=nodeLevel.rend(); iter++) {
+            Node* tempParent = iter->second[0]->parent;
+            if (iter->second.size() == 1 && iter->second[0]->parent != nullptr) {
+                mergePairs.push_back(std::make_pair(iter->second[0]->parent, iter->second[0]));
             }
-            hier[h.second].push_back(h.first);
+            else {
+                for (int n = 1; n < iter->second.size(); ++n) {
+                    if (iter->second[n]->parent == tempParent) {
+                        mergePairs.push_back(std::make_pair(iter->second[n], iter->second[n-1]));
+                    }
+                    else {
+                        mergePairs.push_back(std::make_pair(tempParent, iter->second[n-1]));
+                        tempParent = iter->second[n]->parent;
+                    }
+                    if (n == iter->second.size()-1) {
+                        mergePairs.push_back(std::make_pair(tempParent, iter->second[n]));
+                    }
+                }
+            }
+        }
+        std::cout << "\nDEBUG:MERGE PAIRS\n";
+        for (auto n: mergePairs) {
+            std::cout << n.first->identifier << ',' << n.second->identifier << '\n';
         }
     }
-    level = 0;
     auto mergeStart = std::chrono::high_resolution_clock::now();
-    for (auto m: hier) {
-        std::cout << "Transtivity merge level: " << level << '\n';
-        auto submergeStart = std::chrono::high_resolution_clock::now();
-        transitivityMerge_cpu(T, m, util);
-        // if (machine == "cpu" || machine == "CPU" || machine == "Cpu") {
-        //     msaPostOrderTraversal_cpu(T, m, util, param);
-        // }
-        // else if (machine == "gpu" || machine == "GPU" || machine == "Gpu") {
-        //     msaPostOrderTraversal_gpu(T, m, util, param);
-        // }
-        // else {
-        //     fprintf(stderr, "Error: Unrecognized machine type: %s\n", machine.c_str()); 
-        //     exit(1);
-        // }
-        auto submergeEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds submergeTime = submergeEnd - submergeStart;
-        if (m.size() > 1) std::cout << "Merge "<<  m.size() <<" subtree pairs in " << submergeTime.count() / 1000000 << " ms\n";
-        else              std::cout << "Merge "<<  m.size() <<" subtree pair in " <<  submergeTime.count() / 1000000 << " ms\n";
-        ++level;
-    }
+    std::cout << "Transtivity merge level: " << level << '\n';
+    transitivityMerge_cpu(T, mergePairs, util);
     auto mergeEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
     std::cout << "Merge "<< newT->allNodes.size() << " subtrees (total " << T->root->msa.size() << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
+    
+    // for (auto &p: newPartition->partitionsRoot)
+    // {
+    //     std::stack<Node*> msaStack;
+    //     getPostOrderList(p.second.first, msaStack);
+    //     std::vector<std::pair<std::pair<Node*, Node*>, int>> subhier;
+    //     int grpID = p.second.first->grpID;
+    //     getMsaHierachy(subhier, msaStack, grpID, 1);
+    //     while (!msaStack.empty()) {
+    //         std::cout << msaStack.top()->identifier << ',' << msaStack.top()->level << ',';
+    //         msaStack.pop();
+    //     }
+    //     // std::cout << '\n';
+    //     for (auto h: subhier) {
+    //         while (hier.size() < h.second+1) {
+    //             std::vector<std::pair<Node*, Node*>> temp;
+    //             hier.push_back(temp);
+    //         }
+    //         hier[h.second].push_back(h.first);
+    //     }
+    // }
+    // level = 0;
+    // auto mergeStart = std::chrono::high_resolution_clock::now();
+    // for (auto m: hier) {
+    //     std::cout << "Transtivity merge level: " << level << '\n';
+    //     auto submergeStart = std::chrono::high_resolution_clock::now();
+    //     transitivityMerge_cpu(T, m, util);
+    //     auto submergeEnd = std::chrono::high_resolution_clock::now();
+    //     std::chrono::nanoseconds submergeTime = submergeEnd - submergeStart;
+    //     if (m.size() > 1) std::cout << "Merge "<<  m.size() <<" subtree pairs in " << submergeTime.count() / 1000000 << " ms\n";
+    //     else              std::cout << "Merge "<<  m.size() <<" subtree pair in " <<  submergeTime.count() / 1000000 << " ms\n";
+    //     ++level;
+    // }
+    // auto mergeEnd = std::chrono::high_resolution_clock::now();
+    // std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
+    // std::cout << "Merge "<< newT->allNodes.size() << " subtrees (total " << T->root->msa.size() << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
+    
+    
+    
     // for (auto &p: partition->partitionsRoot)
     // {
     //     if (p.second.first->partitionParent == nullptr) continue;
