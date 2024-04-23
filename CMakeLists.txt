@@ -35,6 +35,6 @@ add_executable (test-msa
                 src/tree.cpp
                 src/align.cpp)
 
-target_link_libraries(msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES})
-target_link_libraries(test-align PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES})
-target_link_libraries(test-msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES})
+target_link_libraries(msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
+target_link_libraries(test-align PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
+target_link_libraries(test-msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
