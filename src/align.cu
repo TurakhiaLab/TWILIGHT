@@ -1042,9 +1042,9 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                         for (int l=0; l<6; l++) {
                             for (int m=0; m<6; m++) {
                                 denominator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m];
-                                if (m == 4 || l == 4) numerator += 0;
-                                else if (m == l)      numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_match;
-                                else                  numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_mismatch;
+                                if ((m == 4 || l == 4) || (m == 5 && l == 5)) numerator += 0;
+                                else if (m == l)                              numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_match;
+                                else                                          numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_mismatch;
                             }
                         }
                         similarScore = static_cast<int16_t>(roundf(numerator/denominator));
