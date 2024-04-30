@@ -1664,13 +1664,13 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
 
     int gpuNum;
     cudaGetDeviceCount(&gpuNum); // number of CUDA devices
-    for(int i=0;i<gpuNum;i++) {
-    // Query the device properties. 
-        cudaDeviceProp prop; 
-        cudaGetDeviceProperties(&prop, i);
-        std::cout << "Device ID: "  << i << std::endl;
-        std::cout << "Device Name: " << prop.name << std::endl; 
-    }
+    // for(int i=0;i<gpuNum;i++) {
+    // // Query the device properties. 
+    //     cudaDeviceProp prop; 
+    //     cudaGetDeviceProperties(&prop, i);
+    //     std::cout << "Device ID: "  << i << std::endl;
+    //     std::cout << "Device Name: " << prop.name << std::endl; 
+    // }
 
     // get maximum sequence/profile length 
     int32_t seqLen = 0;
@@ -1684,7 +1684,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     int round = nodes.size() / totalBlocks + 1;
     
     for (int r = 0; r < round; ++r) {
-        if (nodes.size() - totalBlocks*r == 0) break;
+        if (nodes.size() == totalBlocks*r) break;
         int* alignSize = new int[gpuNum];
         int32_t* seqNum = new int32_t[gpuNum];
         uint16_t** hostFreq = new uint16_t* [gpuNum];
@@ -1712,7 +1712,6 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             hostSeqInfo[gn] = (int32_t*)malloc(7 * sizeof(int32_t));
             hostParam[gn] = (int16_t*)malloc(6 * sizeof(int16_t)); 
         }
-        
         // int alignSize = (nodes.size() - r*numBlocks) < numBlocks ? (nodes.size() - r*numBlocks) : numBlocks;
         // if (alignSize == 0) break;
         // store all sequences to array
@@ -1727,6 +1726,11 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
         auto freqStart = std::chrono::high_resolution_clock::now();
         for (int gn = 0; gn < gpuNum; ++gn) {
             if (alignSize[gn] == 0) break;
+            std::vector<uint16_t*> freqTemp;
+            std::vector<std::pair<int32_t, int32_t>> seqIdxTemp;
+            std::vector<std::pair<int32_t, int32_t>> lenTemp;
+            
+            std::cout << "GPU ID: " << gn << " alnSize: " << alignSize[gn] << '\n';
             for (int n = 0; n < alignSize[gn]; ++n) {
                 int32_t nIdx = n + r*totalBlocks+gn*numBlocks;
                 int32_t qryIdx = 0;
@@ -1751,7 +1755,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                         else                                                                                     temp[6*s+5]+=1;
                     }
                     });
-                    ++seqNum[gn];
+                    seqNum[gn] += 1;
                 }
                 qryIdx = seqNum[gn];
                 for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
@@ -1767,12 +1771,15 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                         else                                                                     temp[6*(seqLen+s)+5]+=1;
                     }
                     });
-                    ++seqNum[gn];
+                    seqNum[gn] += 1;
                 }
-                seqIdx[gn].push_back(std::make_pair(refIdx, qryIdx));
-                len[gn].push_back(std::make_pair(refLen, qryLen));
-                freq[gn].push_back(temp);
+                seqIdxTemp.push_back(std::make_pair(refIdx, qryIdx));
+                lenTemp.push_back(std::make_pair(refLen, qryLen));
+                freqTemp.push_back(temp);
             }
+            freq.push_back(freqTemp);
+            len.push_back(lenTemp);
+            seqIdx.push_back(seqIdxTemp);
         }
 
         auto freqEnd = std::chrono::high_resolution_clock::now();
@@ -1786,7 +1793,10 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
         // int32_t* hostSeqInfo = (int32_t*)malloc(7 * sizeof(int32_t));
         // int16_t* hostParam = (int16_t*)malloc(6 * sizeof(int16_t)); 
         auto kernelStart = std::chrono::high_resolution_clock::now();
-        for (int gn = 0; gn < gpuNum; ++gn) {
+        
+        tbb::parallel_for(tbb::blocked_range<int>(0, gpuNum), [&](tbb::blocked_range<int> range){
+        // for (int gn = 0; gn < gpuNum; ++gn) {
+        for (int gn = range.begin(); gn < range.end(); ++gn) {
             // Store Info to host mem
             for (int j = 0; j < 2*alignSize[gn]; ++j) { 
                 if (j%2 == 0) hostLen[gn][j] = len[gn][j/2].first;
@@ -1817,6 +1827,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             hostParam[gn][4] = param.xdrop;
             hostParam[gn][5] = param.marker;
 
+            for (int i = 0; i < alignSize[gn]; ++i) delete [] freq[gn][i];
+
             cudaSetDevice(gn);
 
             cudaMalloc((void**)&deviceFreq[gn], 12*seqLen * alignSize[gn] * sizeof(uint16_t));
@@ -1845,6 +1857,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             cudaMemcpy(hostAln[gn], deviceAln[gn], 2*seqLen * alignSize[gn] * sizeof(int8_t), cudaMemcpyDeviceToHost);
             cudaMemcpy(hostAlnLen[gn], deviceAlnLen[gn], alignSize[gn] * sizeof(int32_t), cudaMemcpyDeviceToHost);
         }
+        });
+        
         for (int gn = 0; gn < gpuNum; ++gn) {
             cudaSetDevice(gn);
             cudaDeviceSynchronize();
@@ -1861,10 +1875,15 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             std::cout << "GPU KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
         }
         auto reAlnStart = std::chrono::high_resolution_clock::now();
+
         for (int gn = 0; gn < gpuNum; ++gn) {
-            for (int k = 0; k < alignSize[gn]; ++k) {
+            if (alignSize[gn] == 0) break;
+            std::cout << "alnSize: " << alignSize[gn] << '\n';
+            tbb::parallel_for(tbb::blocked_range<int>(0, alignSize[gn]), [&](tbb::blocked_range<int> range) {
+            // for (int k = 0; k < alignSize[gn]; ++k) {
+            for (int k = range.begin(); k < range.end(); ++k) {
                 // std::vector<std::string> alignment;
-                int32_t refNum = seqIdx[gn][k].second - seqIdx[k][gn].first;
+                int32_t refNum = seqIdx[gn][k].second - seqIdx[gn][k].first;
                 int32_t qryNum = (k !=  alignSize[gn]-1) ? seqIdx[gn][k+1].first - seqIdx[gn][k].second : seqNum[gn] - seqIdx[gn][k].second;
                 int32_t refStart = seqIdx[gn][k].first;
                 int32_t qryStart = seqIdx[gn][k].second;
@@ -1984,6 +2003,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                 // tree->allNodes[nodes[nIdx].first->identifier]->msa = alignment;
 
             }  
+            });
         }   
         auto reAlnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds reAlnTime = reAlnEnd - reAlnStart;
@@ -2001,7 +2021,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             free(hostAlnLen[gn]);
             free(hostAln[gn]);
             free(hostParam[gn]);
-            free(hostSeqInfo[gn]);        
+            free(hostSeqInfo[gn]);
+            // for (auto f: freq[gn]) delete [] f;   
         }
         delete [] alignSize;
         delete [] seqNum;

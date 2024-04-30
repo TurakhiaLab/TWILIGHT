@@ -237,7 +237,8 @@ int main(int argc, char** argv) {
             msaPostOrderTraversal_cpu(T, m, util, param);
         }
         else if (machine == "gpu" || machine == "GPU" || machine == "Gpu") {
-            msaPostOrderTraversal_gpu(T, m, util, param);
+            // msaPostOrderTraversal_gpu(T, m, util, param);
+            msaPostOrderTraversal_multigpu(T, m, util, param);
         }
         else {
             fprintf(stderr, "Error: Unrecognized machine type: %s\n", machine.c_str()); 
