@@ -20,26 +20,53 @@ namespace msa
         int nowStore = 0;
         void changeStorage(int idx) {
             seqsStorage[idx] = (seqsStorage[idx] == 0) ? 1 : 0;
+            return;
         }
         void seqFree(){
             free(seqBuf[0]);
             free(seqBuf[1]);
+            return;
         }
         void seqMalloc(int seqNum, int seqLen){
-            if (seqBuf[0] != nullptr && seqBuf[1] != nullptr)
+            if (seqBuf[0] != nullptr && seqBuf[1] != nullptr) {
+                char* temp[2] = {nullptr, nullptr};
+                const float timesBigger = 1.5;
+                int adjustLen = static_cast<int>(seqLen * timesBigger); 
+                temp[0] = (char*)malloc(seqNum * adjustLen * sizeof(char));
+                temp[1] = (char*)malloc(seqNum * adjustLen * sizeof(char));
+                for (int j = 0; j < seqNum; ++j) {
+                    for (int i = 0; i < adjustLen; ++i) {
+                        if (i < memLen) {
+                            temp[0][j*memLen+i] = seqBuf[0][j*memLen+i];
+                            temp[1][j*memLen+i] = seqBuf[1][j*memLen+i];
+                        }
+                        else {
+                            temp[0][j*memLen+i] = 0;
+                            temp[1][j*memLen+i] = 0;
+                        }
+                    }
+                }
                 seqFree();
-            const float timesBigger = 1.5;
-            int adjustLen = static_cast<int>(seqLen * timesBigger); 
-            seqBuf[0] = (char*)malloc(seqNum * adjustLen * sizeof(char));
-            seqBuf[1] = (char*)malloc(seqNum * adjustLen * sizeof(char));
-            memNum = seqNum;
-            memLen = adjustLen;
+                seqBuf[0] = temp[0];
+                seqBuf[1] = temp[1];
+            }
+            else {
+                const float timesBigger = 1.5;
+                int adjustLen = static_cast<int>(seqLen * timesBigger); 
+                seqBuf[0] = (char*)malloc(seqNum * adjustLen * sizeof(char));
+                seqBuf[1] = (char*)malloc(seqNum * adjustLen * sizeof(char));
+                memNum = seqNum;
+                memLen = adjustLen;
+            }    
             printf("Num: %d, Len: %d\n", memNum, memLen);
+            return;
         }
         void memCheck(int seqLen) {
             if (seqLen > (0.9*memLen)) {
+                std::cout << "Reallocate Memory...\n";
                 seqMalloc(memNum, memLen);
             }
+            return;
         }
     };
 } 

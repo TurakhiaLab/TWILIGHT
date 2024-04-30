@@ -3,45 +3,6 @@
 #define INF (1<<20)
 #endif
 
-__device__ int8_t updateState_cuda(STATE& currentHState, STATE& currentIState, STATE& currentDState)
-{
-    int8_t currentState = 0;
-    switch (currentHState)
-    {
-    case STATE::HI:
-        currentState = (currentState | 0x01); break;
-    case STATE::HD:
-        currentState = (currentState | 0x02); break;
-    default: 
-        currentState = currentState; break;
-    }
-
-    switch (currentIState)
-    {
-    case STATE::II:
-        currentState = (currentState | 0x04);  break;
-    default:
-        currentState = currentState; break;
-    }
-    
-    switch (currentDState)
-    {
-    case STATE::DD:
-        currentState = (currentState | 0x08); break;
-    default:
-        currentState = currentState; break;
-    }
-    return currentState;
-}
-
-bool getSimilarityScore(int32_t refIndex, int32_t queryIdx, std::vector<std::vector<float>>& charFreqRef, std::vector<std::vector<float>>& charFreqQuery)
-{
-    float score=0;
-    for (int i=0; i<5; i++) score+= std::sqrt(charFreqRef[refIndex][i]*charFreqQuery[queryIdx][i]);
-
-    return (score>0.95); //ToDo: How to clerverly decide cut-off point
-} 
-
 /*
 __global__ void alignGrpToGrp_talco(char *ref, char *qry, int16_t* param, char *alignment, int32_t* seqInfo)
 {
@@ -822,7 +783,7 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
         __shared__ int16_t D  [2*fLen];
         __shared__ int32_t CD [2*fLen];
         __shared__ int8_t tb  [32*fLen]; // May be improved to 4 bit
-        __shared__ uint32_t idx [3]; 
+        __shared__ uint32_t idx [2]; 
         // [0] reference_idx
         // [1] query_idx
         // [2] globalAlnIdx
@@ -958,7 +919,7 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                 // if (tx == 0) printf("k: %d\n", k);
                 // if (tidx == 0) printf("ref+qry: %d\n", reference_length + query_length - 1);
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
-                    if (tx == 0) printf("No.%d No more cells to compute based on x-drop critieria (L, U) = (%d, %d)\n", bx, L[k%3], U[k%3]+1);
+                    if (tx == 0) printf("No.%d No more cells to compute based on x-drop critieria, align length = %d\n", bx, alnLen[bx]);
                     // if (tx == 0) last_tile = true;
                     __syncthreads();
                     break;

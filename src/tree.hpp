@@ -27,6 +27,8 @@ public:
     Node* parent;
     std::vector< Node* > children;
     std::vector<std::string> msa;
+    std::vector<int> msaIdx;
+    // std::vector<std::vector<uint16_t>> freq;
     size_t refStartPos = {0};
     size_t numLeaves = {0};
 

@@ -621,8 +621,9 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
 }
 */
 
+// Original version: using std::vector
 
-void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
+void msaPostOrderTraversal_gpu_org(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
 {
 
     // assign msa to all nodes
@@ -898,6 +899,9 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
             tree->allNodes[nodes[nIdx].first->identifier]->refStartPos = refNum;
             tree->allNodes[nodes[nIdx].first->identifier]->msa.clear();
             tree->allNodes[nodes[nIdx].first->identifier]->msa = alignment;
+            for (auto qIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(qIdx);
+            }
             // printf("(refNum, qryNum) = (%d, %d)\n", refNum, qryNum);
             // std::cout << "Finish: " << tree->allNodes[nodes[nIdx].first->identifier]->identifier << ',' << tree->allNodes[nodes[nIdx].second->identifier]->identifier << '\n';
         }     
@@ -921,470 +925,6 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
     return;
 }
 
-
-/*
-void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
-{
-    // assign msa to all nodes
-    for (auto n: nodes) {
-        if (n.first->children.size()==0) {
-            tree->allNodes[n.first->identifier]->msaIdx.push_back(util->seqsIdx[n.first->identifier]);
-        }
-        else {
-            if (tree->allNodes[n.first->identifier]->msaIdx.size() == 0) {
-                Node* node = tree->allNodes[n.first->identifier];
-                int grpID = node->grpID;
-                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
-                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
-                        if (node->children[childIndex]->msaIdx.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
-                        tree->allNodes[n.first->identifier]->msaIdx = node->children[childIndex]->msaIdx;
-                        util->seqsLen[n.first->identifier] = util->seqsLen[node->children[childIndex]->identifier];
-                        break;
-                    }
-                }
-            }
-        }
-        if (n.second->children.size()==0) {
-            tree->allNodes[n.second->identifier]->msaIdx.push_back(util->seqsIdx[n.second->identifier]);
-        }
-        else {
-            if (tree->allNodes[n.second->identifier]->msaIdx.size() == 0) {
-                Node* node = tree->allNodes[n.second->identifier];
-                int grpID = node->grpID;
-                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
-                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
-                        if (node->children[childIndex]->msaIdx.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
-                        tree->allNodes[n.second->identifier]->msaIdx = node->children[childIndex]->msaIdx;
-                        util->seqsLen[n.second->identifier] = util->seqsLen[node->children[childIndex]->identifier];
-                        break;
-                    }
-                }
-            }
-        }
-        for (auto k: tree->allNodes[n.first->identifier]->msaIdx) std::cout << k << ',';
-        std::cout << '\n';
-        for (auto k: tree->allNodes[n.second->identifier]->msaIdx) std::cout << k << ',';
-        std::cout << '\n';
-    }
-
-    int numBlocks = 1024; 
-    int blockSize = 512;
-
-    // get maximum sequence/profile length 
-    int32_t seqLen = 0;
-    for (auto n: nodes) {
-        // int32_t qryLen = tree->allNodes[n.second->identifier]->msa[0].size();
-        // int32_t refLen = tree->allNodes[n.first->identifier]->msa[0].size();
-        int32_t refLen = util->seqsLen[n.first->identifier];
-        int32_t qryLen = util->seqsLen[n.second->identifier];
-        int32_t tempMax = max(qryLen, refLen);
-        seqLen = max(seqLen, tempMax);
-    }
-    std::cout << "Max Length:" << seqLen  << " NowStore: " << util->nowStore << '\n';
-    int round = nodes.size() / numBlocks + 1;
-    for (int r = 0; r < round; ++r) {
-        int alignSize = (nodes.size() - r*numBlocks) < numBlocks ? (nodes.size() - r*numBlocks) : numBlocks;
-        if (alignSize == 0) break;
-        // store all sequences to array
-        int32_t seqNum = 0;
-        int32_t pairNum = alignSize;
-        // std::vector<std::string> seqs;
-        // std::vector<std::vector<uint16_t>> freq;
-        std::vector<uint16_t*> freq;
-        std::vector<std::pair<int32_t, int32_t>> seqIdx;
-        std::vector<std::pair<int32_t, int32_t>> len;
-        // store info to array 
-        auto freqStart = std::chrono::high_resolution_clock::now();
-        for (int n = 0; n < alignSize; ++n) {
-            int32_t nIdx = n + r*numBlocks;
-            int32_t qryIdx = 0;
-            int32_t refIdx = 0;
-            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-            refIdx = seqNum;
-            
-            // std::vector<uint16_t> temp;
-            // for (int i = 0; i < 12*seqLen; ++i) temp.push_back(0);
-            uint16_t *temp = new uint16_t[12*seqLen]; 
-            for (int i = 0; i < 12*seqLen; ++i) temp[i]=0;
-            // assert(temp.size() == 12*seqLen);
-            // tbb::blocked_range<int> rangeRef(0, refLen);
-            // for (auto seq: tree->allNodes[nodes[nIdx].first->identifier]->msa) {
-            for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
-                int64_t start = util->memLen;
-                int storage = util->seqsStorage[sIdx];
-                tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
-                for (int s = r.begin(); s < r.end(); ++s) {
-                    if      (util->seqBuf[storage][start+s] == 'A' || util->seqBuf[storage][start+s] == 'a') temp[6*s+0]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'C' || util->seqBuf[storage][start+s] == 'c') temp[6*s+1]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'G' || util->seqBuf[storage][start+s] == 'g') temp[6*s+2]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'T' || util->seqBuf[storage][start+s] == 't') temp[6*s+3]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'N' || util->seqBuf[storage][start+s] == 'n') temp[6*s+4]+=1;
-                    else                                                                                     temp[6*s+5]+=1;
-                }
-                });
-                ++seqNum;
-            }
-            qryIdx = seqNum;
-            for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
-                int64_t start = sIdx*util->memLen;
-                int storage = util->seqsStorage[sIdx];
-                tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
-                for (int s = r.begin(); s < r.end(); ++s) {
-                    if      (util->seqBuf[storage][start+s] == 'A' || util->seqBuf[storage][start+s] == 'a') temp[6*(seqLen+s)+0]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'C' || util->seqBuf[storage][start+s] == 'c') temp[6*(seqLen+s)+1]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'G' || util->seqBuf[storage][start+s] == 'g') temp[6*(seqLen+s)+2]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'T' || util->seqBuf[storage][start+s] == 't') temp[6*(seqLen+s)+3]+=1;
-                    else if (util->seqBuf[storage][start+s] == 'N' || util->seqBuf[storage][start+s] == 'n') temp[6*(seqLen+s)+4]+=1;
-                    else                                                                     temp[6*(seqLen+s)+5]+=1;
-                }
-                });
-                ++seqNum;
-            }
-
-            seqIdx.push_back(std::make_pair(refIdx, qryIdx));
-            len.push_back(std::make_pair(refLen, qryLen));
-            freq.push_back(temp);
-        }
-        std::cout << 0 << '\n';
-        for (int ppp = 0; ppp < 20; ++ppp){
-            std::cout << ppp << " : ";
-            for (int i = 0; i < 70; ++i) std::cout << util->seqBuf[0][ppp*util->memLen+i];
-            std::cout << '\n';
-        }
-        std::cout << 1 << '\n';
-        
-        for (int ppp = 0; ppp < 20; ++ppp){
-            std::cout << ppp << " : ";
-            for (int i = 0; i < 70; ++i) std::cout << util->seqBuf[1][ppp*util->memLen+i];
-            std::cout << '\n';
-        }
-        // for (int i = 0; i < 70; ++i) std::cout << freq[0][6*i];
-        // std::cout << '\n';
-
-        auto freqEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds freqTime = freqEnd -freqStart;
-        printf("Calculate frequency time : %d ms\n",  (freqTime.count() / 1000000));
-        // Malloc
-        uint16_t* hostFreq = (uint16_t*)malloc(12*seqLen * pairNum * sizeof(uint16_t));
-        int8_t* hostAln = (int8_t*)malloc(2*seqLen * pairNum * sizeof(int8_t));
-        int32_t* hostLen = (int32_t*)malloc(2*pairNum * sizeof(int32_t));
-        int32_t* hostAlnLen = (int32_t*)malloc(pairNum * sizeof(int32_t));
-        int32_t* hostSeqInfo = (int32_t*)malloc(7 * sizeof(int32_t));
-        int16_t* hostParam = (int16_t*)malloc(6 * sizeof(int16_t)); 
-        // Store Info to host mem
-        for (int j = 0; j < 2*pairNum; ++j) { 
-            if (j%2 == 0) hostLen[j] = len[j/2].first;
-            else          hostLen[j] = len[j/2].second;
-        }
-        for (int j = 0; j < pairNum; ++j) {
-            for (int l = 0; l < 12*seqLen; ++l) {
-                hostFreq[12*seqLen*j+l] = freq[j][l];
-            }
-        }
-        for (int j = 0; j < 2*seqLen*pairNum; ++j) { 
-            hostAln[j] = 0;
-        }
-        for (int j = 0; j < pairNum; ++j) { 
-            hostAlnLen[j] = 0;
-        }
-        hostSeqInfo[0] = seqLen;
-        hostSeqInfo[1] = seqNum;
-        hostSeqInfo[2] = pairNum;
-        hostSeqInfo[3] = numBlocks;
-        hostSeqInfo[4] = blockSize;
-        hostSeqInfo[5] = numBlocks;
-        hostSeqInfo[6] = blockSize;
-        hostParam[0] = param.match;
-        hostParam[1] = param.mismatch;
-        hostParam[2] = param.gapOpen;
-        hostParam[3] = param.gapExtend;
-        hostParam[4] = param.xdrop;
-        hostParam[5] = param.marker;
-
-        // Cuda Malloc
-        uint16_t* deviceFreq;
-        int8_t* deviceAln;
-        int32_t* deviceLen;
-        int32_t* deviceAlnLen;
-        int32_t* deviceSeqInfo;
-        int16_t* deviceParam;
-        auto kernelStart = std::chrono::high_resolution_clock::now();
-        cudaMalloc((void**)&deviceFreq, 12*seqLen * pairNum * sizeof(uint16_t));
-        cudaMalloc((void**)&deviceAln, 2*seqLen * pairNum * sizeof(int8_t));
-        cudaMalloc((void**)&deviceLen, 2*pairNum * sizeof(int32_t));
-        cudaMalloc((void**)&deviceAlnLen, pairNum * sizeof(int32_t));
-        cudaMalloc((void**)&deviceSeqInfo, 7 * sizeof(int32_t));
-        cudaMalloc((void**)&deviceParam, 6 * sizeof(int16_t));
-        // Copy to device
-        cudaMemcpy(deviceFreq, hostFreq, 12*seqLen * pairNum * sizeof(uint16_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(deviceAln, hostAln, 2*seqLen * pairNum * sizeof(int8_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(deviceLen, hostLen, 2*pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(deviceAlnLen, hostAlnLen, pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(deviceSeqInfo, hostSeqInfo, 7 * sizeof(int32_t), cudaMemcpyHostToDevice);
-        cudaMemcpy(deviceParam, hostParam, 6 * sizeof(int16_t), cudaMemcpyHostToDevice);
-
-        // printf("Before kernel %s\n", cudaGetErrorString(cudaGetLastError()));
-        alignGrpToGrp_talco<<<numBlocks, blockSize>>>(
-            deviceFreq,
-            deviceAln, 
-            deviceLen,
-            deviceAlnLen,
-            deviceSeqInfo, 
-            deviceParam
-        );
-
-        cudaDeviceSynchronize();
-        // printf("After kernel %s\n", cudaGetErrorString(cudaGetLastError()));
-        // Copy to host
-        cudaMemcpy(hostAln, deviceAln, 2*seqLen * pairNum * sizeof(int8_t), cudaMemcpyDeviceToHost);
-        cudaMemcpy(hostAlnLen, deviceAlnLen, pairNum * sizeof(int32_t), cudaMemcpyDeviceToHost);
-        auto kernelEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
-        
-        if (round > 1) {
-            printf("Round. %d align %d pairs. KernelTime: %d ms\n", r, alignSize, kernelTime.count() / 1000000);
-        }
-        else {
-            std::cout << "KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
-        }
-        auto reAlnStart = std::chrono::high_resolution_clock::now();
-        for (int k = 0; k < pairNum; ++k) {
-            // std::vector<std::string> alignment;
-            int32_t refNum = seqIdx[k].second - seqIdx[k].first;
-            int32_t qryNum = (k != pairNum-1) ? seqIdx[k+1].first - seqIdx[k].second : seqNum - seqIdx[k].second;
-            int32_t refStart = seqIdx[k].first;
-            int32_t qryStart = seqIdx[k].second;
-            int32_t refIndex = 0;
-            int32_t qryIndex = 0;
-            // printf("k: %d, refNum: %d, qryNum: %d\n", k, refNum, qryNum);
-            // printf("k: %d, length: %d\n", k, hostAlnLen[k]);
-            // for (int j = 0; j < qryNum + refNum; ++j) alignment.push_back("");
-            int nIdx = k + r*numBlocks;
-            printf("k: %d, length: %d, %s\n", k, hostAlnLen[k], nodes[nIdx].first->identifier.c_str());
-            
-            if (hostAlnLen[k] <= 0) {
-                std::vector<std::string> reference, query;
-                std::vector<int8_t> aln;
-                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
-                    std::string s = "";
-                    int64_t start = sIdx*util->memLen;
-                    int storage = util->seqsStorage[sIdx];
-                    for (int c = 0; c < util->seqsLen[nodes[nIdx].first->identifier]; ++c) {
-                        s += util->seqBuf[sIdx][start+c];
-                    }
-                    reference.push_back(s);
-                }
-                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
-                    std::string s = "";
-                    int64_t start = sIdx*util->memLen;
-                    int storage = util->seqsStorage[sIdx];
-                    for (int c = 0; c < util->seqsLen[nodes[nIdx].second->identifier]; ++c) {
-                        s += util->seqBuf[storage][start+c];
-                    }
-                    query.push_back(s);
-                }
-                
-                Talco_xdrop::Params talco_params(param.match, param.mismatch, param.gapOpen, param.gapExtend, param.xdrop, param.marker);
-                Talco_xdrop::Align (
-                    talco_params,
-                    reference,
-                    query,
-                    aln
-                );
-                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
-                    int64_t start = sIdx*util->memLen;
-                    int storeFrom = util->seqsStorage[sIdx];
-                    int storeTo = 1 - util->seqsStorage[sIdx];
-                    int orgIdx = 0;
-                    for (int j = 0; j < aln.size(); ++j) {
-                        if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
-                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
-                            orgIdx++;
-                        }
-                        else {
-                            util->seqBuf[storeTo][start+j] = '-';
-                        }
-                    }
-                    util->seqsLen[nodes[nIdx].first->identifier] = aln.size();
-                    util->changeStorage(sIdx);
-                }
-                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
-                    int64_t start = sIdx*util->memLen;
-                    int storeFrom = util->seqsStorage[sIdx];
-                    int storeTo = 1 - util->seqsStorage[sIdx];
-                    int orgIdx = 0;
-                    for (int j = 0; j < aln.size(); ++j) {
-                        if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 1) {
-                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
-                            orgIdx++;
-                        }
-                        else {
-                            util->seqBuf[storeTo][start+j] = '-';
-                        }
-                    }
-                    util->seqsLen[nodes[nIdx].second->identifier] = aln.size();
-                    util->changeStorage(sIdx);
-                }
-                printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", k, tree->allNodes[nodes[nIdx].first->identifier]->identifier.c_str(), aln.size());
-            }
-            else {
-                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
-                    int64_t start = sIdx*util->memLen;
-                    int orgIdx = 0;
-                    int storeFrom = util->seqsStorage[sIdx];
-                    int storeTo = 1 - util->seqsStorage[sIdx];
-                    for (int j = 0; j < hostAlnLen[k]; ++j) {
-                        if ((hostAln[k*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[k*2*seqLen+j] & 0xFFFF) == 2) {
-                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
-                            orgIdx++;
-                        }
-                        else {
-                            util->seqBuf[storeTo][start+j] = '-';
-                        }
-                    }
-                    util->seqsLen[nodes[nIdx].first->identifier] = hostAlnLen[k];
-                    util->changeStorage(sIdx);
-                }
-                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
-                    int64_t start = sIdx*util->memLen;
-                    int storeFrom = util->seqsStorage[sIdx];
-                    int storeTo = 1 - util->seqsStorage[sIdx];
-                    int orgIdx = 0;
-                    for (int j = 0; j < hostAlnLen[k]; ++j) {
-                        if ((hostAln[k*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[k*2*seqLen+j] & 0xFFFF) == 1) {
-                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
-                            orgIdx++;
-                        }
-                        else {
-                            util->seqBuf[storeTo][start+j] = '-';
-                        }
-                    }
-                    util->seqsLen[nodes[nIdx].second->identifier] = hostAlnLen[k];
-                    util->changeStorage(sIdx);
-                }
-            }
-            tree->allNodes[nodes[nIdx].first->identifier]->refStartPos = refNum;
-            for (auto q: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) 
-                tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
-            tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
-        }     
-        auto reAlnEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds reAlnTime = reAlnEnd - reAlnStart;
-        printf("Round. %d align %d pairs. reAlnTime: %d ms\n", r, alignSize, reAlnTime.count() / 1000000);
-        // free memory
-        cudaFree(deviceFreq);
-        cudaFree(deviceAlnLen);
-        cudaFree(deviceAln);
-        cudaFree(deviceParam);
-        cudaFree(deviceSeqInfo);
-        cudaDeviceSynchronize();
-        free(hostFreq);
-        free(hostAlnLen);
-        free(hostAln);
-        free(hostParam);
-        free(hostSeqInfo);
-        
-    }
-    return;
-}
-*/
-
-
-void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
-{
-    // assign msa to all nodes
-    for (auto n: nodes) {
-        // std::cout << n.first->identifier << '\n';
-        if (n.first->children.size()==0) {
-            tree->allNodes[n.first->identifier]->msa.push_back(util->seqs[n.first->identifier]);
-        }
-        else {
-            if (tree->allNodes[n.first->identifier]->msa.size() == 0) {
-                Node* node = tree->allNodes[n.first->identifier];
-                int grpID = node->grpID;
-                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
-                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
-                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
-                        tree->allNodes[n.first->identifier]->msa = node->children[childIndex]->msa;
-                        break;
-                    }
-                }
-            }
-        }
-        // std::cout << n.second->identifier << '\n';
-        if (n.second->children.size()==0) {
-            tree->allNodes[n.second->identifier]->msa.push_back(util->seqs[n.second->identifier]);
-        }
-        else {
-            if (tree->allNodes[n.second->identifier]->msa.size() == 0) {
-                Node* node = tree->allNodes[n.second->identifier];
-                int grpID = node->grpID;
-                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
-                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
-                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
-                        tree->allNodes[n.second->identifier]->msa = node->children[childIndex]->msa;
-                        break;
-                    }
-                }
-            }
-        }
-    }
-
-
-    Talco_xdrop::Params talco_params(param.match, param.mismatch, param.gapOpen, param.gapExtend, param.xdrop, param.marker);
-
-    auto kernelStart = std::chrono::high_resolution_clock::now();
-
-    for (auto n: nodes) {
-        std::vector<std::string> reference, query;
-        std::vector<int8_t> aln;
-        for (auto s: tree->allNodes[n.first->identifier]->msa) reference.push_back(s);
-        for (auto s: tree->allNodes[n.second->identifier]->msa) query.push_back(s);
-        Talco_xdrop::Align (
-            talco_params,
-            reference,
-            query,
-            aln
-        );
-        
-        int32_t refIndex = 0;
-        int32_t qryIndex = 0;
-        int32_t refNum = reference.size();
-        int32_t qryNum = query.size();
-        std::vector<std::string> alignment;
-        for (int j = 0; j < refNum+qryNum; ++j) alignment.push_back("");
-        for (int j = 0; j < aln.size(); ++j) {
-            // std::cout << j << ',' << refIndex << ',' << qryIndex << '\n';
-            if ((aln[j] & 0xFFFF) == 0) {
-                for (size_t i=0; i<refNum; i++) alignment[i]        += reference[i][refIndex]; 
-                for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += query[i][qryIndex];
-                qryIndex++;refIndex++;
-            }
-            else if ((aln[j] & 0xFFFF) == 2) {
-                for (size_t i=0; i<refNum; i++) alignment[i]        += reference[i][refIndex]; 
-                for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += '-';
-                refIndex++;
-            }
-            else {
-                for (size_t i=0; i<refNum; i++) alignment[i]        += '-'; 
-                for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += query[i][qryIndex];
-                qryIndex++;
-            }
-        }
-        tree->allNodes[n.first->identifier]->refStartPos = refNum;
-        tree->allNodes[n.first->identifier]->msa.clear();
-        tree->allNodes[n.first->identifier]->msa = alignment;
-        // std::cout << "Finish: " << tree->allNodes[n.first->identifier]->identifier << " RefEnd " << tree->allNodes[n.first->identifier]->refEndPos << '\n';
-    }
-    
-    auto kernelEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
-    std::cout << "RunTime "<< kernelTime.count() / 1000000<< " ms\n";
-
-    return;
-}
-
 void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util)
 {
     // auto kernelStart = std::chrono::high_resolution_clock::now();
@@ -1395,6 +935,25 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
         if (n.first->parent == nullptr) {
             tree->allNodes[n.first->identifier]->msa.clear();
             tree->allNodes[n.first->identifier]->msa = tree->allNodes[n.second->identifier]->msa;
+            tree->allNodes[n.first->identifier]->msaIdx.clear();
+            tree->allNodes[n.first->identifier]->msaIdx = tree->allNodes[n.second->identifier]->msaIdx;
+            int seqLen = tree->allNodes[n.first->identifier]->msa[0].size();
+            util->seqsLen[n.first->identifier] = seqLen;
+            util->memCheck(seqLen);
+            // std::cout << util->memNum << "  " << util->memLen << "  " << util->memLen*util->memNum << '\n';
+            
+            for (int i = 0; i < tree->allNodes[n.first->identifier]->msa.size(); ++i) {
+                int sIdx = tree->allNodes[n.first->identifier]->msaIdx[i];
+                int len = tree->allNodes[n.first->identifier]->msa[i].size();
+                
+                int64_t start = sIdx*util->memLen;
+                // std::cout << i << "  " << sIdx << "  " << start << '\n';
+                int storeTo = 1 - util->seqsStorage[sIdx];
+                for (int j = 0; j < len; ++j) {
+                    util->seqBuf[storeTo][start+j] = tree->allNodes[n.first->identifier]->msa[i][j];
+                }
+                util->changeStorage(sIdx);
+            }
             break;
         }
         bool sameLevel = (n.first->level == n.second->level); 
@@ -1534,72 +1093,6 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                 }
             }
         }
-        
-        // bool preGap = 0; // 0: ref, 1: qry
-        // std::string rr = "", qr = ""; 
-        // while (rIdx < refLen && qIdx < qryLen) {
-        //     if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
-        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += reference[i][rIdx]; 
-        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
-        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
-        //         qIdx++;rIdx++;
-        //     }
-        //     else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
-        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
-        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx]; ;
-        //         rIdx += 1;
-        //         preGap = 0;
-        //     }
-        //     else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
-        //         for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-        //         for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
-        //         for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
-        //         qIdx += 1;
-        //         preGap = 1;
-        //     }
-        //     else {
-        //         int consecGapR = 0, consecGapQ = 0;
-        //         int kr = rIdx, kq = qIdx;
-        //         while (allGapsR[rIdx] && kr < refLen) {
-        //             ++consecGapR;
-        //             ++kr;
-        //         }
-        //         while (allGapsQ[qIdx] && kq < qryLen) {
-        //             ++consecGapQ;
-        //             ++kq;
-        //         }
-        //         if (!preGap) {
-        //             for (size_t g = 0; g < consecGapR; ++g) {
-        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
-        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
-        //                 rIdx += 1;
-        //             }
-        //             for (size_t g = 0; g < consecGapQ; ++g) {
-        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
-        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
-        //                 qIdx += 1;
-        //             }
-        //         }
-        //         else {
-        //             for (size_t g = 0; g < consecGapQ; ++g) {
-        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += query[i][qIdx];
-        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += '-';
-        //                 qIdx += 1;
-        //             }
-        //             for (size_t g = 0; g < consecGapR; ++g) {
-        //                 for (size_t i=refStart; i<refNum; i++) alignment[i-refStart]              += '-';
-        //                 for (size_t i=0; i<qryStart; i++)      alignment[i+parentNumRef]          += '-';
-        //                 for (size_t i=0; i<refStart; i++)      alignment[i+parentNumRef+qryStart] += reference[i][rIdx];
-        //                 rIdx += 1;
-        //             }
-        //         }   
-        //     }
-        // }
-        
         printf("rIdx:%d, qIdx:%d, refLen:%d, qryLen:%d, alnLen: %d\n", rIdx, qIdx, refLen, qryLen, alignment[0].size());
         if (rIdx < refLen) {
             for (size_t g = rIdx; g < refLen; ++g) {
@@ -1613,13 +1106,19 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                 for (size_t i=0; i<refNum; i++)      alignment[i+qryCut] += '-';            
             }
         }
-        
+        std::vector<int> tempIdx;
+        for (int q = 0; q < qryCut; ++q) tempIdx.push_back(tree->allNodes[n.second->identifier]->msaIdx[q]);
+        for (int r = 0; r < refNum; ++r) tempIdx.push_back(tree->allNodes[n.first->identifier]->msaIdx[r]);
+        tree->allNodes[n.first->identifier]->msaIdx.clear();
+        tree->allNodes[n.first->identifier]->msaIdx = tempIdx;
         auto mergeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
         std::cout << "MergeTime "<< mergeTime.count() / 1000000<< " ms\n";
         tree->allNodes[n.first->identifier]->refStartPos = qryCut + refCut;
         tree->allNodes[n.first->identifier]->msa.clear();
         tree->allNodes[n.first->identifier]->msa = alignment;
+        
+        
         // std::cout << "Check (Length, SeqNum) = ("<< alignment[0].size() << ", " << alignment.size() << ')' << '\n';
     }
     
@@ -1629,6 +1128,1155 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
 
     return;
 }
+
+
+
+void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
+{
+    // assign msa to all nodes
+    for (auto n: nodes) {
+        // std::cout << n.first->identifier << '\n';
+        if (n.first->children.size()==0) {
+            tree->allNodes[n.first->identifier]->msa.push_back(util->seqs[n.first->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.first->identifier]->msa.size() == 0) {
+                Node* node = tree->allNodes[n.first->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
+                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.first->identifier]->msa = node->children[childIndex]->msa;
+                        break;
+                    }
+                }
+            }
+        }
+        // std::cout << n.second->identifier << '\n';
+        if (n.second->children.size()==0) {
+            tree->allNodes[n.second->identifier]->msa.push_back(util->seqs[n.second->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.second->identifier]->msa.size() == 0) {
+                Node* node = tree->allNodes[n.second->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
+                        if (node->children[childIndex]->msa.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msa.push_back(util->seqs[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.second->identifier]->msa = node->children[childIndex]->msa;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+
+    Talco_xdrop::Params talco_params(param.match, param.mismatch, param.gapOpen, param.gapExtend, param.xdrop, param.marker);
+
+    auto kernelStart = std::chrono::high_resolution_clock::now();
+
+    for (auto n: nodes) {
+        std::vector<std::string> reference, query;
+        std::vector<int8_t> aln;
+        for (auto s: tree->allNodes[n.first->identifier]->msa) reference.push_back(s);
+        for (auto s: tree->allNodes[n.second->identifier]->msa) query.push_back(s);
+        Talco_xdrop::Align (
+            talco_params,
+            reference,
+            query,
+            aln
+        );
+        
+        int32_t refIndex = 0;
+        int32_t qryIndex = 0;
+        int32_t refNum = reference.size();
+        int32_t qryNum = query.size();
+        std::vector<std::string> alignment;
+        for (int j = 0; j < refNum+qryNum; ++j) alignment.push_back("");
+        for (int j = 0; j < aln.size(); ++j) {
+            // std::cout << j << ',' << refIndex << ',' << qryIndex << '\n';
+            if ((aln[j] & 0xFFFF) == 0) {
+                for (size_t i=0; i<refNum; i++) alignment[i]        += reference[i][refIndex]; 
+                for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += query[i][qryIndex];
+                qryIndex++;refIndex++;
+            }
+            else if ((aln[j] & 0xFFFF) == 2) {
+                for (size_t i=0; i<refNum; i++) alignment[i]        += reference[i][refIndex]; 
+                for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += '-';
+                refIndex++;
+            }
+            else {
+                for (size_t i=0; i<refNum; i++) alignment[i]        += '-'; 
+                for (size_t i=0; i<qryNum; i++) alignment[i+refNum] += query[i][qryIndex];
+                qryIndex++;
+            }
+        }
+        tree->allNodes[n.first->identifier]->refStartPos = refNum;
+        tree->allNodes[n.first->identifier]->msa.clear();
+        tree->allNodes[n.first->identifier]->msa = alignment;
+        // std::cout << "Finish: " << tree->allNodes[n.first->identifier]->identifier << " RefEnd " << tree->allNodes[n.first->identifier]->refEndPos << '\n';
+    }
+    
+    auto kernelEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
+    std::cout << "RunTime "<< kernelTime.count() / 1000000<< " ms\n";
+
+    return;
+}
+
+
+// Modified version: malloc 2 memory
+
+void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
+{
+    // assign msa to all nodes
+    for (auto n: nodes) {
+        if (n.first->children.size()==0) {
+            tree->allNodes[n.first->identifier]->msaIdx.push_back(util->seqsIdx[n.first->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.first->identifier]->msaIdx.size() == 0) {
+                Node* node = tree->allNodes[n.first->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
+                        if (node->children[childIndex]->msaIdx.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.first->identifier]->msaIdx = node->children[childIndex]->msaIdx;
+                        util->seqsLen[n.first->identifier] = util->seqsLen[node->children[childIndex]->identifier];
+                        break;
+                    }
+                }
+            }
+        }
+        if (n.second->children.size()==0) {
+            tree->allNodes[n.second->identifier]->msaIdx.push_back(util->seqsIdx[n.second->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.second->identifier]->msaIdx.size() == 0) {
+                Node* node = tree->allNodes[n.second->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
+                        if (node->children[childIndex]->msaIdx.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.second->identifier]->msaIdx = node->children[childIndex]->msaIdx;
+                        util->seqsLen[n.second->identifier] = util->seqsLen[node->children[childIndex]->identifier];
+                        break;
+                    }
+                }
+            }
+        }
+        // for (auto k: tree->allNodes[n.first->identifier]->msaIdx) std::cout << k << ',';
+        // std::cout << '\n';
+        // for (auto k: tree->allNodes[n.second->identifier]->msaIdx) std::cout << k << ',';
+        // std::cout << '\n';
+    }
+
+    int numBlocks = 1024; 
+    int blockSize = 512;
+
+    // get maximum sequence/profile length 
+    int32_t seqLen = 0;
+    for (auto n: nodes) {
+        int32_t refLen = util->seqsLen[n.first->identifier];
+        int32_t qryLen = util->seqsLen[n.second->identifier];
+        int32_t tempMax = max(qryLen, refLen);
+        seqLen = max(seqLen, tempMax);
+    }
+    int round = nodes.size() / numBlocks + 1;
+    for (int r = 0; r < round; ++r) {
+        int alignSize = (nodes.size() - r*numBlocks) < numBlocks ? (nodes.size() - r*numBlocks) : numBlocks;
+        if (alignSize == 0) break;
+        // store all sequences to array
+        int32_t seqNum = 0;
+        int32_t pairNum = alignSize;
+        std::vector<uint16_t*> freq;
+        std::vector<std::pair<int32_t, int32_t>> seqIdx;
+        std::vector<int32_t> seqIdxArr;
+        std::vector<std::pair<int32_t, int32_t>> len;
+        // for (int n = 0; n < alignSize; ++n) {
+        //     freq.push_back(nullptr);
+        //     // seqIdx.push_back(std::make_pair(0, 0));
+        //     seqIdxArr.push_back(0);
+        //     seqIdxArr.push_back(0);
+        //     len.push_back(std::make_pair(0, 0));
+        // }
+        // store info to array 
+        auto freqStart = std::chrono::high_resolution_clock::now();
+        // tbb::parallel_for(tbb::blocked_range<int>(0, alignSize), [&](tbb::blocked_range<int> range) {
+        // for (int n = range.begin(); n < range.end(); ++n) {
+        for (int n = 0; n < alignSize; ++n) {
+            int32_t nIdx = n + r*numBlocks;
+            int32_t qryIdx = 0;
+            int32_t refIdx = 0;
+            int32_t seqNum = 0;
+            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+            refIdx = seqNum;
+            
+            // std::vector<uint16_t> temp;
+            // for (int i = 0; i < 12*seqLen; ++i) temp.push_back(0);
+            uint16_t *temp = new uint16_t[12*seqLen]; 
+            for (int i = 0; i < 12*seqLen; ++i) temp[i]=0;
+            // assert(temp.size() == 12*seqLen);
+            // tbb::blocked_range<int> rangeRef(0, refLen);
+            // for (auto seq: tree->allNodes[nodes[nIdx].first->identifier]->msa) {
+            for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
+                int64_t start = sIdx*util->memLen;
+                int storage = util->seqsStorage[sIdx];
+                tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+                // for (int s = 0; s < refLen; ++s) {
+                for (int s = r.begin(); s < r.end(); ++s) {
+                    if      (util->seqBuf[storage][start+s] == 'A' || util->seqBuf[storage][start+s] == 'a') temp[6*s+0]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'C' || util->seqBuf[storage][start+s] == 'c') temp[6*s+1]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'G' || util->seqBuf[storage][start+s] == 'g') temp[6*s+2]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'T' || util->seqBuf[storage][start+s] == 't') temp[6*s+3]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'N' || util->seqBuf[storage][start+s] == 'n') temp[6*s+4]+=1;
+                    else                                                                                     temp[6*s+5]+=1;
+                }
+                });
+                ++seqNum;
+            }
+            // refIdx = seqNum;
+            qryIdx = seqNum;
+            for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
+                int64_t start = sIdx*util->memLen;
+                int storage = util->seqsStorage[sIdx];
+                tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
+                // for (int s = 0; s < qryLen; ++s) {
+                for (int s = r.begin(); s < r.end(); ++s) {
+                    if      (util->seqBuf[storage][start+s] == 'A' || util->seqBuf[storage][start+s] == 'a') temp[6*(seqLen+s)+0]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'C' || util->seqBuf[storage][start+s] == 'c') temp[6*(seqLen+s)+1]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'G' || util->seqBuf[storage][start+s] == 'g') temp[6*(seqLen+s)+2]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'T' || util->seqBuf[storage][start+s] == 't') temp[6*(seqLen+s)+3]+=1;
+                    else if (util->seqBuf[storage][start+s] == 'N' || util->seqBuf[storage][start+s] == 'n') temp[6*(seqLen+s)+4]+=1;
+                    else                                                                     temp[6*(seqLen+s)+5]+=1;
+                }
+                });
+                ++seqNum;
+            }
+            // qryIdx = seqNum;
+            seqIdx.push_back(std::make_pair(refIdx, qryIdx));
+            len.push_back(std::make_pair(refLen, qryLen));
+            freq.push_back(temp);
+            // seqIdx[n] = std::make_pair(refIdx, qryIdx);
+            // seqIdxArr[n*2] = refIdx;
+            // seqIdxArr[n*2+1] = qryIdx;
+            // len[n] = std::make_pair(refLen, qryLen);
+            // freq[n] = temp;
+        }
+        // });
+
+        // int seqNum = 0;
+        // seqIdx.push_back(std::make_pair(0, seqIdxArr[0]));
+        // for (int s = 1; s < seqIdxArr.size(); s+=2) {
+        //     seqNum += seqIdxArr[s];
+        //     seqIdx.push_back(std::make_pair(seqIdxArr[s], seqIdxArr[s+1]));
+        // }
+        
+
+
+        auto freqEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds freqTime = freqEnd -freqStart;
+        printf("Calculate frequency time : %d ms\n",  (freqTime.count() / 1000000));
+        // Malloc
+        uint16_t* hostFreq = (uint16_t*)malloc(12*seqLen * pairNum * sizeof(uint16_t));
+        int8_t* hostAln = (int8_t*)malloc(2*seqLen * pairNum * sizeof(int8_t));
+        int32_t* hostLen = (int32_t*)malloc(2*pairNum * sizeof(int32_t));
+        int32_t* hostAlnLen = (int32_t*)malloc(pairNum * sizeof(int32_t));
+        int32_t* hostSeqInfo = (int32_t*)malloc(7 * sizeof(int32_t));
+        int16_t* hostParam = (int16_t*)malloc(6 * sizeof(int16_t)); 
+        // Store Info to host mem
+        for (int j = 0; j < 2*pairNum; ++j) { 
+            if (j%2 == 0) hostLen[j] = len[j/2].first;
+            else          hostLen[j] = len[j/2].second;
+        }
+        for (int j = 0; j < pairNum; ++j) {
+            for (int l = 0; l < 12*seqLen; ++l) {
+                hostFreq[12*seqLen*j+l] = freq[j][l];
+            }
+        }
+        for (int j = 0; j < 2*seqLen*pairNum; ++j) { 
+            hostAln[j] = 0;
+        }
+        for (int j = 0; j < pairNum; ++j) { 
+            hostAlnLen[j] = 0;
+        }
+        hostSeqInfo[0] = seqLen;
+        hostSeqInfo[1] = seqNum;
+        hostSeqInfo[2] = pairNum;
+        hostSeqInfo[3] = numBlocks;
+        hostSeqInfo[4] = blockSize;
+        hostSeqInfo[5] = numBlocks;
+        hostSeqInfo[6] = blockSize;
+        hostParam[0] = param.match;
+        hostParam[1] = param.mismatch;
+        hostParam[2] = param.gapOpen;
+        hostParam[3] = param.gapExtend;
+        hostParam[4] = param.xdrop;
+        hostParam[5] = param.marker;
+
+        // Cuda Malloc
+        uint16_t* deviceFreq;
+        int8_t* deviceAln;
+        int32_t* deviceLen;
+        int32_t* deviceAlnLen;
+        int32_t* deviceSeqInfo;
+        int16_t* deviceParam;
+        auto kernelStart = std::chrono::high_resolution_clock::now();
+        cudaMalloc((void**)&deviceFreq, 12*seqLen * pairNum * sizeof(uint16_t));
+        cudaMalloc((void**)&deviceAln, 2*seqLen * pairNum * sizeof(int8_t));
+        cudaMalloc((void**)&deviceLen, 2*pairNum * sizeof(int32_t));
+        cudaMalloc((void**)&deviceAlnLen, pairNum * sizeof(int32_t));
+        cudaMalloc((void**)&deviceSeqInfo, 7 * sizeof(int32_t));
+        cudaMalloc((void**)&deviceParam, 6 * sizeof(int16_t));
+        // Copy to device
+        cudaMemcpy(deviceFreq, hostFreq, 12*seqLen * pairNum * sizeof(uint16_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceAln, hostAln, 2*seqLen * pairNum * sizeof(int8_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceLen, hostLen, 2*pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceAlnLen, hostAlnLen, pairNum * sizeof(int32_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceSeqInfo, hostSeqInfo, 7 * sizeof(int32_t), cudaMemcpyHostToDevice);
+        cudaMemcpy(deviceParam, hostParam, 6 * sizeof(int16_t), cudaMemcpyHostToDevice);
+
+        // printf("Before kernel %s\n", cudaGetErrorString(cudaGetLastError()));
+        alignGrpToGrp_talco<<<numBlocks, blockSize>>>(
+            deviceFreq,
+            deviceAln, 
+            deviceLen,
+            deviceAlnLen,
+            deviceSeqInfo, 
+            deviceParam
+        );
+
+        cudaDeviceSynchronize();
+        // printf("After kernel %s\n", cudaGetErrorString(cudaGetLastError()));
+        // Copy to host
+        cudaMemcpy(hostAln, deviceAln, 2*seqLen * pairNum * sizeof(int8_t), cudaMemcpyDeviceToHost);
+        cudaMemcpy(hostAlnLen, deviceAlnLen, pairNum * sizeof(int32_t), cudaMemcpyDeviceToHost);
+        auto kernelEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
+        
+        if (round > 1) {
+            printf("Round. %d align %d pairs. GPU KernelTime: %d ms\n", r, alignSize, kernelTime.count() / 1000000);
+        }
+        else {
+            std::cout << "GPU KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
+        }
+        auto reAlnStart = std::chrono::high_resolution_clock::now();
+
+        tbb::parallel_for(tbb::blocked_range<int>(0, pairNum), [&](tbb::blocked_range<int> range) {
+        for (int k = range.begin(); k < range.end(); ++k) {
+            // std::vector<std::string> alignment;
+            int32_t refNum = seqIdx[k].second - seqIdx[k].first;
+            int32_t qryNum = (k != pairNum-1) ? seqIdx[k+1].first - seqIdx[k].second : seqNum - seqIdx[k].second;
+            int32_t refStart = seqIdx[k].first;
+            int32_t qryStart = seqIdx[k].second;
+            int32_t refIndex = 0;
+            int32_t qryIndex = 0;
+            // printf("k: %d, refNum: %d, qryNum: %d\n", k, refNum, qryNum);
+            // printf("k: %d, length: %d\n", k, hostAlnLen[k]);
+            // for (int j = 0; j < qryNum + refNum; ++j) alignment.push_back("");
+            int nIdx = k + r*numBlocks;
+            // printf("k: %d, length: %d, %s\n", k, hostAlnLen[k], nodes[nIdx].first->identifier.c_str());
+            
+            if (hostAlnLen[k] <= 0) {
+                std::vector<std::string> reference, query;
+                std::vector<int8_t> aln;
+                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+                    std::string s = "";
+                    int64_t start = sIdx*util->memLen;
+                    int storage = util->seqsStorage[sIdx];
+                    for (int c = 0; c < util->seqsLen[nodes[nIdx].first->identifier]; ++c) {
+                        s += util->seqBuf[storage][start+c];
+                    }
+                    reference.push_back(s);
+                }
+                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                    std::string s = "";
+                    int64_t start = sIdx*util->memLen;
+                    int storage = util->seqsStorage[sIdx];
+                    for (int c = 0; c < util->seqsLen[nodes[nIdx].second->identifier]; ++c) {
+                        s += util->seqBuf[storage][start+c];
+                    }
+                    query.push_back(s);
+                }
+                Talco_xdrop::Params talco_params(param.match, param.mismatch, param.gapOpen, param.gapExtend, param.xdrop, param.marker);
+                Talco_xdrop::Align (
+                    talco_params,
+                    reference,
+                    query,
+                    aln
+                );
+                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+                    int64_t start = sIdx*util->memLen;
+                    int storeFrom = util->seqsStorage[sIdx];
+                    int storeTo = 1 - util->seqsStorage[sIdx];
+                    int orgIdx = 0;
+                    for (int j = 0; j < aln.size(); ++j) {
+                        if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
+                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                            orgIdx++;
+                        }
+                        else {
+                            util->seqBuf[storeTo][start+j] = '-';
+                        }
+                    }
+                    util->seqsLen[nodes[nIdx].first->identifier] = aln.size();
+                    util->changeStorage(sIdx);
+                }
+                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                    int64_t start = sIdx*util->memLen;
+                    int storeFrom = util->seqsStorage[sIdx];
+                    int storeTo = 1 - util->seqsStorage[sIdx];
+                    int orgIdx = 0;
+                    for (int j = 0; j < aln.size(); ++j) {
+                        if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 1) {
+                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                            orgIdx++;
+                        }
+                        else {
+                            util->seqBuf[storeTo][start+j] = '-';
+                        }
+                    }
+                    util->seqsLen[nodes[nIdx].second->identifier] = aln.size();
+                    util->changeStorage(sIdx);
+                }
+                printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", k, tree->allNodes[nodes[nIdx].first->identifier]->identifier.c_str(), aln.size());
+            }
+            else {
+                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+                    int64_t start = sIdx*util->memLen;
+                    int orgIdx = 0;
+                    int storeFrom = util->seqsStorage[sIdx];
+                    int storeTo = 1 - util->seqsStorage[sIdx];
+                    for (int j = 0; j < hostAlnLen[k]; ++j) {
+                        if ((hostAln[k*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[k*2*seqLen+j] & 0xFFFF) == 2) {
+                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                            orgIdx++;
+                        }
+                        else {
+                            util->seqBuf[storeTo][start+j] = '-';
+                        }
+                    }
+                    util->seqsLen[nodes[nIdx].first->identifier] = hostAlnLen[k];
+                    util->changeStorage(sIdx);
+                }
+                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                    int64_t start = sIdx*util->memLen;
+                    int storeFrom = util->seqsStorage[sIdx];
+                    int storeTo = 1 - util->seqsStorage[sIdx];
+                    int orgIdx = 0;
+                    for (int j = 0; j < hostAlnLen[k]; ++j) {
+                        if ((hostAln[k*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[k*2*seqLen+j] & 0xFFFF) == 1) {
+                            util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                            orgIdx++;
+                        }
+                        else {
+                            util->seqBuf[storeTo][start+j] = '-';
+                        }
+                    }
+                    util->seqsLen[nodes[nIdx].second->identifier] = hostAlnLen[k];
+                    util->changeStorage(sIdx);
+                }
+            }
+            tree->allNodes[nodes[nIdx].first->identifier]->refStartPos = refNum;
+            // std::cout << "LenB : " << nodes[nIdx].first->identifier << '(' << tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() << ')'
+            //                       << nodes[nIdx].second->identifier << '(' << tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size() << ")\n";
+            for (auto q: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) 
+                tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
+            // tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
+            // std::cout << "LenA : " << nodes[nIdx].first->identifier << '(' << tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() << ')'
+            //                       << nodes[nIdx].second->identifier << '(' << tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size() << ")\n";
+            // tree->allNodes[nodes[nIdx].first->identifier]->refStartPos = refNum;
+            // tree->allNodes[nodes[nIdx].first->identifier]->msa.clear();
+            // tree->allNodes[nodes[nIdx].first->identifier]->msa = alignment;
+            
+        }   
+        });  
+
+        auto reAlnEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds reAlnTime = reAlnEnd - reAlnStart;
+        // std::chrono::nanoseconds reAlnTime = reAlnEnd - freqStart - kernelTime;
+        printf("Alignment Time: %d ns\n", r, alignSize, reAlnTime.count());
+        // free memory
+        cudaFree(deviceFreq);
+        cudaFree(deviceAlnLen);
+        cudaFree(deviceAln);
+        cudaFree(deviceParam);
+        cudaFree(deviceSeqInfo);
+        cudaDeviceSynchronize();
+        free(hostFreq);
+        free(hostAlnLen);
+        free(hostAln);
+        free(hostParam);
+        free(hostSeqInfo);
+        
+    }
+    return;
+}
+
+void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
+{
+    // assign msa to all nodes
+    for (auto n: nodes) {
+        if (n.first->children.size()==0) {
+            tree->allNodes[n.first->identifier]->msaIdx.push_back(util->seqsIdx[n.first->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.first->identifier]->msaIdx.size() == 0) {
+                Node* node = tree->allNodes[n.first->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
+                        if (node->children[childIndex]->msaIdx.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.first->identifier]->msaIdx = node->children[childIndex]->msaIdx;
+                        util->seqsLen[n.first->identifier] = util->seqsLen[node->children[childIndex]->identifier];
+                        break;
+                    }
+                }
+            }
+        }
+        if (n.second->children.size()==0) {
+            tree->allNodes[n.second->identifier]->msaIdx.push_back(util->seqsIdx[n.second->identifier]);
+        }
+        else {
+            if (tree->allNodes[n.second->identifier]->msaIdx.size() == 0) {
+                Node* node = tree->allNodes[n.second->identifier];
+                int grpID = node->grpID;
+                for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
+                    if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
+                        if (node->children[childIndex]->msaIdx.size() == 0) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
+                        tree->allNodes[n.second->identifier]->msaIdx = node->children[childIndex]->msaIdx;
+                        util->seqsLen[n.second->identifier] = util->seqsLen[node->children[childIndex]->identifier];
+                        break;
+                    }
+                }
+            }
+        }
+        // for (auto k: tree->allNodes[n.first->identifier]->msaIdx) std::cout << k << ',';
+        // std::cout << '\n';
+        // for (auto k: tree->allNodes[n.second->identifier]->msaIdx) std::cout << k << ',';
+        // std::cout << '\n';
+    }
+
+    int numBlocks = 1024; 
+    int blockSize = 512;
+
+    int gpuNum;
+    cudaGetDeviceCount(&gpuNum); // number of CUDA devices
+    for(int i=0;i<gpuNum;i++) {
+    // Query the device properties. 
+        cudaDeviceProp prop; 
+        cudaGetDeviceProperties(&prop, i);
+        std::cout << "Device ID: "  << i << std::endl;
+        std::cout << "Device Name: " << prop.name << std::endl; 
+    }
+
+    // get maximum sequence/profile length 
+    int32_t seqLen = 0;
+    for (auto n: nodes) {
+        int32_t refLen = util->seqsLen[n.first->identifier];
+        int32_t qryLen = util->seqsLen[n.second->identifier];
+        int32_t tempMax = max(qryLen, refLen);
+        seqLen = max(seqLen, tempMax);
+    }
+    int totalBlocks = numBlocks*gpuNum;
+    int round = nodes.size() / totalBlocks + 1;
+    
+    for (int r = 0; r < round; ++r) {
+        if (nodes.size() - totalBlocks*r == 0) break;
+        int* alignSize = new int[gpuNum];
+        int32_t* seqNum = new int32_t[gpuNum];
+        uint16_t** hostFreq = new uint16_t* [gpuNum];
+        int8_t**   hostAln = new int8_t* [gpuNum];
+        int32_t**  hostLen = new int32_t* [gpuNum];
+        int32_t**  hostAlnLen = new int32_t* [gpuNum];
+        int32_t**  hostSeqInfo = new int32_t* [gpuNum];
+        int16_t**  hostParam =  new int16_t* [gpuNum];
+        uint16_t** deviceFreq = new uint16_t* [gpuNum];
+        int8_t**   deviceAln = new int8_t* [gpuNum];
+        int32_t**  deviceLen = new int32_t* [gpuNum];
+        int32_t**  deviceAlnLen = new int32_t* [gpuNum];
+        int32_t**  deviceSeqInfo = new int32_t* [gpuNum];
+        int16_t**  deviceParam = new int16_t* [gpuNum];
+        for (int gn = 0; gn < gpuNum; ++gn) {
+            int pairsLeft = nodes.size() - r*totalBlocks - gn*numBlocks;
+            if (pairsLeft < 0) alignSize[gn] = 0;
+            else if (pairsLeft < numBlocks) alignSize[gn] = pairsLeft;
+            else alignSize[gn] = numBlocks;
+            seqNum[gn] = 0;
+            hostFreq[gn] = (uint16_t*)malloc(12*seqLen * alignSize[gn] * sizeof(uint16_t));
+            hostAln[gn] = (int8_t*)malloc(2*seqLen * alignSize[gn] * sizeof(int8_t));
+            hostLen[gn] = (int32_t*)malloc(2*alignSize[gn] * sizeof(int32_t));
+            hostAlnLen[gn] = (int32_t*)malloc(alignSize[gn] * sizeof(int32_t));
+            hostSeqInfo[gn] = (int32_t*)malloc(7 * sizeof(int32_t));
+            hostParam[gn] = (int16_t*)malloc(6 * sizeof(int16_t)); 
+        }
+        
+        // int alignSize = (nodes.size() - r*numBlocks) < numBlocks ? (nodes.size() - r*numBlocks) : numBlocks;
+        // if (alignSize == 0) break;
+        // store all sequences to array
+        
+        // int32_t pairNum = alignSize;
+        // std::vector<std::string> seqs;
+        // std::vector<std::vector<uint16_t>> freq;
+        std::vector<std::vector<uint16_t*>> freq;
+        std::vector<std::vector<std::pair<int32_t, int32_t>>> seqIdx;
+        std::vector<std::vector<std::pair<int32_t, int32_t>>> len;
+        // store info to array 
+        auto freqStart = std::chrono::high_resolution_clock::now();
+        for (int gn = 0; gn < gpuNum; ++gn) {
+            if (alignSize[gn] == 0) break;
+            for (int n = 0; n < alignSize[gn]; ++n) {
+                int32_t nIdx = n + r*totalBlocks+gn*numBlocks;
+                int32_t qryIdx = 0;
+                int32_t refIdx = 0;
+                int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+                int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+                refIdx = seqNum[gn];
+                uint16_t *temp = new uint16_t[12*seqLen]; 
+                for (int i = 0; i < 12*seqLen; ++i) temp[i]=0;
+                // assert(temp.size() == 12*seqLen);
+                // tbb::blocked_range<int> rangeRef(0, refLen);
+                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
+                    int64_t start = sIdx*util->memLen;
+                    int storage = util->seqsStorage[sIdx];
+                    tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+                    for (int s = r.begin(); s < r.end(); ++s) {
+                        if      (util->seqBuf[storage][start+s] == 'A' || util->seqBuf[storage][start+s] == 'a') temp[6*s+0]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'C' || util->seqBuf[storage][start+s] == 'c') temp[6*s+1]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'G' || util->seqBuf[storage][start+s] == 'g') temp[6*s+2]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'T' || util->seqBuf[storage][start+s] == 't') temp[6*s+3]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'N' || util->seqBuf[storage][start+s] == 'n') temp[6*s+4]+=1;
+                        else                                                                                     temp[6*s+5]+=1;
+                    }
+                    });
+                    ++seqNum[gn];
+                }
+                qryIdx = seqNum[gn];
+                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
+                    int64_t start = sIdx*util->memLen;
+                    int storage = util->seqsStorage[sIdx];
+                    tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
+                    for (int s = r.begin(); s < r.end(); ++s) {
+                        if      (util->seqBuf[storage][start+s] == 'A' || util->seqBuf[storage][start+s] == 'a') temp[6*(seqLen+s)+0]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'C' || util->seqBuf[storage][start+s] == 'c') temp[6*(seqLen+s)+1]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'G' || util->seqBuf[storage][start+s] == 'g') temp[6*(seqLen+s)+2]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'T' || util->seqBuf[storage][start+s] == 't') temp[6*(seqLen+s)+3]+=1;
+                        else if (util->seqBuf[storage][start+s] == 'N' || util->seqBuf[storage][start+s] == 'n') temp[6*(seqLen+s)+4]+=1;
+                        else                                                                     temp[6*(seqLen+s)+5]+=1;
+                    }
+                    });
+                    ++seqNum[gn];
+                }
+                seqIdx[gn].push_back(std::make_pair(refIdx, qryIdx));
+                len[gn].push_back(std::make_pair(refLen, qryLen));
+                freq[gn].push_back(temp);
+            }
+        }
+
+        auto freqEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds freqTime = freqEnd -freqStart;
+        printf("Calculate frequency time : %d ms\n",  (freqTime.count() / 1000000));
+        // Malloc
+        // uint16_t* hostFreq = (uint16_t*)malloc(12*seqLen * pairNum * sizeof(uint16_t));
+        // int8_t* hostAln = (int8_t*)malloc(2*seqLen * pairNum * sizeof(int8_t));
+        // int32_t* hostLen = (int32_t*)malloc(2*pairNum * sizeof(int32_t));
+        // int32_t* hostAlnLen = (int32_t*)malloc(pairNum * sizeof(int32_t));
+        // int32_t* hostSeqInfo = (int32_t*)malloc(7 * sizeof(int32_t));
+        // int16_t* hostParam = (int16_t*)malloc(6 * sizeof(int16_t)); 
+        auto kernelStart = std::chrono::high_resolution_clock::now();
+        for (int gn = 0; gn < gpuNum; ++gn) {
+            // Store Info to host mem
+            for (int j = 0; j < 2*alignSize[gn]; ++j) { 
+                if (j%2 == 0) hostLen[gn][j] = len[gn][j/2].first;
+                else          hostLen[gn][j] = len[gn][j/2].second;
+            }
+            for (int j = 0; j < alignSize[gn]; ++j) {
+                for (int l = 0; l < 12*seqLen; ++l) {
+                    hostFreq[gn][12*seqLen*j+l] = freq[gn][j][l];
+                }
+            }
+            for (int j = 0; j < 2*seqLen*alignSize[gn]; ++j) { 
+                hostAln[gn][j] = 0;
+            }
+            for (int j = 0; j < alignSize[gn]; ++j) { 
+                hostAlnLen[gn][j] = 0;
+            }
+            hostSeqInfo[gn][0] = seqLen;
+            hostSeqInfo[gn][1] = seqNum[gn];
+            hostSeqInfo[gn][2] = alignSize[gn];
+            hostSeqInfo[gn][3] = numBlocks;
+            hostSeqInfo[gn][4] = blockSize;
+            hostSeqInfo[gn][5] = numBlocks;
+            hostSeqInfo[gn][6] = blockSize;
+            hostParam[gn][0] = param.match;
+            hostParam[gn][1] = param.mismatch;
+            hostParam[gn][2] = param.gapOpen;
+            hostParam[gn][3] = param.gapExtend;
+            hostParam[gn][4] = param.xdrop;
+            hostParam[gn][5] = param.marker;
+
+            cudaSetDevice(gn);
+
+            cudaMalloc((void**)&deviceFreq[gn], 12*seqLen * alignSize[gn] * sizeof(uint16_t));
+            cudaMalloc((void**)&deviceAln[gn], 2*seqLen * alignSize[gn] * sizeof(int8_t));
+            cudaMalloc((void**)&deviceLen[gn], 2*alignSize[gn] * sizeof(int32_t));
+            cudaMalloc((void**)&deviceAlnLen[gn], alignSize[gn] * sizeof(int32_t));
+            cudaMalloc((void**)&deviceSeqInfo[gn], 7 * sizeof(int32_t));
+            cudaMalloc((void**)&deviceParam[gn], 6 * sizeof(int16_t));
+
+            cudaMemcpy(deviceFreq[gn], hostFreq[gn], 12*seqLen * alignSize[gn] * sizeof(uint16_t), cudaMemcpyHostToDevice);
+            cudaMemcpy(deviceAln[gn], hostAln[gn], 2*seqLen * alignSize[gn] * sizeof(int8_t), cudaMemcpyHostToDevice);
+            cudaMemcpy(deviceLen[gn], hostLen[gn], 2*alignSize[gn] * sizeof(int32_t), cudaMemcpyHostToDevice);
+            cudaMemcpy(deviceAlnLen[gn], hostAlnLen[gn], alignSize[gn] * sizeof(int32_t), cudaMemcpyHostToDevice);
+            cudaMemcpy(deviceSeqInfo[gn], hostSeqInfo[gn], 7 * sizeof(int32_t), cudaMemcpyHostToDevice);
+            cudaMemcpy(deviceParam[gn], hostParam[gn], 6 * sizeof(int16_t), cudaMemcpyHostToDevice);
+
+            alignGrpToGrp_talco<<<numBlocks, blockSize>>>(
+                deviceFreq[gn],
+                deviceAln[gn], 
+                deviceLen[gn],
+                deviceAlnLen[gn],
+                deviceSeqInfo[gn], 
+                deviceParam[gn]
+            );
+            cudaDeviceSynchronize();
+            cudaMemcpy(hostAln[gn], deviceAln[gn], 2*seqLen * alignSize[gn] * sizeof(int8_t), cudaMemcpyDeviceToHost);
+            cudaMemcpy(hostAlnLen[gn], deviceAlnLen[gn], alignSize[gn] * sizeof(int32_t), cudaMemcpyDeviceToHost);
+        }
+        for (int gn = 0; gn < gpuNum; ++gn) {
+            cudaSetDevice(gn);
+            cudaDeviceSynchronize();
+        }
+        auto kernelEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
+        
+        int totalPairs = 0;
+        for (int gn = 0; gn < gpuNum; ++gn) totalPairs += alignSize[gn];
+        if (round > 1) {
+            printf("Round. %d align %d pairs. GPU KernelTime: %d ms\n", r, totalPairs, kernelTime.count() / 1000000);
+        }
+        else {
+            std::cout << "GPU KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
+        }
+        auto reAlnStart = std::chrono::high_resolution_clock::now();
+        for (int gn = 0; gn < gpuNum; ++gn) {
+            for (int k = 0; k < alignSize[gn]; ++k) {
+                // std::vector<std::string> alignment;
+                int32_t refNum = seqIdx[gn][k].second - seqIdx[k][gn].first;
+                int32_t qryNum = (k !=  alignSize[gn]-1) ? seqIdx[gn][k+1].first - seqIdx[gn][k].second : seqNum[gn] - seqIdx[gn][k].second;
+                int32_t refStart = seqIdx[gn][k].first;
+                int32_t qryStart = seqIdx[gn][k].second;
+                int32_t refIndex = 0;
+                int32_t qryIndex = 0;
+                int32_t nIdx = k + r*totalBlocks+gn*numBlocks;
+                if (hostAlnLen[gn][k] <= 0) {
+                    std::vector<std::string> reference, query;
+                    std::vector<int8_t> aln;
+                    for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+                        std::string s = "";
+                        int64_t start = sIdx*util->memLen;
+                        int storage = util->seqsStorage[sIdx];
+                        for (int c = 0; c < util->seqsLen[nodes[nIdx].first->identifier]; ++c) {
+                            s += util->seqBuf[storage][start+c];
+                        }
+                        reference.push_back(s);
+                    }
+                    for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                        std::string s = "";
+                        int64_t start = sIdx*util->memLen;
+                        int storage = util->seqsStorage[sIdx];
+                        for (int c = 0; c < util->seqsLen[nodes[nIdx].second->identifier]; ++c) {
+                            s += util->seqBuf[storage][start+c];
+                        }
+                        query.push_back(s);
+                    }
+                    Talco_xdrop::Params talco_params(param.match, param.mismatch, param.gapOpen, param.gapExtend, param.xdrop, param.marker);
+                    Talco_xdrop::Align (
+                        talco_params,
+                        reference,
+                        query,
+                        aln
+                    );
+                    for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+                        int64_t start = sIdx*util->memLen;
+                        int storeFrom = util->seqsStorage[sIdx];
+                        int storeTo = 1 - util->seqsStorage[sIdx];
+                        int orgIdx = 0;
+                        for (int j = 0; j < aln.size(); ++j) {
+                            if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
+                                util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                                orgIdx++;
+                            }
+                            else {
+                                util->seqBuf[storeTo][start+j] = '-';
+                            }
+                        }
+                        util->seqsLen[nodes[nIdx].first->identifier] = aln.size();
+                        util->changeStorage(sIdx);
+                    }
+                    for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                        int64_t start = sIdx*util->memLen;
+                        int storeFrom = util->seqsStorage[sIdx];
+                        int storeTo = 1 - util->seqsStorage[sIdx];
+                        int orgIdx = 0;
+                        for (int j = 0; j < aln.size(); ++j) {
+                            if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 1) {
+                                util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                                orgIdx++;
+                            }
+                            else {
+                                util->seqBuf[storeTo][start+j] = '-';
+                            }
+                        }
+                        util->seqsLen[nodes[nIdx].second->identifier] = aln.size();
+                        util->changeStorage(sIdx);
+                    }
+                    printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", k, tree->allNodes[nodes[nIdx].first->identifier]->identifier.c_str(), aln.size());
+                }
+                else {
+                    for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+                        int64_t start = sIdx*util->memLen;
+                        int orgIdx = 0;
+                        int storeFrom = util->seqsStorage[sIdx];
+                        int storeTo = 1 - util->seqsStorage[sIdx];
+                        for (int j = 0; j < hostAlnLen[gn][k]; ++j) {
+                            if ((hostAln[gn][k*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[gn][k*2*seqLen+j] & 0xFFFF) == 2) {
+                                util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                                orgIdx++;
+                            }
+                            else {
+                                util->seqBuf[storeTo][start+j] = '-';
+                            }
+                        }
+                        util->seqsLen[nodes[nIdx].first->identifier] = hostAlnLen[gn][k];
+                        util->changeStorage(sIdx);
+                    }
+                    for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                        int64_t start = sIdx*util->memLen;
+                        int storeFrom = util->seqsStorage[sIdx];
+                        int storeTo = 1 - util->seqsStorage[sIdx];
+                        int orgIdx = 0;
+                        for (int j = 0; j < hostAlnLen[gn][k]; ++j) {
+                            if ((hostAln[gn][k*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[gn][k*2*seqLen+j] & 0xFFFF) == 1) {
+                                util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                                orgIdx++;
+                            }
+                            else {
+                                util->seqBuf[storeTo][start+j] = '-';
+                            }
+                        }
+                        util->seqsLen[nodes[nIdx].second->identifier] = hostAlnLen[gn][k];
+                        util->changeStorage(sIdx);
+                    }
+                }
+                tree->allNodes[nodes[nIdx].first->identifier]->refStartPos = refNum;
+                // std::cout << "LenB : " << nodes[nIdx].first->identifier << '(' << tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() << ')'
+                //                       << nodes[nIdx].second->identifier << '(' << tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size() << ")\n";
+                for (auto q: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) 
+                    tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
+                // tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
+                // std::cout << "LenA : " << nodes[nIdx].first->identifier << '(' << tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() << ')'
+                //                       << nodes[nIdx].second->identifier << '(' << tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size() << ")\n";
+                // tree->allNodes[nodes[nIdx].first->identifier]->refStartPos = refNum;
+                // tree->allNodes[nodes[nIdx].first->identifier]->msa.clear();
+                // tree->allNodes[nodes[nIdx].first->identifier]->msa = alignment;
+
+            }  
+        }   
+        auto reAlnEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds reAlnTime = reAlnEnd - reAlnStart;
+        printf("Alignment Time: %d ms\n", r, alignSize, reAlnTime.count() / 1000000);
+        for (int gn = 0; gn < gpuNum; ++gn) {
+            // free memory
+            cudaSetDevice(gn);
+            cudaFree(deviceFreq[gn]);
+            cudaFree(deviceAlnLen[gn]);
+            cudaFree(deviceAln[gn]);
+            cudaFree(deviceParam[gn]);
+            cudaFree(deviceSeqInfo[gn]);
+            cudaDeviceSynchronize();
+            free(hostFreq[gn]);
+            free(hostAlnLen[gn]);
+            free(hostAln[gn]);
+            free(hostParam[gn]);
+            free(hostSeqInfo[gn]);        
+        }
+        delete [] alignSize;
+        delete [] seqNum;
+        delete [] deviceFreq;
+        delete [] deviceAlnLen;
+        delete [] deviceAln;
+        delete [] deviceParam;
+        delete [] deviceSeqInfo;
+        delete [] hostFreq;
+        delete [] hostAlnLen;
+        delete [] hostAln;
+        delete [] hostParam;
+        delete [] hostSeqInfo;
+    }
+    return;
+}
+
+
+/*
+void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util)
+{
+    // auto kernelStart = std::chrono::high_resolution_clock::now();
+
+    for (auto n: nodes) {
+        std::cout << tree->allNodes[n.first->identifier]->identifier << ',' << tree->allNodes[n.second->identifier]->identifier << '\n';
+        std::cout << "Level:" << n.first->level << ',' << n.second->level << '\n';
+        if (n.first->parent == nullptr) {
+            tree->allNodes[n.first->identifier]->msaIdx.clear();
+            tree->allNodes[n.first->identifier]->msaIdx = tree->allNodes[n.second->identifier]->msaIdx;
+            break;
+        }
+        bool sameLevel = (n.first->level == n.second->level); 
+        std::vector<bool> allGapsR, allGapsQ;
+        // std::vector<std::string> reference, query;
+        // std::vector<std::string> alignment;
+        // for (auto s: tree->allNodes[n.first->identifier]->msa) reference.push_back(s);
+        // for (auto s: tree->allNodes[n.second->identifier]->msa) query.push_back(s);
+        // int32_t refLen = reference[0].size();
+        // int32_t qryLen = query[0].size();
+        int32_t refLen = util->seqsLen[n.first->identifier];
+        int32_t qryLen = util->seqsLen[n.second->identifier];
+        int32_t refNum = tree->allNodes[n.first->identifier]->msaIdx.size();
+        int32_t qryNum = tree->allNodes[n.second->identifier]->msaIdx.size();
+        int32_t seqLen = max(refLen, qryLen);
+        int32_t refCut = tree->allNodes[n.first->identifier]->refStartPos;
+        int32_t qryCut = tree->allNodes[n.second->identifier]->refStartPos;
+        // Overlapped sequence storage (up, down) = (self, parent)
+        // Ref's level is always less or equal than Qry'level
+        // Merge nodes with the same parent, overlapped sequences = down
+        // Merge node with its parent, overlapped sequences = ref: up, qry: down
+        int32_t overlapNumRef = (n.first->parent == nullptr) ? refNum : (sameLevel) ? refNum - refCut : refCut;
+        int32_t overlapNumQry = qryNum - qryCut;
+        std::cout << refNum << ',' << qryNum << ',' << refLen << ',' << qryLen << '\n';
+        std::cout << refCut << ',' << qryCut << ',' << overlapNumRef << ',' << overlapNumQry << '\n';
+        if ((overlapNumRef == qryNum || overlapNumQry == refNum) && tree->allNodes[n.first->identifier]->parent != nullptr) continue; 
+        assert(overlapNumRef == overlapNumQry);
+
+        // for (int i = 0; i < refNum + qryNum - overlapNumRef; ++i) alignment.push_back("");
+
+        auto calGapStart = std::chrono::high_resolution_clock::now();
+        
+        for (int i = 0; i < seqLen; ++i) {
+            if (i < refLen) {
+                bool allGaps = true;
+                int refStart = (sameLevel) ? refCut : 0;
+                for (int j = refStart; j < refStart+overlapNumRef; ++j) {
+                    int sIdx = tree->allNodes[n.first->identifier]->msaIdx[j];
+                    int64_t start = sIdx*util->memLen;
+                    int store = util->seqsStorage[sIdx];
+                    if (util->seqBuf[store][i] != '-') {
+                        allGaps = false;
+                        break;
+                    }
+                    // if (reference[j][i] != '-') {
+                    //     allGaps = false;
+                    //     break;
+                    // }
+                }
+                allGapsR.push_back(allGaps);
+            }
+            if (i < qryLen) {
+                bool allGaps = true;
+                int qryStart = qryCut;
+                for (int j = qryStart; j < qryStart+overlapNumQry; ++j) {
+                    int sIdx = tree->allNodes[n.second->identifier]->msaIdx[j];
+                    int64_t start = sIdx*util->memLen;
+                    int store = util->seqsStorage[sIdx];
+                    if (util->seqBuf[store][i] != '-') {
+                        allGaps = false;
+                        break;
+                    }
+                    // if (query[j][i] != '-') {
+                    //     allGaps = false;
+                    //     break;
+                    // }
+                }
+                allGapsQ.push_back(allGaps);
+            }
+        }
+        auto calGapEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds calGapTime = calGapEnd - calGapStart;
+        std::cout << "CalGapTime "<< calGapTime.count() / 1000000<< " ms\n";
+        // std::cout << std::count (allGapsR.begin(), allGapsR.end(), true) << '\n';
+        // std::cout << std::count (allGapsQ.begin(), allGapsQ.end(), true) << '\n';
+        // int32_t rIdx = 0, qIdx = 0;
+        assert(allGapsR.size() == refLen);
+        assert(allGapsQ.size() == qryLen);
+        auto mergeStart = std::chrono::high_resolution_clock::now();
+        for (auto sIdx: tree->allNodes[n.first->identifier]->msaIdx) {
+            int32_t rIdx = 0, qIdx = 0;
+            int64_t start = sIdx*util->memLen;
+            int newIdx = 0;
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - util->seqsStorage[sIdx];
+            while (rIdx < refLen && qIdx < qryLen) {
+                if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
+                    util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+rIdx];
+                    qIdx++;rIdx++;newIdx++;
+                }
+                else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
+                    int consecGap = 0;
+                    int k = rIdx;
+                    while (allGapsR[k] && k < refLen) {
+                        ++consecGap;
+                        ++k;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+rIdx];
+                        rIdx++;newIdx++;
+                    }
+                }
+                else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
+                    int consecGap = 0;
+                    int k = qIdx;
+                    while (allGapsQ[k] && k < qryLen) {
+                        ++consecGap;
+                        ++k;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = '-';
+                        qIdx++;newIdx++;
+                    }
+                }
+                else {
+                    int consecGap = 0;
+                    int kr = rIdx, kq = qIdx;
+                    while (allGapsR[kr] && kr < refLen) {
+                        ++consecGap;
+                        ++kr;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+rIdx];
+                        rIdx++;newIdx++;
+                    }
+                    consecGap = 0;
+                    while (allGapsQ[kq] && kq < qryLen) {
+                        ++consecGap;
+                        ++kq;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = '-';
+                        qIdx++;newIdx++;
+                    }
+                }
+            }
+            if (rIdx < refLen) {
+                for (size_t g = rIdx; g < refLen; ++g) {
+                    util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+g];
+                    newIdx++;          
+                }
+            }
+            if (qIdx < qryLen) {
+                for (size_t g = qIdx; g < qryLen; ++g) {
+                    util->seqBuf[storeTo][start+newIdx] = '-';
+                    newIdx++;   
+                }
+            }
+            util->seqsLen[n.first->identifier] = newIdx;
+            util->changeStorage(sIdx);
+        }
+        for (auto sIdx: tree->allNodes[n.second->identifier]->msaIdx) {
+            int32_t rIdx = 0, qIdx = 0;
+            int64_t start = sIdx*util->memLen;
+            int newIdx = 0;
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - util->seqsStorage[sIdx];
+            while (rIdx < refLen && qIdx < qryLen) {
+                if (allGapsR[rIdx] == false && allGapsQ[qIdx] == false) {
+                    util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+qIdx];
+                    qIdx++;rIdx++;newIdx++;
+                }
+                else if (allGapsR[rIdx] == true && allGapsQ[qIdx] == false) {
+                    int consecGap = 0;
+                    int k = rIdx;
+                    while (allGapsR[k] && k < refLen) {
+                        ++consecGap;
+                        ++k;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = '-';
+                        rIdx++;newIdx++;
+                    }
+                }
+                else if (allGapsR[rIdx] == false && allGapsQ[qIdx] == true) {
+                    int consecGap = 0;
+                    int k = qIdx;
+                    while (allGapsQ[k] && k < qryLen) {
+                        ++consecGap;
+                        ++k;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+qIdx];
+                        qIdx++;newIdx++;
+                    }
+                }
+                else {
+                    int consecGap = 0;
+                    int kr = rIdx, kq = qIdx;
+                    while (allGapsR[kr] && kr < refLen) {
+                        ++consecGap;
+                        ++kr;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = '-';
+                        rIdx++;newIdx++;
+                    }
+                    consecGap = 0;
+                    while (allGapsQ[kq] && kq < qryLen) {
+                        ++consecGap;
+                        ++kq;
+                    }
+                    for (size_t g = 0; g < consecGap; ++g) {
+                        util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+qIdx];
+                        qIdx++;newIdx++;
+                    }
+                }
+            }
+            if (rIdx < refLen) {
+                for (size_t g = rIdx; g < refLen; ++g) {
+                    util->seqBuf[storeTo][start+newIdx] = '-';
+                    newIdx++;          
+                }
+            }
+            if (qIdx < qryLen) {
+                for (size_t g = qIdx; g < qryLen; ++g) {
+                    util->seqBuf[storeTo][start+newIdx] = util->seqBuf[storeFrom][start+g];
+                    newIdx++;   
+                }
+            }
+            util->seqsLen[n.first->identifier] = newIdx;
+            util->changeStorage(sIdx);
+        }
+
+        printf("refLen:%d, qryLen:%d, alnLen: %d\n", refLen, qryLen, util->seqsLen[n.first->identifier]);
+        
+        
+        tree->allNodes[n.first->identifier]->refStartPos = qryCut + refCut;
+        std::vector<int> tempMSAIdx;
+        for (int i = 0; i < qryCut; i++) tempMSAIdx.push_back(tree->allNodes[n.second->identifier]->msaIdx[i]);
+        for (int i = 0; i < refNum; i++) tempMSAIdx.push_back(tree->allNodes[n.first->identifier]->msaIdx[i]);
+        tree->allNodes[n.first->identifier]->msaIdx.clear();
+        tree->allNodes[n.first->identifier]->msaIdx =tempMSAIdx;
+        auto mergeEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
+        std::cout << "MergeTime "<< mergeTime.count() / 1000000<< " ms\n";
+        // std::cout << "Check (Length, SeqNum) = ("<< alignment[0].size() << ", " << alignment.size() << ')' << '\n';
+    }
+    
+    // auto kernelEnd = std::chrono::high_resolution_clock::now();
+    // std::chrono::nanoseconds kernelTime = kernelEnd - kernelStart;
+    // std::cout << "RunTime "<< kernelTime.count() / 1000<< " us\n";
+
+    return;
+}
+*/
 
 void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode) {
     int hierIdx = 0;
@@ -1838,17 +2486,33 @@ __global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result) {
 
 }
 
-double getSPScore_gpu(std::vector<std::string>& alignment, Params& param) {
+double getSPScore_gpu(std::vector<std::string>& alignment, msa::utility* util, Params& param) {
     auto scoreStart = std::chrono::high_resolution_clock::now();
     int numBlocks = 1024;
     int blockSize = 512;
+    // size_t seqNum = util->memNum;
+    // size_t seqLen = util->seqsLen["node_1"];
     size_t seqNum = alignment.size();
     size_t seqLen = alignment[0].size();
+    
     printf("(Num, Len) - (%d, %d)\n", seqNum, seqLen);
+    
     char*    hostSeqs = (char*)malloc(seqLen * seqNum * sizeof(char));
     int32_t* hostSeqInfo = (int32_t*)malloc(7 * sizeof(int32_t));
     int64_t* hostResult = (int64_t*)malloc(numBlocks * sizeof(int64_t));
     int seqCount = 0;
+    // for (auto seq: util->seqs) {
+    //     int sIdx = util->seqsIdx[seq.first]; 
+    //     std::cout << sIdx << '\n';
+    //     int storage = util->seqsStorage[sIdx];
+    //     int start = sIdx*util->memLen;
+    //     for (int j = 0; j < seqLen; ++j) {
+    //         if (j > seqLen-100 && j < seqLen) std::cout << util->seqBuf[storage][start+j];
+    //         hostSeqs[start+j] = util->seqBuf[storage][start+j];
+    //         // if (j > seqLen-100 && j < seqLen) std::cout << hostSeqs[start+j];
+    //     }
+    //     std::cout << '\n';
+    // }
     for (int j = 0; j < seqLen*seqNum; ++j) { 
         if (j%seqLen < alignment[seqCount].size()) {
             hostSeqs[j] = alignment[seqCount][j%seqLen];
@@ -1898,7 +2562,7 @@ double getSPScore_gpu(std::vector<std::string>& alignment, Params& param) {
     auto scoreEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds scoreTime = scoreEnd - scoreStart;
     
-    printf("GPU score: %f, Runtime %d ms\n", score, scoreTime.count() / 1000000);
+    // printf("GPU score: %f, Runtime %d ms\n", score, scoreTime.count() / 1000000);
     
     cudaFree(deviceSeqs);
     cudaFree(deviceSeqInfo);
