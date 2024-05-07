@@ -5,7 +5,7 @@
 #include <string>
 #include <boost/program_options.hpp> 
 #include <tbb/parallel_for.h>
-#include <omp.h>
+
 
 #include "../src/kseq.h"
 #include "zlib.h"

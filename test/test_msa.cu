@@ -18,15 +18,15 @@ void parseArguments(int argc, char** argv)
     // Setup boost::program_options
     mainDesc.add_options()
         ("tree,t", po::value<std::string>()->required(), "Initial Tree - Newick format (required)")
-        ("sequences,s", po::value<std::string>()->required(), "Tip sequences - Fasta format (required)")
+        ("sequences,i", po::value<std::string>()->required(), "Input tip sequences - Fasta format (required)")
         ("machine,m",  po::value<std::string>()->default_value("gpu"), "Run on gpu or cpu")
         ("num-threads,c",  po::value<int>()->default_value(0), "Number of CPU threads")
-        ("max-leaves,l",  po::value<int>()->default_value(200), "Maximum number of leaves per subtree")
-        ("sp-score,p",  po::value<std::string>()->default_value("false"), "Calculate the sum-of-pairs score (True, False, Only)")
+        ("max-leaves,l",  po::value<int>()->default_value(0), "Maximum number of leaves per subtree")
+        ("sp-score,s",  po::value<std::string>()->default_value("false"), "Calculate the sum-of-pairs score (True, False, Only)")
         ("output,o", po::value<std::string>()->default_value(""), "Output file name")
         ("match",    po::value<int>()->default_value(2), "Match score")
         ("mismatch", po::value<int>()->default_value(-1), "Mismatch penalty")
-        ("gap-open", po::value<int>()->default_value(-2), "Gap open penalty")
+        ("gap-open", po::value<int>()->default_value(-3), "Gap open penalty")
         ("gap-extend", po::value<int>()->default_value(-1), "Gap extend penalty")
         ("xdrop", po::value<int>()->default_value(0), "X-drop value")
         ("help,h", "Print help messages");
@@ -76,11 +76,21 @@ void readSequences(po::variables_map& vm, msa::utility* util)
     std::cout << "Sequences read in: " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
 
+bool cmp(std::string a, std::string b) {
+    if (a.size() != b.size()) return a.size() < b.size();
+    return a < b;
+}
+
 void outputFile(std::string fileName, msa::utility* util) {
     std::ofstream outFile(fileName);
-    for (auto seq: util->seqs) {
-        outFile << '>' << seq.first << "\n";
-        int sIdx = util->seqsIdx[seq.first]; 
+    std::vector<std::string> seqs;
+    for (auto seq: util->seqs) seqs.push_back(seq.first);
+    std::sort(seqs.begin(), seqs.end(), cmp);
+    for (int s = 0; s < seqs.size(); ++s) {
+        // outFile << '>' << seq.first << "\n";
+        // int sIdx = util->seqsIdx[seq.first]; 
+        outFile << '>' << seqs[s] << "\n";
+        int sIdx = util->seqsIdx[seqs[s]]; 
         int storage = util->seqsStorage[sIdx];
         int start = sIdx*util->memLen;
         int i = 0;
@@ -88,11 +98,11 @@ void outputFile(std::string fileName, msa::utility* util) {
             outFile << util->seqBuf[storage][start+i];
             ++i;
         }
+        // std::cout << seq.first << ':' << i << '\n'; 
         outFile << '\n';
     }
     outFile.close();
 }
-
 
 int main(int argc, char** argv) {
 
@@ -132,20 +142,26 @@ int main(int argc, char** argv) {
     // Read Tree (Newick String)
     // std::cout << "Start read tree...\n";
     Tree* T = readNewick(vm);
+    // Read Input Sequences (Fasta format)
+    readSequences(vm, util);
+
+    if (T->m_numLeaves != util->seqs.size()) {
+        fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences\n"); 
+        exit(1);
+    }
     
     // printTree(T->root);
 
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
-    
     int maxSubtreeSize = vm["max-leaves"].as<int>();
+    if (maxSubtreeSize == 0) maxSubtreeSize = INT_MAX;
     paritionInfo_t * partition = new paritionInfo_t(maxSubtreeSize, 0, "centroid");
     partitionTree(T->root, partition);
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
     std::cout << "Partition the tree in: " <<  treeBuiltTime.count() << " ns\n";
 
-    // Read Input Sequences (Fasta format)
-    readSequences(vm, util);
+    
 
     int mat = vm["match"].as<int>();
     int mis = vm["mismatch"].as<int>();
@@ -230,6 +246,18 @@ int main(int argc, char** argv) {
     }
     
     int level = 0;
+    if (machine == "gpu" || machine == "GPU" || machine == "Gpu") {
+        int gpuNum;
+            cudaGetDeviceCount(&gpuNum); // number of CUDA devices
+            printf("Print GPU information\n");
+            for(int i=0;i<gpuNum;i++) {
+            // Query the device properties. 
+            cudaDeviceProp prop; 
+            cudaGetDeviceProperties(&prop, i);
+            std::cout << "Device ID: "  << i << std::endl;
+            std::cout << "Device Name: " << prop.name << std::endl; 
+        }
+    }
     for (auto m: hier) {
         std::cout << "Aln level: " << level << '\n';
         auto alnStart = std::chrono::high_resolution_clock::now();

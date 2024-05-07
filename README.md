@@ -17,7 +17,7 @@ make msa-gpu
 ```
 ### Run
 ```
-./msa-gpu -t ../dataset/sars_2000.nwk -s ../dataset/sars_2000.fa 
+./msa-gpu -t ../dataset/sars_2000.nwk -i ../dataset/sars_2000.fa 
 ```
 
 

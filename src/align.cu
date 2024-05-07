@@ -764,7 +764,6 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
     // int gs = gridDim.x;
     // int tidx = bx*bs+tx;
 
-    // const size_t threadNum = 128;
     const int fLen = 512; // frontier length (assuming anti-diagonal length cannot exceed 1024)
     const int16_t reducedValue = (1 << 14);
     
@@ -782,15 +781,19 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
         __shared__ int32_t CI [2*fLen];
         __shared__ int16_t D  [2*fLen];
         __shared__ int32_t CD [2*fLen];
-        __shared__ int8_t tb  [32*fLen]; // May be improved to 4 bit
-        __shared__ uint32_t idx [2]; 
+        __shared__ int8_t tb  [128*128]; // May be improved to 4 bit
+        __shared__ uint32_t idx [1]; 
         // [0] reference_idx
         // [1] query_idx
-        // [2] globalAlnIdx
         __shared__ int16_t max_score_list [fLen]; 
+        // __shared__ int16_t max_score_marker_list [128]; 
+        // __shared__ int16_t max_score_marker_qIdx [128]; 
+        // __shared__ int8_t  max_score_marker_ptr [128]; 
         __shared__ int16_t max_score;
+        // __shared__ int32_t max_score_marker_addr_minus_i;
         __shared__ uint16_t reducedTimes;
         __shared__ bool last_tile;
+        __shared__ bool xdrop;
         __shared__ bool converged; 
         __shared__ bool conv_logic;
         
@@ -798,16 +801,7 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
         int32_t seqNum = seqInfo[1];
         int32_t refLen = len[2*bx];
         int32_t qryLen = len[2*bx+1];
-        // int32_t refStartIdx = seqIdx[2*bx];
-        // int32_t qryStartIdx = seqIdx[2*bx+1];
-        // int32_t refNum = seqIdx[2*bx+1] - seqIdx[2*bx];
-        // int32_t qryNum = 0; 
-        // if (bx == pairNum-1) qryNum = seqNum - seqIdx[2*bx+1];
-        // else                 qryNum = seqIdx[2*bx+2] - seqIdx[2*bx+1]; 
 
-        // if (tx == 0) printf("refNum: %d, qryNum: %d\n", refNum, qryNum);
-        // if (tx == 0 && bx == 4) printf("refLen: %d, qryLen: %d\n", refLen, qryLen);
-       
         int16_t p_match = param[0];
         int16_t p_mismatch = param[1];
         int16_t p_gapOpen = param[2];
@@ -824,7 +818,6 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
         // initialize global values
         if (tx == 0) {
             last_tile = false;
-            // no_converge = false;
         } 
         if (tx < 3) {
             idx[tx] = 0;
@@ -847,6 +840,7 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
             int16_t max_score_prime = -(p_xdrop+1);
             int32_t max_score_start_addr; 
             int32_t max_score_start_ftr;
+            
             // int32_t max_score_ref_idx;    
             // int32_t max_score_query_idx;
             int16_t tb_idx = 0;
@@ -867,6 +861,7 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                 max_score = 0;
                 converged = false;
                 conv_logic = false;
+                xdrop = false;
             }
             // __syncthreads();
             int32_t conv_score = 0; 
@@ -903,6 +898,9 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                         // max_score_ref [i] = 0; 
                         // max_score_query [i] = 0;
                     }
+                    // if (i < fLen/4) {
+                    //     max_score_marker_list [i] = -(p_xdrop+1); 
+                    // }
                 }
             }
             __syncthreads();
@@ -916,14 +914,22 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                     // max_score_query[tx] = 0;
                 }
                 __syncthreads();
-                // if (tx == 0) printf("k: %d\n", k);
+                // if (bx == 45 && tx == 0) printf("tile: %d, k: %d, len: %d, L: %d, U: %d, last_k: %d\n", tile, k, alnLen[bx], L[k%3]+1, U[k%3], last_k);
                 // if (tidx == 0) printf("ref+qry: %d\n", reference_length + query_length - 1);
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
-                    if (tx == 0) printf("No.%d No more cells to compute based on x-drop critieria, align length = %d\n", bx, alnLen[bx]);
-                    // if (tx == 0) last_tile = true;
+                    if (tx == 0) {
+                        printf("No.%d No more cells to compute based on x-drop critieria, align length = %d, k = %d\n", bx, alnLen[bx], k);
+                        float threshold = 0.9;
+                        int minLen = min(refLen, qryLen);
+                        if (alnLen[bx] < static_cast<int32_t>(threshold*minLen)) {
+                            xdrop = true;
+                            last_tile = true;
+                        }
+                    }
                     __syncthreads();
                     break;
                 }
+                // if (bx == 45 && tx == 0) printf("tile: %d, k: %d, len: %d, L: %d, U: %d, last_k: %d\n", tile, k, alnLen[bx], L[k%3]+1, U[k%3], last_k);
                 if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
                     if (tx == 0) printf("No.%d ERROR: anti-diagonal larger than the max limit!\n", bx);
                     if (tx == 0) last_tile = true;
@@ -968,12 +974,16 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                 __syncthreads();
                 
                 // if (tx == 0 && bx == 1 && tile >= 462) printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n",tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
+                // if (tx == 0 && bx == 42 && tile == 0) printf("DEBIG1\n");
                 int32_t leftGrid = U[k%3]+1-L[k%3];
                 if (tx < leftGrid) {
                     int16_t i=L[k%3]+tx;
                     int16_t Lprime = max(0, static_cast<int16_t>(k)-static_cast<int16_t>(reference_length) + 1);
                     int16_t j= min(static_cast<int16_t>(k), static_cast<int16_t>(reference_length - 1)) - (i-Lprime);
-                    if (j < 0) if (tx == 0) { printf("ERROR: j less than 0.\n");}
+                    // int16_t Lprime = max(0, static_cast<int16_t>(k)-static_cast<int16_t>(query_length) + 1);
+                    // int16_t j= min(static_cast<int16_t>(k), static_cast<int16_t>(query_length - 1)) - (i-Lprime);
+                    
+                    if (j < 0) { printf("tx: %d, ERROR: j less than 0.\n", tx);}
                     int16_t match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
                     int32_t offset = i-L[k%3];
                     int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
@@ -1083,6 +1093,9 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                         CS[(k%3)*fLen+offset] = (0 << 16) | (i & 0xFFFF);  // to extract value use (CS[k%3][offset] & 0xFFFF)
                         CI[(k%2)*fLen+offset] = (1 << 16) | (i & 0xFFFF);
                         CD[(k%2)*fLen+offset] = (2 << 16) | (i & 0xFFFF);
+                        // max_score_marker_list[tx] = score;
+                        // max_score_marker_qIdx[tx] = i;
+                        // max_score_marker_ptr[tx] = ptr;
                     } 
                     else if (k >= p_marker + 1){
                         if (Iptr) {
@@ -1121,6 +1134,7 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                     // if (tidx == 0) printf("After KK idx0: %d, idx1: %d\n", ftr_length_idx, ftr_lower_limit_idx);
                 }
                 __syncthreads();
+                // if (tx == 0 && bx == 42 && tile == 0) printf("DEBIG2\n");
                 // Calculate Max
                 for (uint32_t r = fLen/2; r > 0; r >>= 1) {
                     if (tx < r) {
@@ -1143,8 +1157,19 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                     }
                 }
                 __syncthreads();
-
-
+                // if (tx == 0 && bx == 42 && tile == 0) printf("DEBIG3\n");
+                // if (k == p_marker) {
+                //     if (tx == 0) max_score_marker_addr_minus_i = ftr_addr - (U[k%3] - L[k%3] + 1)  + L[k%3];
+                //     for (uint32_t r = fLen/4/2; r > 0; r >>= 1) {
+                //         if (tx < r) {
+                //             max_score_marker_list[tx]  = (max_score_marker_list[tx+r] > max_score_marker_list[tx]) ? max_score_marker_list[tx+r] : max_score_marker_list[tx];
+                //             max_score_marker_qIdx[tx]  = (max_score_marker_list[tx+r] > max_score_marker_list[tx]) ? max_score_marker_qIdx[tx+r] : max_score_marker_qIdx[tx];
+                //             max_score_marker_ptr[tx]   = (max_score_marker_list[tx+r] > max_score_marker_list[tx]) ? max_score_marker_ptr[tx+r] : max_score_marker_ptr[tx];
+                //         }
+                //         __syncthreads();
+                //     }
+                // }
+                __syncthreads();
                 if (k <= p_marker){
                     tb_idx += (int)leftGrid;
                 }
@@ -1172,7 +1197,7 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
         
                 L[(k+1)%3] = max(newL, Lprime);
                 U[(k+1)%3] = min(v1, v3); 
-        
+                // if (tx == 0 && bx == 42 && tile == 0) printf("DEBIG4\n");
                 // if (tidx == 0) printf("DEBUG4: L: %d, %d, %d, U:%d, %d, %d\n", L[k%3], L[(k+1)%3], L[(k+2)%3], U[k%3], U[(k+1)%3], U[(k+2)%3]);
                 // printf("DEBUG5 L: %d, %d, %d, U:%d, %d, %d\n", sL[k%3], sL[(k+1)%3], sL[(k+2)%3], sU[k%3], sU[(k+1)%3], sU[(k+2)%3]);
         
@@ -1224,22 +1249,16 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                     }
                 }
                 __syncthreads();
+                // if (tx == 0 && bx == 42 && tile == 0) printf("DEBIG5\n");
                 last_k = k;
                 if (conv_logic) break;
             }
             __syncthreads();
-            // if (tx == 0) printf("DEBUG: break 2\n");
             if (tx == 0) {
-                // printf("Frontier addr: %d \ntb_start_ftr: %d\nmarker: %d\n", ftr_addr, ftr_length_idx, p_marker);
                 int32_t conv_ref_idx = 0; 
                 int32_t conv_query_idx = 0;
                 int32_t tb_start_addr = 0; 
                 int32_t tb_start_ftr = 0;  
-                // printf("ftr_addr: %d\n", ftr_addr);
-                // printf("ftr_l_idx: %d\n", ftr_length_idx);
-                // printf("ftr[]: %d\n", ftr_length[ftr_length_idx - 1]);
-                // printf("limit_idx: %d\n", ftr_lower_limit_idx);
-                // printf("limit[]: %d\n", ftr_lower_limit[ftr_lower_limit_idx - 1]);
                 if (conv_logic) {       
                     conv_query_idx = conv_value & 0xFFFF;
                     tb_state = (conv_value >> 16) & 0xFFFF;
@@ -1249,20 +1268,18 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                     tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + (conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2]) : 
                                                       tb_start_addr +  (conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]);
                     tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
-                    // if (DEBUG) std::cout <<  " conv query idx: " << conv_query_idx << " " << (tb_state&0xFFFF) << " " << conv_ref_idx << " " << conv_value << std::endl;
-                    // if (bx == 4 && tile == 100) printf(" conv query idx: %d, %d, %d, %d\n", conv_query_idx ,(tb_state&0xFFFF) ,conv_ref_idx , conv_value );
-                
                 } 
                 else {
-                    // int32_t last_k = reference_length + query_length - 2;
-                    // printf("k: %d, Convergence Unique Id's: %d, %d, %d\n", last_k, CS[(last_k%3)*fLen], CI[(last_k%3)*fLen], CD[(last_k%3)*fLen]);
                     if (last_tile == true) {
                         conv_query_idx = 0;
                         conv_ref_idx = 0;
                         tb_start_addr = 0;
                         tb_start_ftr = -1;
                         tb_state = 0; 
-                        alnLen[bx] = 0;
+                        // alnLen[bx] = 0;
+                        if (!xdrop) alnLen[bx] = 0;
+                        else        alnLen[bx] = -100;
+                        // if (bx == 45) printf("op 1\n");
                     }
                     else if (last_k < p_marker) {
                         conv_query_idx = query_length-1;
@@ -1270,9 +1287,18 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                         tb_start_addr = ftr_addr-1;
                         tb_start_ftr = last_k;
                         tb_state = 0;
-                        last_tile = true;    
+                        last_tile = true;   
+                        // if (bx == 45) printf("op 2\n"); 
                     }
+                    // else if (xdrop == true) {
+                    //     conv_query_idx = max_score_marker_qIdx[0];
+                    //     conv_ref_idx = p_marker - max_score_marker_qIdx[0];
+                    //     tb_start_addr = max_score_marker_addr_minus_i + conv_query_idx;
+                    //     tb_start_ftr =  p_marker;
+                    //     tb_state = max_score_marker_ptr[0];
+                    // }
                     else {
+                        // if (bx == 45) printf("op 3 last_k %d\n", last_k);
                         conv_query_idx = CS[(last_k%3)*fLen] & 0xFFFF;
                         tb_state = (CS[(last_k%3)*fLen] >> 16) & 0xFFFF;
                         conv_ref_idx = p_marker - conv_query_idx; 
@@ -1281,23 +1307,8 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                         tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + (conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2]) : 
                                                           tb_start_addr +  (conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]);
                         tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
-                        // conv_query_idx = max_score_query_idx;
-                        // conv_ref_idx = max_score_ref_idx;
-                        // tb_start_addr = max_score_start_addr;
-                        // tb_start_ftr = max_score_start_ftr;
                     }
-                    
-                    // if (bx == 1 && tx == 0 && tile >= 462) printf("MAX: qry: %d, ref: %d, addr:%d, ftr:%d\n", max_score_query_idx, max_score_ref_idx, max_score_start_addr, max_score_start_ftr);
-                    // if (bx == 1 && tx == 0 && tile >= 462) printf("MAX: qry: %d, ref: %d, addr:%d, ftr:%d\n", conv_query_idx, conv_ref_idx, tb_start_addr , tb_start_ftr);
-                    // if (bx == 1 && tx == 0 && tile >= 462) printf("MAX: qryLen: %d, refLen: %d\n", query_length, reference_length);
-                    
                 }
-                // printf("Before: refidx: %d, qryidx:%d\n", reference_idx, query_idx);
-                // printf("After: convref: %d, convqry:%d\n", conv_ref_idx, conv_query_idx);
-                // printf("After: refidx: %d, qryidx:%d\n", reference_idx, query_idx);
-                // Start Traceback
-                // printf("DEBUG: break 3\n");
-                // Traceback(ftr_length, ftr_lower_limit, tb_start_addr, tb_start_ftr, (tb_state%3), conv_query_idx, conv_ref_idx, tb, aln);
                 int32_t addr = tb_start_addr; 
                 int16_t ftr = tb_start_ftr;
                 int16_t traceback_idx = conv_query_idx;
@@ -1306,23 +1317,17 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                 int8_t  tb_value = 0;
                 state = tb_state%3;
                 int8_t  dir = 0;
-                // bool checkpoint = false;
-                // int count = 0;
-                // if(tile == 155) printf("ftr: %d\n", ftr);
-                // if(tile == 155) printf("state: %d\n", tb_state);
-                // if(tile == 155) printf("addr: %d\n", addr);
-                // if(tile == 155) printf("aln_idx: %d\n", aln_idx);
-                // if(tile == 155) printf("dir: %d\n", dir);
-                // if(tile == 155) printf("traceback_idx: %d\n", traceback_idx);
+                // if(xdrop) printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d\n", addr, (state & 0xFFFF), ftr, qry_idx , ftr_lower_limit[ftr]);
                 while (ftr >= 0) {
-                    // printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d\n", addr, (state & 0xFFFF), ftr, idx , ftr_lower_limit[ftr]);
                     if (addr < 0) {
                         printf("ERROR: tb addr < 0 (%d)!\n", addr);
                         // exit(1);
                         break;
                     }
                     // count++;
+                    // if (bx == 45) printf("ERROR: tb addr (%d)!\n", addr);
                     tb_value = tb[addr];
+                    // if (bx == 45) printf("ERROR: After tb addr (%d)!\n", addr);
                     if (state == 0) { // Current State M
                         state = tb_value & 0x03;
                         if (state == 0) {
@@ -1361,7 +1366,6 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                             state = 0;
                         }
                     }
-                    // if (tile == 0) printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d, tb_value: %d, dir: %d, aln_idx: %d\n", addr, (state & 0xFFFF), ftr, traceback_idx , ftr_lower_limit[ftr], tb_value, dir, aln_idx);
                     addr = addr - (traceback_idx  - ftr_lower_limit[ftr] + 1) - (ftr_length[ftr - 1]);
 
                     if (dir == 0) {
@@ -1387,26 +1391,18 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
                     // state = next_state;
                     // if (DEBUG)  std::cout << " Final State: " << (state&0xFF) << " End Addr: " << addr << " index:" << ref_idx << ", " << query_idx << std::endl;
                 }
-                // std::cout << count << std::endl;   
-
-                // if (DEBUG) std::cout << ref_idx << " " << qry_idx << std::endl; 
                 
                 state = tb_state % 3;
 
                 // Write global memory
                 int32_t refIndex = reference_idx;
                 int32_t qryIndex = query_idx;
-                // reference_idx += conv_query_idx;
-                // query_idx += conv_ref_idx;
                 reference_idx += conv_ref_idx;
                 query_idx += conv_query_idx;
-                // if (bx == 4 && tx == 0 ) printf("TB: tile: %d, refidx: %d, qryidx:%d, last:%d\n", tile, reference_idx, query_idx, last_tile);
-                // printf("TB: tile: %d, refidx: %d, qryidx:%d, globalAln: %d, aln_idx: %d\n", tile, reference_idx, query_idx, globalAlnIdx, aln_idx);
             }
             __syncthreads();
             int32_t numRound = aln_idx / threadNum + 1;
             int32_t lastRound = aln_idx % threadNum;
-            // int16_t globalAlnIdx = idx[2];
             int32_t alnStartIdx = bx * 2 * seqLen + alnLen[bx];
             for (int round = 0; round < numRound; ++round) {
                 int txNum = (round == numRound - 1) ? lastRound : threadNum;
@@ -1450,7 +1446,6 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
             if (tx == 0) {
                 idx[0] = reference_idx;
                 idx[1] = query_idx;
-                // idx[2] = globalAlnIdx;
             }
             __syncthreads();
             tile++;
@@ -1460,6 +1455,249 @@ __global__ void alignGrpToGrp_talco(/*char *seqs, */ uint16_t* freq, int8_t *aln
         // TODO: Add score to debug
         // score = Score(params, aln, reference[n], query[n], reference_idx, query_idx);
     }
+    return;
 
+}
+
+
+int8_t updateState(STATE& currentHState, STATE& currentIState, STATE& currentDState)
+{
+    int8_t currentState = 0;
+    switch (currentHState)
+    {
+    case STATE::HI:
+        currentState = (currentState | 0x01); break;
+    case STATE::HD:
+        currentState = (currentState | 0x02); break;
+    default: 
+        currentState = currentState; break;
+    }
+
+    switch (currentIState)
+    {
+    case STATE::II:
+        currentState = (currentState | 0x04);  break;
+    default:
+        currentState = currentState; break;
+    }
+    
+    switch (currentDState)
+    {
+    case STATE::DD:
+        currentState = (currentState | 0x08); break;
+    default:
+        currentState = currentState; break;
+    }
+    return currentState;
+}
+
+void tracebackGrpToGrp (int8_t state, std::vector<int8_t>& TB, std::vector<int32_t>& wfLL, std::vector<int32_t>& wfLen, std::vector<int8_t>& aln, int32_t refLen, int32_t queryLen) {
+
+    int32_t refIndex = refLen-1;
+    int32_t queryIndex = queryLen-1;
+    
+    int32_t k=wfLL.size()-1;
+    int32_t tbIndex = TB.size()-1;
+    int8_t currentTB;
+    int8_t dir;
+
+    aln.clear();
+
+    while (refIndex>=0 && queryIndex>=0) {
+        currentTB = TB[tbIndex];
+        if (state == 0) { // Current State M
+            state = currentTB & 0x03;
+            if (state == 0) dir = 0;
+            else if (state == 1)
+            {
+                dir = 1;
+                if (currentTB & 0x04) state = 1;
+                else state = 0;   
+            }
+            else
+            {
+                dir = 2;
+                if (currentTB & 0x08) state = 2;
+                else state = 0;
+            }
+        }
+        else if (state == 1) { // Current State I
+            dir = 1;
+            if (currentTB & 0x04) state = 1;
+            else state = 0;
+        } 
+        else { // Current State D
+            dir = 2;
+            if (currentTB & 0x08) state = 2;
+            else state = 0;
+        }
+
+        tbIndex -= (refIndex - wfLL[k] + 1 + wfLen[k-1]);
+        if (dir == 0) {
+            tbIndex -= wfLen[k-2]; tbIndex += refIndex - wfLL[k-2];
+            k--;k--;queryIndex--;refIndex--;
+        }
+        else if (dir == 1) {
+            tbIndex += (refIndex - wfLL[k-1] + 1);
+            k--;queryIndex--;
+        }
+        else {
+            tbIndex += (refIndex - wfLL[k-1]);
+            k--;refIndex--;
+        }
+        aln.push_back(dir);   
+    }
+
+
+    while (refIndex>=0)
+    {
+        aln.push_back(static_cast<int8_t>(2));
+        k--;refIndex--;
+    }
+
+    while (queryIndex>=0)
+    {
+        aln.push_back(static_cast<int8_t>(1));
+        k--;queryIndex--;
+    }
+    return;
+}
+
+
+void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, int32_t queryLen, Params& param, std::vector<int8_t>& aln) {
+
+    if (refLen<=0 || queryLen<=0) {fprintf(stderr, "Error: Ref/Query length <= 0\n"); exit(1);}
+    
+    int maxWFLen = 0; //wavefront length
+    // if (param.marker != 0) maxWFLen = param.marker+2;
+    // else maxWFLen = refLen + queryLen + 2;
+    maxWFLen = refLen + queryLen + 2;
+
+    // std::cout << charFreqRef[0].size() << "-" << charFreqQuery[0].size() << "\n";
+    int score = 0;
+    int32_t *H[3], *I[2], *D[2];
+    int32_t L[3], U[3];
+    std::vector<int32_t> wfLL, wfLen;
+
+    //Output
+    int8_t state=0;
+    std::vector<int8_t> TB;
+
+    for(size_t i=0; i<3; i++)
+    {
+        H[i] = (int32_t*) std::malloc(sizeof(int32_t)*maxWFLen);
+        if (i<2) 
+        {
+            I[i] = (int32_t*) std::malloc(sizeof(int32_t)*maxWFLen);
+            D[i] = (int32_t*) std::malloc(sizeof(int32_t)*maxWFLen);
+        }
+        L[i]=0;
+        U[i]=0;
+    }
+
+    for (size_t i=0; i<3; i++)
+    {
+        for (size_t j=0; j<(size_t)maxWFLen; j++)
+        {
+            H[i][j] = -INF;
+            if (i<2) {I[i][j] = 0; D[i][j] = -INF;} 
+        }
+    }
+
+    for (int32_t k=0; k<refLen+queryLen+1; k++) {
+        L[k%3] = (k<=queryLen)?0:k-queryLen;
+        U[k%3] = (k<=refLen)?k:refLen;
+        wfLL.push_back(L[k%3]);
+        wfLen.push_back(U[k%3]-L[k%3]+1);
+        for(int32_t i=L[k%3]; i<U[k%3]+1; i++) { // i->Ref Index 
+            int32_t j=(k-i); //j->Query Index
+            int32_t match = -INF, insOp = -INF, delOp = -INF, insExt = -INF, delExt = -INF;
+            int32_t offset = i-L[k%3];
+            int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1;
+            int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
+            int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
+            STATE currentHState = STATE::HH;
+            STATE currentIState = STATE::IH;
+            STATE currentDState = STATE::DH;
+
+            if (k==0) match=0;
+
+            if (offsetDiag>=0 && j>0) {
+                int32_t similarScore = 0;
+                float denominator = 0;
+                float numerator = 0;
+                for (int l=0; l<6; l++) {
+                    for (int m=0; m<6; m++) {
+                        float freqMult = freq[6*(i-1)+l]*freq[6*(seqLen+j-1)+m];
+                        denominator += freqMult;
+                        if ((m == 4 || l == 4) || (m == 5 && l == 5)) numerator += 0;
+                        else if (m == l)                              numerator += freqMult*param.match;
+                        else                                          numerator += freqMult*param.mismatch;
+                    }
+                }
+                similarScore = static_cast<int32_t>(round(numerator/denominator));
+                // if (i == (U[k%3]-L[k%3])/2) printf("k: %d, idx: %d, score: %d\n", k, i, similarScore);
+                match = H[(k+1)%3][offsetDiag] + similarScore;
+            }
+            if (offsetUp >= 0) {
+                insOp = H[(k+2)%3][offsetUp] + param.gapOpen;
+                insExt = I[(k+1)%2][offsetUp] + param.gapExtend;
+            }
+            if (offsetLeft >=0) {
+                delOp = H[(k+2)%3][offsetLeft] + param.gapOpen;
+                delExt = D[(k+1)%2][offsetLeft] + param.gapExtend;
+            }
+            I[k%2][offset] =  insOp;
+            D[k%2][offset] =  delOp;
+            
+            if (insExt >= insOp) {
+                I[k%2][offset] = insExt;
+                currentIState = STATE::II;
+            }
+            if (delExt >= delOp) {
+                D[k%2][offset] = delExt;
+                currentDState = STATE::DD;
+            }
+            if (match > I[k%2][offset]) {
+                if (match > D[k%2][offset]) H[k%3][offset] = match;
+                else 
+                {
+                    H[k%3][offset] = D[k%2][offset];
+                    currentHState = STATE::HD;
+                }
+            }
+            else if (I[k%2][offset] > D[k%2][offset]) {
+                H[k%3][offset] = I[k%2][offset];
+                currentHState = STATE::HI;
+            }
+            else {
+                H[k%3][offset] = D[k%2][offset];
+                currentHState = STATE::HD;
+            }
+
+            // if (j==0) std::cout << (int)currentHState << "-" << (int)currentIState << "-" << (int)currentDState << "-" << (int)updateState(currentHState, currentIState, currentDState) << std::endl;
+            // if (i == U[k%3]/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
+            TB.push_back(updateState(currentHState, currentIState, currentDState));
+            // if (i == (U[k%3]-L[k%3])/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
+            score = H[k%3][offset];
+            state = currentHState;
+        }
+    }
+
+    // Deallocate memory for scores
+    for (size_t sIndx=0; sIndx<3; sIndx++) {
+        std::free(H[sIndx]);
+        if (sIndx < 2) {
+            std::free(I[sIndx]);
+            std::free(D[sIndx]);
+        }
+    }
+
+    // for (int i = 1100; i < 1200; ++i) {
+    //     printf("%d,", wfLL[i]);
+    //     if (i%10 == 9) printf("\n");
+    // }
+    tracebackGrpToGrp (state, TB, wfLL, wfLen, aln, refLen, queryLen);
+    return;
 
 }

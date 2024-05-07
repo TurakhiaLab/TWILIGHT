@@ -37,18 +37,19 @@ namespace msa
                 for (int j = 0; j < seqNum; ++j) {
                     for (int i = 0; i < adjustLen; ++i) {
                         if (i < memLen) {
-                            temp[0][j*memLen+i] = seqBuf[0][j*memLen+i];
-                            temp[1][j*memLen+i] = seqBuf[1][j*memLen+i];
+                            temp[0][j*adjustLen+i] = seqBuf[0][j*memLen+i];
+                            temp[1][j*adjustLen+i] = seqBuf[1][j*memLen+i];
                         }
                         else {
-                            temp[0][j*memLen+i] = 0;
-                            temp[1][j*memLen+i] = 0;
+                            temp[0][j*adjustLen+i] = 0;
+                            temp[1][j*adjustLen+i] = 0;
                         }
                     }
                 }
                 seqFree();
                 seqBuf[0] = temp[0];
                 seqBuf[1] = temp[1];
+                memLen = adjustLen;
             }
             else {
                 const float timesBigger = 1.5;
@@ -62,7 +63,7 @@ namespace msa
             return;
         }
         void memCheck(int seqLen) {
-            if (seqLen > (0.9*memLen)) {
+            if (seqLen > (memLen)) {
                 std::cout << "Reallocate Memory...\n";
                 seqMalloc(memNum, memLen);
             }

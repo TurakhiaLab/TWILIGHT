@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cmath>
 #include <bits/stdc++.h>
+#include <tbb/parallel_for.h>
 
 struct Params 
 {
@@ -55,6 +56,16 @@ __global__ void alignGrpToGrp_talco
     int16_t* param
 );
 
+void alignGrpToGrp_traditional
+(
+    uint16_t* freq,
+    int32_t seqLen,
+    int32_t refLen,
+    int32_t qryLen,
+    Params& param,
+    std::vector<int8_t>& aln
+);
+
 
 enum STATE 
 {
@@ -66,5 +77,19 @@ enum STATE
     DH = 5,
     DD = 6
 };
+
+void tracebackGrpToGrp
+(
+    int8_t state,
+    std::vector<int8_t>& TB,
+    std::vector<int32_t>& wfLL,
+    std::vector<int32_t>& wfLen,
+    std::vector<int8_t>& aln,
+    int32_t ref,
+    int32_t query
+);
+
+int8_t updateState(STATE& currentHState, STATE& currentIState, STATE& currentDState);
+
 
 #endif

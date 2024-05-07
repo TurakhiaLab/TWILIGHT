@@ -21,9 +21,21 @@ namespace Talco_xdrop {
     
     void Align (
         Params params,
-
         const std::vector<std::string>& reference,
         const std::vector<std::string>& query,
+        // const std::vector<std::vector<int>>& freqRef,
+        // const std::vector<std::vector<int>>& freqQry,
+        std::vector<int8_t>& aln
+        // size_t num_alignments
+    );
+
+
+    void Align_freq (
+        Params params,
+        // const std::vector<std::string>& reference,
+        // const std::vector<std::string>& query,
+        const std::vector<std::vector<int>>& freqRef,
+        const std::vector<std::vector<int>>& freqQry,
         std::vector<int8_t>& aln
         // size_t num_alignments
     );

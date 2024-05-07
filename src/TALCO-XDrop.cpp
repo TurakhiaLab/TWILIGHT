@@ -156,6 +156,101 @@ void Talco_xdrop::Align (
 
     }
 
+void Talco_xdrop::Align_freq (
+    Params params,
+    // const std::vector<std::string>& reference,
+    // const std::vector<std::string>& query,
+    const std::vector<std::vector<int>>& freqRef,
+    const std::vector<std::vector<int>>& freqQry,
+    std::vector<int8_t>& aln
+    // size_t num_alignments
+) {
+        
+        clock_t start, end;
+        double time = 0;
+        // int count = 0;
+        // n -> alignment number
+        // for (size_t n = 0; n < num_alignments; n++) {
+        
+            // std::vector<int8_t> aln;
+            int8_t state = 0;
+            int score;
+            // std::cout << reference[n] << " " << query[n] << " " << std::endl;
+
+            // initialising variables
+            int32_t reference_idx, query_idx;
+            reference_idx = 0; query_idx = 0;
+            bool last_tile = false;
+            
+            // std::vector<std::vector<int>> freqRef;
+            // std::vector<std::vector<int>> freqQry;
+            // for (int c = 0; c < std::max(reference[0].size(), query[0].size()); ++c) {
+            //     std::vector<int> temp;
+            //     for (int f = 0; f < 6; ++f) temp.push_back(0);
+            //     if (c < reference[0].size()) freqRef.push_back(temp);
+            //     if (c < query[0].size()) freqQry.push_back(temp);
+            // }
+            // for (auto r: reference) {
+            //     for (int c = 0; c < r.size(); ++c) {
+            //         if (r[c] == 'A')      freqRef[c][0] += 1;
+            //         else if (r[c] == 'C') freqRef[c][1] += 1;
+            //         else if (r[c] == 'G') freqRef[c][2] += 1;
+            //         else if (r[c] == 'T') freqRef[c][3] += 1;
+            //         else if (r[c] == 'N') freqRef[c][4] += 1;
+            //         else                  freqRef[c][5] += 1;
+            //     }
+            // }
+            // for (auto q: query) {
+            //     for (int c = 0; c < q.size(); ++c) {
+            //         if (q[c] == 'A')      freqQry[c][0] += 1;
+            //         else if (q[c] == 'C') freqQry[c][1] += 1;
+            //         else if (q[c] == 'G') freqQry[c][2] += 1;
+            //         else if (q[c] == 'T') freqQry[c][3] += 1;
+            //         else if (q[c] == 'N') freqQry[c][4] += 1;
+            //         else                  freqQry[c][5] += 1;
+            //     }
+            // } 
+            // std::cout << freqRef.size() << ',' << freqQry.size() << '\n';
+            int tile = 0;
+            while (!last_tile) {
+                std::vector<int8_t> tile_aln;
+                // Talco_xdrop::Tile(reference, query, params, reference_idx, query_idx, tile_aln, state, last_tile, tile);
+                Talco_xdrop::Tile(freqRef, freqQry, params, reference_idx, query_idx, tile_aln, state, last_tile, tile);
+                // printf("Tile: %d, (r,q) = (%d,%d), tile_aln_size: %d\n",tile, reference_idx, query_idx, tile_aln.size());
+                for (int i= tile_aln.size()-1; i>=0; i--){
+                    if (i == tile_aln.size()-1 && tile>0){
+                        continue;
+                    }
+                    // std::cout << i << "\n";
+                    aln.push_back(tile_aln[i]);
+                }
+                
+                tile_aln.clear();
+                
+                tile++;
+                // aln.clear();
+            }
+            // score = Score(params, aln, reference[n], query[n], reference_idx, query_idx);
+            
+            // for (int i = 0; i < aln.size(); ++i) {
+            //     // std::cout << aln[i];
+            //     if (aln[i] & 0xFFFF != 0) 
+            // }
+        // int count = 0; 
+        // for (auto &a: aln){
+        //     if ((a & 0xFFFF) != 0) std::cout << "TB: " << (a & 0xFFFF) << " at " << count << '\n';
+        //     count += 1;
+        // }
+        // printf("Alignment (Length, Score): (%d, %d)\n ", aln.size(), score);
+        // break;
+
+        // }
+        
+        // printf("%f\n", time);
+        // printf("%d\n", count);
+
+}
+
 int32_t Talco_xdrop::Reduction_tree(const int32_t *C, const int32_t start, const int32_t length){
     int32_t conv = C[start];
     for (int32_t i = start + 1; i <= start + length; i++ ){
@@ -281,7 +376,6 @@ void Talco_xdrop::Traceback(
         // if (DEBUG)  std::cout << " Final State: " << (state&0xFF) << " End Addr: " << addr << " index:" << ref_idx << ", " << query_idx << std::endl;
     }
     // std::cout << count << std::endl;   
-
     if (DEBUG) std::cout << ref_idx << " " << query_idx << std::endl; 
     // std::cout << "aln_idx:" << aln.size() << '\n'; 
     // if (!checkpoint)
@@ -322,7 +416,7 @@ void Talco_xdrop::Tile (
         // Initialising variables
         int32_t inf = params.xdrop + 1;
         // int32_t fLen = (1 << 10); // frontier length (assuming anti-diagonal length cannot exceed 1024)
-        int32_t fLen = (1 << 11); 
+        int32_t fLen = (1 << 12); //4096 
         bool converged = false; bool conv_logic = false;
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
@@ -334,6 +428,11 @@ void Talco_xdrop::Tile (
         bool Iptr = false;
         bool Dptr = false; // I and D states; xx00 -> M, x001 -> I (M) open, x101 -> I (I) extend, 0x10 -> D (M) open, 1x10 -> D (D) extend
 
+        // For xdrop
+        int32_t max_score_marker = -inf; int32_t max_score_marker_ref_idx = 0; int32_t max_score_marker_query_idx = 0;
+        int32_t max_score_marker_start_addr = 0; int32_t max_score_marker_start_ftr = 0;
+        int8_t tb_state_marker = 0;
+
         int32_t L[3], U[3];
         int16_t *S[3], *I[2], *D[2];
         int32_t *CS[3], *CI[2], *CD[2];
@@ -342,7 +441,7 @@ void Talco_xdrop::Tile (
         std::vector<int32_t> ftr_lower_limit;
         int32_t ftr_addr = 0;
         int32_t last_k = 0;
-
+        int32_t xdrop = false;
         int32_t prev_conv_s = -1;
         
         for (size_t sIndx=0; sIndx<3; sIndx++) { // Allocate memory for S, I, D, and CS array
@@ -357,7 +456,6 @@ void Talco_xdrop::Tile (
             L[sIndx] = sIndx;
             U[sIndx] = -sIndx;
         }
-        
         
         for (int16_t sIndx=0; sIndx<3; sIndx++){ // Initialise memory for S, I, D array
             for (int16_t sLenIndex=0; sLenIndex<fLen; sLenIndex++){
@@ -381,7 +479,10 @@ void Talco_xdrop::Tile (
         for (int32_t k = 0; k < reference_length + query_length - 1; k++){
             // printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
             if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
-                std::cout << "No more cells to compute based on x-drop critieria" << std::endl;
+                // std::cout << "No more cells to compute based on x-drop critieria tile: " << tile << " k: " << k << " L: " << L[k%3] << " U: " <<U[k%3]+1 <<  std::endl;
+                // std::cout << "No more cells to compute based on x-drop critieria tile: " << tile << " k: " << k << " L: " << L[k%3] << " U: " <<U[k%3]+1 <<  std::endl;
+                printf("No more cells to compute based on x-drop critieria, ref(%d/%d), qry(%d/%d)\n", reference_idx, reference.size(), query_idx, query.size());
+                xdrop = true;
                 break;
             }
             
@@ -433,22 +534,7 @@ void Talco_xdrop::Tile (
                         }
                     }
                     similarScore = static_cast<int32_t>(std::floor(numerator/denominator));
-                    // for (int t = 0; t < 6; ++t) std::cout << reference[reference_idx+j][t] << ',';
-                    // std::cout << '\n';
-                    // for (int t = 0; t < 6; ++t) std::cout << query[query_idx+i][t] << ',';
-                    // std::cout << '\n';
-                    // printf("(%d, %d) = (%c, %c), score: %d\n",j, i, reference[0][reference_idx+j], query[0][query_idx+i], similarScore);
                     match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;
-                    // if (reference[0][reference_idx+j] == 'N' || reference[0][reference_idx+j] == 'n' ||
-                    //     query[0][query_idx+i] == 'N' || query[0][query_idx+i] == 'n') {
-                    //     match = S[(k+1)%3][offsetDiag] + score_from_prev_tile; // match score = 0 
-                    // }
-                    // else if (reference[0][reference_idx+j] == query[0][query_idx+i]) {
-                    //     match = S[(k+1)%3][offsetDiag] + params.match + score_from_prev_tile; 
-                    // }
-                    // else {
-                    //     match = S[(k+1)%3][offsetDiag] + params.mismatch + score_from_prev_tile;
-                    // }
                 }
 
                 
@@ -558,6 +644,14 @@ void Talco_xdrop::Tile (
                     CI[k%2][offset] = (1 << 16) | (i & 0xFFFF);
                     CD[k%2][offset] = (2 << 16) | (i & 0xFFFF);
                     if(DEBUG) std::cout << "Convergence Unique Id's: " <<  CS[k%3][offset] <<  " " << CI[k%2][offset] <<  " " << CD[k%2][offset] << "\n";
+                    if (score > max_score_marker) {
+                        max_score_marker = score;
+                        max_score_marker_ref_idx = j;
+                        max_score_marker_query_idx = i;
+                        max_score_marker_start_addr = ftr_addr - (U[k%3] - L[k%3] + 1)  + (i - L[k%3]);
+                        max_score_marker_start_ftr = k;
+                        tb_state_marker = ptr;
+                    }
                 } 
                 else if (k >= params.marker + 1){
                     if (Iptr) {
@@ -626,6 +720,7 @@ void Talco_xdrop::Tile (
                     break;
                 }
             }
+            
             if ((!converged) && (k < reference_length + query_length - 2)) {
                 int32_t conv_I = Reduction_tree(CI[k%2], newL - L[k%3], newU - newL);
                 int32_t conv_D = Reduction_tree(CD[k%2], newL - L[k%3], newU - newL);
@@ -654,6 +749,7 @@ void Talco_xdrop::Tile (
             // Update max_score
             max_score = max_score_prime;
             // if (tile >= 100 && tile <= 103 ) printf("Max score: %d\n", max_score);
+            last_k = k;
             if ((converged) && (max_score > conv_score)){
                 conv_logic = true;
                 // if (DEBUG) std::cout << "Convergence logic found: ";
@@ -695,6 +791,13 @@ void Talco_xdrop::Tile (
                 tb_state = 0;
                 last_tile = true;
             }
+            // else if (xdrop == true) {
+            //     conv_query_idx = max_score_marker_query_idx;
+            //     conv_ref_idx = max_score_marker_ref_idx;
+            //     tb_start_addr = max_score_marker_start_addr;
+            //     tb_start_ftr =  max_score_marker_start_ftr;
+            //     tb_state = tb_state_marker;
+            // }
             else {
                 conv_query_idx = CS[(last_k%3)][0] & 0xFFFF;
                 tb_state = (CS[(last_k%3)][0] >> 16) & 0xFFFF;
@@ -719,14 +822,22 @@ void Talco_xdrop::Tile (
 
         reference_idx += conv_ref_idx;
         query_idx += conv_query_idx;
-        // printf("TB: tile: %d, refidx: %d, qryidx:%d, last:%d\n", tile, reference_idx, query_idx, last_tile);
+        // if (conv_query_idx < 10) printf("TB: tile: %d, refidx: %d, qryidx:%d, last:%d\n", tile, reference_idx, query_idx, last_tile);
+        // if (conv_query_idx < 10) printf("TB: tile: %d, refLen: %d, qryLen:%d, last:%d\n", tile, reference_length, query_length, last_tile);
         if (DEBUG) std::cout <<  "tb_start_addr: " << tb_start_addr << " \ntb_start_ftr: " << tb_start_ftr << std::endl;
 
         Traceback(ftr_length, ftr_lower_limit, tb_start_addr, tb_start_ftr, (tb_state%3), conv_query_idx, conv_ref_idx, tb, aln);
         state = tb_state%3;
         
-        
-        
+        if (reference_idx == reference.size()-1 && query_idx < query.size()-1) { // dir == 1
+            for (int q = 0; q < query.size()-query_idx-1; ++q) aln.push_back(static_cast<int16_t>(1));
+            last_tile = true;
+        }
+        if (query_idx == query.size()-1 && reference_idx < reference.size()-1) { // dir == 2
+            for (int r = 0; r < reference.size()-reference_idx-1; ++r) aln.push_back(static_cast<int16_t>(2));
+            last_tile = true;
+        }
+
         // Deallocate memory
         for (size_t sIndx=0; sIndx<3; sIndx++) {
             std::free(S[sIndx]);
