@@ -1490,7 +1490,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
         __shared__ int32_t CI [2*fLen];
         __shared__ int16_t D  [2*fLen];
         __shared__ int32_t CD [2*fLen];
-        __shared__ int8_t tb  [128*128/2]; // May be improved to 4 bit
+        __shared__ int8_t tb  [128*128]; // May be improved to 4 bit
         __shared__ uint32_t idx [2]; 
         // [0] reference_idx
         // [1] query_idx
