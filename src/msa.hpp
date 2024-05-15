@@ -59,11 +59,11 @@ namespace msa
                 memNum = seqNum;
                 memLen = adjustLen;
             }    
-            printf("Num: %d, Len: %d\n", memNum, memLen);
+            printf("Allocate memory... Size = %d x %d\n", memNum, memLen);
             return;
         }
         void memCheck(int seqLen) {
-            if (seqLen > (memLen)) {
+            if (seqLen > memLen) {
                 std::cout << "Reallocate Memory...\n";
                 seqMalloc(memNum, memLen);
             }

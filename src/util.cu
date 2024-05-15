@@ -741,7 +741,7 @@ void msaPostOrderTraversal_gpu_org(Tree* tree, std::vector<std::pair<Node*, Node
         }
         auto freqEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds freqTime = freqEnd -freqStart;
-        printf("Calculate frequency time : %d ms\n",  (freqTime.count() / 1000000));
+        printf("Preprocessing time : %d ms\n",  (freqTime.count() / 1000000));
         // Malloc
         uint16_t* hostFreq = (uint16_t*)malloc(12*seqLen * pairNum * sizeof(uint16_t));
         int8_t* hostAln = (int8_t*)malloc(2*seqLen * pairNum * sizeof(int8_t));
@@ -822,7 +822,7 @@ void msaPostOrderTraversal_gpu_org(Tree* tree, std::vector<std::pair<Node*, Node
             printf("Round. %d align %d pairs. KernelTime: %d ms\n", r, alignSize, kernelTime.count() / 1000000);
         }
         else {
-            std::cout << "KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
+            std::cout << "GPU KernelTime "<< kernelTime.count() / 1000000<< " ms\n";
         }
         auto reAlnStart = std::chrono::high_resolution_clock::now();
         for (int k = 0; k < pairNum; ++k) {
@@ -907,7 +907,7 @@ void msaPostOrderTraversal_gpu_org(Tree* tree, std::vector<std::pair<Node*, Node
         }     
         auto reAlnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds reAlnTime = reAlnEnd - reAlnStart;
-        printf("Round. %d align %d pairs. reAlnTime: %d ms\n", r, alignSize, reAlnTime.count() / 1000000);
+        printf("Alignment Time: %d ms\n", r, pairNum, reAlnTime.count() / 1000000);
         // free memory
         cudaFree(deviceFreq);
         cudaFree(deviceAlnLen);
@@ -930,8 +930,8 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
     // auto kernelStart = std::chrono::high_resolution_clock::now();
 
     for (auto n: nodes) {
-        std::cout << tree->allNodes[n.first->identifier]->identifier << ',' << tree->allNodes[n.second->identifier]->identifier << '\n';
-        std::cout << "Level:" << n.first->level << ',' << n.second->level << '\n';
+        // std::cout << tree->allNodes[n.first->identifier]->identifier << ',' << tree->allNodes[n.second->identifier]->identifier << '\n';
+        // std::cout << "Level:" << n.first->level << ',' << n.second->level << '\n';
         if (n.first->parent == nullptr) {
             tree->allNodes[n.first->identifier]->msa.clear();
             tree->allNodes[n.first->identifier]->msa = tree->allNodes[n.second->identifier]->msa;
@@ -975,8 +975,8 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
         // Merge node with its parent, overlapped sequences = ref: up, qry: down
         int32_t overlapNumRef = (n.first->parent == nullptr) ? refNum : (sameLevel) ? refNum - refCut : refCut;
         int32_t overlapNumQry = qryNum - qryCut;
-        std::cout << refNum << ',' << qryNum << ',' << refLen << ',' << qryLen << '\n';
-        std::cout << refCut << ',' << qryCut << ',' << overlapNumRef << ',' << overlapNumQry << '\n';
+        // std::cout << refNum << ',' << qryNum << ',' << refLen << ',' << qryLen << '\n';
+        // std::cout << refCut << ',' << qryCut << ',' << overlapNumRef << ',' << overlapNumQry << '\n';
         if ((overlapNumRef == qryNum || overlapNumQry == refNum) && tree->allNodes[n.first->identifier]->parent != nullptr) continue; 
         assert(overlapNumRef == overlapNumQry);
 
@@ -1009,7 +1009,7 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
         }
         auto calGapEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds calGapTime = calGapEnd - calGapStart;
-        std::cout << "CalGapTime "<< calGapTime.count() / 1000000<< " ms\n";
+        // std::cout << "CalGapTime "<< calGapTime.count() / 1000 << " us\n";
         // std::cout << std::count (allGapsR.begin(), allGapsR.end(), true) << '\n';
         // std::cout << std::count (allGapsQ.begin(), allGapsQ.end(), true) << '\n';
         int32_t rIdx = 0, qIdx = 0;
@@ -1093,7 +1093,7 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
                 }
             }
         }
-        printf("rIdx:%d, qIdx:%d, refLen:%d, qryLen:%d, alnLen: %d\n", rIdx, qIdx, refLen, qryLen, alignment[0].size());
+        // printf("rIdx:%d, qIdx:%d, refLen:%d, qryLen:%d, alnLen: %d\n", rIdx, qIdx, refLen, qryLen, alignment[0].size());
         if (rIdx < refLen) {
             for (size_t g = rIdx; g < refLen; ++g) {
                 for (size_t i=0; i<qryCut; i++)      alignment[i] += '-';
@@ -1113,7 +1113,7 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
         tree->allNodes[n.first->identifier]->msaIdx = tempIdx;
         auto mergeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
-        std::cout << "MergeTime "<< mergeTime.count() / 1000000<< " ms\n";
+        // std::cout << "MergeTime "<< mergeTime.count() / 1000000<< " ms\n";
         tree->allNodes[n.first->identifier]->refStartPos = qryCut + refCut;
         tree->allNodes[n.first->identifier]->msa.clear();
         tree->allNodes[n.first->identifier]->msa = alignment;
@@ -1128,8 +1128,6 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
 
     return;
 }
-
-
 
 void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
 {
@@ -1224,7 +1222,6 @@ void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
 
     return;
 }
-
 
 // Modified version: malloc 2 memory
 
@@ -1478,8 +1475,8 @@ void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> 
             int32_t qryNum = (k != pairNum-1) ? seqIdx[k+1].first - seqIdx[k].second : seqNum - seqIdx[k].second;
             int32_t refStart = seqIdx[k].first;
             int32_t qryStart = seqIdx[k].second;
-            int32_t refIndex = 0;
-            int32_t qryIndex = 0;
+            // int32_t refIndex = 0;
+            // int32_t qryIndex = 0;
             // printf("k: %d, refNum: %d, qryNum: %d\n", k, refNum, qryNum);
             // printf("k: %d, length: %d\n", k, hostAlnLen[k]);
             // for (int j = 0; j < qryNum + refNum; ++j) alignment.push_back("");
@@ -2052,10 +2049,6 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
 {
 
     auto freqStart = std::chrono::high_resolution_clock::now();
-    // assign msa to all nodes
-    // tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){
-    // for (int k = range.begin(); k < range.end(); ++k) { 
-    //     auto n = nodes[k];
     for (auto n: nodes) {
         if (n.first->children.size()==0) {
             tree->allNodes[n.first->identifier]->msaIdx.push_back(util->seqsIdx[n.first->identifier]);
@@ -2111,10 +2104,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
         int32_t tempMax = max(qryLen, refLen);
         seqLen = max(seqLen, tempMax);
     }
-    // printf("(%d, %d)\n", nodes.size(), seqLen);
-    // int totalBlocks = numBlocks*gpuNum;
-    // int round = nodes.size() / totalBlocks + 1;
-
+    
     int roundGPU = nodes.size() / numBlocks + 1;
     if (nodes.size()%numBlocks == 0) roundGPU -= 1;
     int* alignSize = new int[roundGPU];
@@ -2125,12 +2115,6 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     int32_t**  hostAlnLen = new int32_t* [roundGPU];
     int32_t**  hostSeqInfo = new int32_t* [roundGPU];
     int16_t**  hostParam =  new int16_t* [roundGPU];
-    // uint16_t** deviceFreq = new uint16_t* [roundGPU];
-    // int8_t**   deviceAln = new int8_t* [roundGPU];
-    // int32_t**  deviceLen = new int32_t* [roundGPU];
-    // int32_t**  deviceAlnLen = new int32_t* [roundGPU];
-    // int32_t**  deviceSeqInfo = new int32_t* [roundGPU];
-    // int16_t**  deviceParam = new int16_t* [roundGPU];
     std::vector<std::vector<uint16_t*>> freq;
     std::vector<std::vector<std::pair<int32_t, int32_t>>> seqIdx;
     std::vector<std::vector<std::pair<int32_t, int32_t>>> len;
@@ -2156,6 +2140,22 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             int32_t refIdx = 0;
             int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
             int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+            // if (refLen <= 1) {
+            //     std::cout << nodes[nIdx].first->identifier << ',' << nodes[nIdx].second->identifier  << '\n';
+            //     printf("X: Gn: %d, n: %d, ref: %d, qry: %d, refNum: %d, qryNum: %d\n", gn, n ,refLen, qryLen, tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size(), tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size());
+            //     for (auto idx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)
+            //         std::cout << idx << ',';
+            //     std::cout << '\n';
+            // }
+            // if (qryLen <= 1) {
+            //     std::cout << nodes[nIdx].first->identifier << ',' << nodes[nIdx].second->identifier  << '\n';
+            //     printf("X: Gn: %d, n: %d, ref: %d, qry: %d, refNum: %d, qryNum: %d\n", gn, n ,refLen, qryLen, tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size(), tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size());
+            //     for (auto idx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx)
+            //         std::cout << idx << ',';
+            //     std::cout << '\n';
+            // }
+            // std::cout << nodes[nIdx].first->identifier << ',' << nodes[nIdx].second->identifier  << '\n';
+            // printf("Gn: %d, n: %d, ref: %d, qry: %d, refNum: %d, qryNum: %d\n", gn, n ,refLen, qryLen, tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size(), tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size());
             refIdx = seqNum[gn];
             uint16_t *temp = new uint16_t[12*seqLen]; 
             for (int i = 0; i < 12*seqLen; ++i) temp[i]=0;
@@ -2324,7 +2324,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
         
     for (int gn = 0; gn < roundGPU; ++gn) {
         if (alignSize[gn] == 0) break;
-        std::cout << "Round: " << gn << " alnSize: " << alignSize[gn] << '\n';
+        // std::cout << "Round: " << gn << " alnSize: " << alignSize[gn] << '\n';
         tbb::parallel_for(tbb::blocked_range<int>(0, alignSize[gn]), [&](tbb::blocked_range<int> range) {
             // for (int k = 0; k < alignSize[gn]; ++k) {
             for (int k = range.begin(); k < range.end(); ++k) {
@@ -2801,6 +2801,175 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> node
 }
 */
 
+
+void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode) {
+    int hierIdx = 0;
+    while(!msaStack.empty()) {
+        Node* node = msaStack.top();
+        if (!(node->grpID==-1 || node->grpID==grpID)) {
+            msaStack.pop();
+            continue;
+        };
+        if (node->children.size()==0) {
+            msaStack.pop();
+            continue;
+        }
+        std::vector<Node*> children;
+        for (auto ch: node->children) {
+            if (ch->grpID == grpID) children.push_back(ch);
+        }
+        if (children.empty()) {
+            node->grpID = -2;
+            msaStack.pop();
+            continue;
+        }
+        else if (children.size() == 1 && node->parent != nullptr) {
+            for (int chIdx = 0; chIdx < node->parent->children.size(); ++chIdx) {
+                if (node->parent->children[chIdx]->identifier == node->identifier) {
+                    node->parent->children[chIdx] = children[0];
+                }
+            }
+            msaStack.pop();
+            continue;
+        }
+        size_t childIndex = 0;
+        for (childIndex=0; childIndex<node->children.size(); childIndex++) {
+            if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID))
+            {
+                break;
+            }
+        }
+        // std::cout << node->identifier << '\n';
+        if (childIndex == node->children.size() - 1) {
+            msaStack.pop();
+            continue;
+        }
+        for (size_t i=childIndex+1; i<node->children.size(); i++)
+        {
+            if (!(node->children[i]->grpID == -1 || node->children[i]->grpID == grpID))
+            {
+                continue;
+            }
+            hier.push_back(std::make_pair(std::make_pair(node, node->children[i]),hierIdx));
+            ++hierIdx;
+        }
+        msaStack.pop();
+    }
+    
+    hierIdx = 0;
+    std::stack<std::pair<Node*, int>> hierStack; 
+    // Node* tempRoot = hier[0].first.first->parent;
+    Node* preNode = hier[0].first.first;
+    size_t prelevel = hier[0].first.first->level;
+    hier[0].second = hierIdx;
+    
+    for (int k = 1; k < hier.size(); ++k) {
+        // if (grpID == 1) std::cout << "Now: " << hier[k].first.first->identifier << '&' << hier[k].first.second->identifier << " at " << prelevel<<'\n';
+        if (!hierStack.empty()) {
+            if (hier[k].first.first->identifier == hierStack.top().first->identifier) {
+                hierIdx = max(hierIdx+1, hierStack.top().second);
+                hier[k].second = hierIdx; 
+                prelevel = hier[k].first.first->level;
+                hierStack.pop();
+            }
+            else {
+                if (mode == 0) {
+                    if (hier[k].first.first->level <= prelevel) {
+                        hier[k].second = ++hierIdx;
+                        prelevel = hier[k].first.first->level;
+                    }
+                    else {
+                        // if (grpID == 1) {
+                        //     std::cout << "TOP  "<< preNode->parent->identifier << ',' << hierIdx+1 << '\n';
+                        // }
+                        Node* tempNode = preNode;
+                        while(true) {
+                            Node* parent = tempNode->parent;
+                            int childrenCount = 0;
+                            for (auto ch: parent->children) {
+                                if (ch->grpID == grpID) ++childrenCount;
+                            }
+                            if (childrenCount > 1) break;
+                            tempNode = parent;
+                        }
+                        // hierStack.push(std::make_pair(preNode->parent, (hierIdx+1)));
+                        hierStack.push(std::make_pair(tempNode->parent, (hierIdx+1)));
+                        hier[k].second = 0;
+                        hierIdx = 0;
+                        prelevel = hier[k].first.first->level;
+                    }
+                }
+                else {
+                    if (hier[k].first.first->level < prelevel || (hier[k].first.first->level == prelevel && hier[k].first.first->identifier == preNode->identifier)) {
+                        hier[k].second = ++hierIdx;
+                        prelevel = hier[k].first.first->level;
+                    }
+                    else {
+                        if (preNode->parent->identifier == hierStack.top().first->identifier) {
+                            hierStack.top().second = max(hierIdx+1, hierStack.top().second);
+                        }
+                        else {
+                            hierStack.push(std::make_pair(preNode->parent, (hierIdx+1)));
+                        }
+                        
+                        hier[k].second = 0;
+                        hierIdx = 0;
+                        prelevel = hier[k].first.first->level;
+                    }
+                }
+            }
+        }
+        else {
+            // if (mode == 0) {
+            //     if (hier[k].first.first->level <= prelevel) {
+            //         hier[k].second = ++hierIdx;
+            //         prelevel = hier[k].first.first->level;
+            //     }
+            //     else {
+            //         hierStack.push(std::make_pair(preNode->parent, (hierIdx+1)));
+            //         hier[k].second = 0;
+            //         hierIdx = 0;
+            //         prelevel = hier[k].first.first->level;
+            //     }
+            // }
+            // else {
+                if (hier[k].first.first->level < prelevel || (hier[k].first.first->level == prelevel && hier[k].first.first->identifier == preNode->identifier)) {
+                    hier[k].second = ++hierIdx;
+                    prelevel = hier[k].first.first->level;
+                }
+                else {
+                    // if (grpID == 1) {
+                    //     std::cout << "TOP  "<< preNode->parent->identifier << ',' << hierIdx+1 << '\n';
+                    // }
+                    Node* tempNode = preNode;
+                    while(true) {
+                        Node* parent = tempNode->parent;
+                        int childrenCount = 0;
+                        for (auto ch: parent->children) {
+                            if (ch->grpID == grpID) ++childrenCount;
+                        }
+                        if (childrenCount > 1) break;
+                        tempNode = parent;
+                    }
+                    // hierStack.push(std::make_pair(preNode->parent, (hierIdx+1)));
+                    hierStack.push(std::make_pair(tempNode->parent, (hierIdx+1)));
+                    hier[k].second = 0;
+                    hierIdx = 0;
+                    prelevel = hier[k].first.first->level;
+                }
+            // }
+        }
+        preNode = hier[k].first.first;
+    }
+    // if (grpID == 1) {
+    //     for (int h = 0; h < hier.size(); ++h) {
+    //         std::cout << hier[h].first.first->identifier << ',' << hier[h].first.second->identifier << ',' << hier[h].second << '\n';
+    //     } 
+    // }
+}
+
+
+/*
 void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode) {
     int hierIdx = 0;
     // mode 0: msa, 1: merge
@@ -2928,10 +3097,9 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, 
         }
         preNode = hier[k].first.first;
     }
-    // for (int k = 0; k < hier.size(); ++k) {
-    //     std::cout << hier[k].first.first->identifier << ',' << hier[k].first.second->identifier << ',' << hier[k].first.first->level << ',' << hier[k].second << '\n';
-    // }
 }
+
+*/
 
 void getPostOrderList(Node* node, std::stack<Node*>& msaStack) {
     std::stack<Node*> s1;

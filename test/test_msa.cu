@@ -25,7 +25,7 @@ void parseArguments(int argc, char** argv)
         ("sp-score,s",  po::value<std::string>()->default_value("false"), "Calculate the sum-of-pairs score (True, False, Only)")
         ("output,o", po::value<std::string>()->default_value(""), "Output file name")
         ("match",    po::value<int>()->default_value(2), "Match score")
-        ("mismatch", po::value<int>()->default_value(-1), "Mismatch penalty")
+        ("mismatch", po::value<int>()->default_value(0), "Mismatch penalty")
         ("gap-open", po::value<int>()->default_value(-3), "Gap open penalty")
         ("gap-extend", po::value<int>()->default_value(-1), "Gap extend penalty")
         ("xdrop", po::value<int>()->default_value(0), "X-drop value")
@@ -64,6 +64,7 @@ void readSequences(po::variables_map& vm, msa::utility* util)
             else                       util->seqBuf[0][s*util->memLen+i] = 0; 
             util->seqBuf[1][s*util->memLen+i] = 0;  
         }
+        // std::cout << seq.first << ':' << s << ':' << seq.second.size() << '\n';
         util->seqsIdx[seq.first] = s;
         util->seqsLen[seq.first] = seq.second.size();
         ++s;
@@ -150,7 +151,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
     
-    // printTree(T->root);
+    
 
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
     int maxSubtreeSize = vm["max-leaves"].as<int>();
@@ -162,7 +163,7 @@ int main(int argc, char** argv) {
     std::cout << "Partition the tree in: " <<  treeBuiltTime.count() << " ns\n";
 
     
-
+    // printTree(T->root);
     int mat = vm["match"].as<int>();
     int mis = vm["mismatch"].as<int>();
     int gapOp = vm["gap-open"].as<int>();
@@ -217,11 +218,11 @@ int main(int argc, char** argv) {
     }
 
     
-
+    std::cout << std::left << std::setw(20) << "Subtree Roots" << "Num. of Leaves" << '\n';
     for (auto p: partition->partitionsRoot) {
-        std::cout << p.first << std::setw(5) << p.second.second << '\n';
+        std::cout << std::left<< std::setw(20) << p.first << p.second.second << '\n';
     }
-
+    
     Tree* newT = reconsturctTree(T->root, partition->partitionsRoot);
     // printTree(newT->root);
     
@@ -259,7 +260,7 @@ int main(int argc, char** argv) {
         }
     }
     for (auto m: hier) {
-        std::cout << "Aln level: " << level << '\n';
+        // std::cout << "Aln level: " << level << '\n';
         auto alnStart = std::chrono::high_resolution_clock::now();
         if (machine == "cpu" || machine == "CPU" || machine == "Cpu") {
             msaPostOrderTraversal_cpu(T, m, util, param);
