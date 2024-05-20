@@ -26,7 +26,7 @@ void parseArguments(int argc, char** argv)
         ("output,o", po::value<std::string>()->default_value(""), "Output file name")
         ("match",    po::value<int>()->default_value(2), "Match score")
         ("mismatch", po::value<int>()->default_value(0), "Mismatch penalty")
-        ("gap-open", po::value<int>()->default_value(-3), "Gap open penalty")
+        ("gap-open", po::value<int>()->default_value(-2), "Gap open penalty")
         ("gap-extend", po::value<int>()->default_value(-1), "Gap extend penalty")
         ("xdrop", po::value<int>()->default_value(0), "X-drop value")
         ("help,h", "Print help messages");
@@ -218,10 +218,10 @@ int main(int argc, char** argv) {
     }
 
     
-    std::cout << std::left << std::setw(20) << "Subtree Roots" << "Num. of Leaves" << '\n';
-    for (auto p: partition->partitionsRoot) {
-        std::cout << std::left<< std::setw(20) << p.first << p.second.second << '\n';
-    }
+    // std::cout << std::left << std::setw(20) << "Subtree Roots" <<  std::left << std::setw(20) << "Num. of Leaves" << "ID" << '\n';
+    // for (auto p: partition->partitionsRoot) {
+    //     std::cout << std::left<< std::setw(20) << p.first << std::left<< std::setw(20) << p.second.second << T->allNodes[p.first]->grpID << '\n';
+    // }
     
     Tree* newT = reconsturctTree(T->root, partition->partitionsRoot);
     // printTree(newT->root);
@@ -365,10 +365,6 @@ int main(int argc, char** argv) {
             
         }
         // for (auto n: type1Aln) {
-        //     std::cout << n.first->identifier << '(' << T->allNodes[n.first->identifier]->msaIdx.size() << ')'
-        //               << n.second->identifier << '(' << T->allNodes[n.second->identifier]->msaIdx.size() << ")\n";
-        // }
-        // for (auto n: type1Aln) {
         //     std::cout << n.first->identifier << '(' << T->allNodes[n.first->identifier]->msa.size() << ')'
         //               << n.second->identifier << '(' << T->allNodes[n.second->identifier]->msa.size() << ")\n";
         // }
@@ -377,7 +373,8 @@ int main(int argc, char** argv) {
             msaPostOrderTraversal_cpu(T, type1Aln, util, param);
         }
         else if (machine == "gpu" || machine == "GPU" || machine == "Gpu") {
-            msaPostOrderTraversal_gpu_org(T, type1Aln, util, param);
+            createOverlapMSA(T, type1Aln, util, param);
+            // msaPostOrderTraversal_gpu_org(T, type1Aln, util, param);
         }
         else {
             fprintf(stderr, "Error: Unrecognized machine type: %s\n", machine.c_str()); 
@@ -437,10 +434,25 @@ int main(int argc, char** argv) {
         }
         // Merging nodes in the new tree
         auto mergeStart = std::chrono::high_resolution_clock::now();
-        transitivityMerge_cpu(T, mergePairs, util);
+        // transitivityMerge_cpu(T, mergePairs, util);
+        transitivityMerge_cpu_mod(T, newT, mergePairs, util);
         auto mergeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
         std::cout << "Merge "<< newT->allNodes.size() << " subtrees (total " << T->root->msaIdx.size() << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
+        
+        if (T->root->msa.empty()) {
+            for (int sIdx: T->root->msaIdx) {
+                std::string r = "";
+                int64_t start = sIdx*util->memLen;
+                int storage = util->seqsStorage[sIdx];
+                int offset = 0;
+                while (util->seqBuf[storage][start+offset] != 0) {
+                    r += util->seqBuf[storage][start+offset];
+                    ++offset;
+                }
+                T->root->msa.push_back(r);
+            }
+        }
     }
     else {
         for (int sIdx: T->root->msaIdx) {

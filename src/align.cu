@@ -1469,15 +1469,15 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
-    int bs = blockDim.x;
+    // int bs = blockDim.x;
     // int gs = gridDim.x;
     // int tidx = bx*bs+tx;
 
     const int fLen = 512; // frontier length (assuming anti-diagonal length cannot exceed 1024)
-    const int16_t reducedValue = (1 << 14);
+    // const int16_t reducedValue = (1 << 14);
     
     int32_t threadNum = seqInfo[3];
-    int32_t blockNum = seqInfo[4];
+    // int32_t blockNum = seqInfo[4];
     int32_t pairNum = seqInfo[2];    
 
     __syncthreads();
@@ -1500,7 +1500,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
         // __shared__ int8_t  max_score_marker_ptr [128]; 
         __shared__ int16_t max_score;
         // __shared__ int32_t max_score_marker_addr_minus_i;
-        __shared__ uint16_t reducedTimes;
+        // __shared__ uint16_t reducedTimes;
         __shared__ bool last_tile;
         __shared__ bool xdrop;
         __shared__ bool converged; 
@@ -1548,8 +1548,8 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
             int16_t ftr_lower_limit_idx = 0;
             // int32_t max_score_prime = -(p_xdrop+1);
             int16_t max_score_prime = -(p_xdrop+1);
-            int32_t max_score_start_addr; 
-            int32_t max_score_start_ftr;
+            // int32_t max_score_start_addr; 
+            // int32_t max_score_start_ftr;
             
             // int32_t max_score_ref_idx;    
             // int32_t max_score_query_idx;
@@ -1687,9 +1687,9 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                             for (int m=0; m<6; m++) {
                                 denominator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m];
                                 if ((m == 4 || l == 4) || (m == 5 && l == 5)) numerator += 0;
-                                else if (m == 5 || l == 5)                    numerator += p_mismatch;
+                                else if (m == 5 || l == 5)                    numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_gapExtend;
                                 else if (m == l)                              numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_match;
-                                else if (abs(m-1) == 2)                       numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*(static_cast<float>(p_match)*0.5);
+                                else if (abs(m-l) == 2)                       numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*(static_cast<float>(p_match)*0.5);
                                 else                                          numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_mismatch;
                             }
                         }
@@ -1819,12 +1819,12 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                 // Update Max
                 if (max_score_prime < max_score_list[0]) {
                     max_score_prime = max_score_list[0];
-                    if (k <= p_marker) {
-                        // max_score_ref_idx = max_score_ref[0];
-                        // max_score_query_idx = max_score_query[0];
-                        // max_score_start_addr = ftr_addr - (U[k%3] - L[k%3] + 1)  + (max_score_query[0] - L[k%3]);
-                        max_score_start_ftr = k;
-                    }
+                    // if (k <= p_marker) {
+                    //     // max_score_ref_idx = max_score_ref[0];
+                    //     // max_score_query_idx = max_score_query[0];
+                    //     // max_score_start_addr = ftr_addr - (U[k%3] - L[k%3] + 1)  + (max_score_query[0] - L[k%3]);
+                    //     // max_score_start_ftr = k;
+                    // }
                 }
                 __syncthreads();
                 // if (tx == 0 && bx == 42 && tile == 0) printf("DEBIG3\n");
@@ -2065,8 +2065,8 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                 state = tb_state % 3;
 
                 // Write global memory
-                int32_t refIndex = reference_idx;
-                int32_t qryIndex = query_idx;
+                // int32_t refIndex = reference_idx;
+                // int32_t qryIndex = query_idx;
                 reference_idx += conv_ref_idx;
                 query_idx += conv_query_idx;
             }
@@ -2249,7 +2249,7 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
     maxWFLen = refLen + queryLen + 2;
 
     // std::cout << charFreqRef[0].size() << "-" << charFreqQuery[0].size() << "\n";
-    int score = 0;
+    // int score = 0;
     int32_t *H[3], *I[2], *D[2];
     int32_t L[3], U[3];
     std::vector<int32_t> wfLL, wfLen;
@@ -2354,7 +2354,7 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
             // if (i == U[k%3]/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
             TB.push_back(updateState(currentHState, currentIState, currentDState));
             // if (i == (U[k%3]-L[k%3])/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
-            score = H[k%3][offset];
+            // score = H[k%3][offset];
             state = currentHState;
         }
     }
