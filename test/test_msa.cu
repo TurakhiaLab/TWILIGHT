@@ -26,7 +26,7 @@ void parseArguments(int argc, char** argv)
         ("output,o", po::value<std::string>()->default_value(""), "Output file name")
         ("match",    po::value<int>()->default_value(2), "Match score")
         ("mismatch", po::value<int>()->default_value(0), "Mismatch penalty")
-        ("gap-open", po::value<int>()->default_value(-2), "Gap open penalty")
+        ("gap-open", po::value<int>()->default_value(-3), "Gap open penalty")
         ("gap-extend", po::value<int>()->default_value(-1), "Gap extend penalty")
         ("xdrop", po::value<int>()->default_value(0), "X-drop value")
         ("help,h", "Print help messages");

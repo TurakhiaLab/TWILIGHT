@@ -60,6 +60,43 @@ void checkAlignment(std::vector<std::string>& ref)
     }
 }
 
+void getPostOrderList(Node* node, std::stack<Node*>& postStack) {
+    std::stack<Node*> s1;
+    s1.push(node); 
+    Node* current; 
+  
+    while (!s1.empty()) { 
+        current = s1.top(); 
+        postStack.push(current);
+        s1.pop(); 
+        for (auto ch: current->children) {
+            if (ch->grpID == current->grpID) {
+                s1.push(ch);
+            }      
+        }
+    } 
+    return;
+}
+
+void getPreOrderList(Node* node, std::vector<Node*>& preList) {
+    if (node == NULL) return;
+ 
+    std::stack<Node*> s1;
+    s1.push(node);
+    Node* current;
+ 
+    while (s1.empty() == false) {
+        current = s1.top();
+        preList.push_back(current);
+        s1.pop();
+        for (auto ch: current->children) {
+            if (ch->grpID == current->grpID) {
+                s1.push(ch);
+            }      
+        }
+    }
+}
+
 /*
 void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
 {
@@ -1385,6 +1422,219 @@ void transitivityMerge_cpu_mod(Tree* tree, Tree* newtree, std::vector<std::pair<
 }
 
 
+/*
+void transitivityMerge_cpu_mod(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util)
+{
+    // auto kernelStart = std::chrono::high_resolution_clock::now();
+
+    for (auto n: nodes) {
+        std::cout << tree->allNodes[n.first->identifier]->identifier << ',' << tree->allNodes[n.second->identifier]->identifier << '\n';
+        // std::cout << "Level:" << n.first->level << ',' << n.second->level << '\n';
+        if (n.first->parent == nullptr) {
+            // tree->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
+            for (auto id: tree->allNodes[n.second->identifier]->msa) tree->allNodes[n.first->identifier]->msa.push_back(id);
+            // tree->allNodes[n.first->identifier]->msaIdx.clear();
+            // tree->allNodes[n.first->identifier]->msaIdx = tree->allNodes[n.second->identifier]->msaIdx;
+            std::vector<int8_t> rootAln;
+            for (int i = 0; i < tree->allNodes[n.second->identifier]->msaAln.size(); ++i) {
+                if ((tree->allNodes[n.second->identifier]->msaAln[i] & 0XFFFF) == 2) rootAln.push_back(1);
+                else if ((tree->allNodes[n.second->identifier]->msaAln[i] & 0XFFFF) == 1) rootAln.push_back(2);
+                else rootAln.push_back(tree->allNodes[n.second->identifier]->msaAln[i]);
+            }
+            tree->allNodes[n.first->identifier]->msaAln = rootAln;
+            
+            int seqLen = tree->allNodes[n.first->identifier]->msaAln.size();
+            util->seqsLen[n.first->identifier] = seqLen;
+            util->memCheck(seqLen);
+            break;
+        }
+        int8_t refGap = (newtree->allNodes[n.first->identifier]->level == newtree->allNodes[n.second->identifier]->level) ? 2 : 1; 
+        std::vector<int8_t> refAln, qryAln;
+        std::vector<int8_t> refNewAln, qryNewAln;
+        refAln = tree->allNodes[n.first->identifier]->msaAln;
+        qryAln = tree->allNodes[n.second->identifier]->msaAln;
+        // for (auto id: tree->allNodes[n.first->identifier]->msa)  refAln.push_back(tree->allNodes[id]->msaAln);
+        // for (auto id: tree->allNodes[n.second->identifier]->msa) qryAln.push_back(tree->allNodes[id]->msaAln);
+        
+        std::vector<int8_t> refOpAln = tree->allNodes[n.first->identifier]->msaAln;
+        std::vector<int8_t> qryOpAln = tree->allNodes[n.second->identifier]->msaAln;
+        int32_t refLen = refOpAln.size();
+        int32_t qryLen = qryOpAln.size();
+        // int32_t refNum = refAln.size();
+        // int32_t qryNum = qryAln.size();
+        int32_t seqLen = max(refLen, qryLen);
+        std::cout << refLen << ':';
+        for (int i = 0; i < refLen; ++i) {
+            if ((refOpAln[i] & 0XFFFF) == refGap || (refOpAln[i] & 0XFFFF) == 3) 
+                std::cout << i << ',';
+        }
+        std::cout << '\n';
+        std::cout << qryLen << ':';
+        for (int i = 0; i < qryLen; ++i) {
+            if ((qryOpAln[i] & 0XFFFF) == 2 || (qryOpAln[i] & 0XFFFF) == 3) 
+                std::cout << i << ',';
+        }
+        std::cout << '\n';
+        // aln = 0: match
+        // aln = 1: ref gap
+        // aln = 2: qry gap
+        // aln = 3: permenant gap
+        int32_t rIdx = 0, qIdx = 0;
+        auto mergeStart = std::chrono::high_resolution_clock::now();
+        
+        
+        while (rIdx < refLen && qIdx < qryLen) {
+            if (((refOpAln[rIdx] & 0xFFFF) != refGap && (refOpAln[rIdx] & 0xFFFF) != 3)  &&
+                ((qryOpAln[qIdx] & 0xFFFF) != 2 && (qryOpAln[qIdx] & 0xFFFF) != 3)) {
+                refNewAln.push_back(refAln[rIdx]);
+                qryNewAln.push_back(qryAln[qIdx]);
+                qIdx++;rIdx++;
+            }
+            else if (((refOpAln[rIdx] & 0xFFFF) == refGap || (refOpAln[rIdx] & 0xFFFF) == 3)  &&
+                     ((qryOpAln[qIdx] & 0xFFFF) != 2 && (qryOpAln[qIdx] & 0xFFFF) != 3)) {
+                int consecGap = 0;
+                int k = rIdx;
+                while (((refOpAln[k] & 0xFFFF) == refGap || (refOpAln[k] & 0xFFFF) == 3) && k < refLen) {
+                    ++consecGap;
+                    ++k;
+                }
+                for (size_t g = 0; g < consecGap; ++g) {
+                    refNewAln.push_back(refAln[rIdx]);
+                    qryNewAln.push_back(3);
+                    tree->allNodes[n.second->identifier]->addGapPos.push_back(qIdx+g);
+                    rIdx += 1;
+                }
+            }
+            else if (((refOpAln[rIdx] & 0xFFFF) != refGap && (refOpAln[rIdx] & 0xFFFF) != 3)  &&
+                     ((qryOpAln[qIdx] & 0xFFFF) == 2 || (qryOpAln[qIdx] & 0xFFFF) == 3)) {
+                int consecGap = 0;
+                int k = qIdx;
+                while (((qryOpAln[k] & 0xFFFF) == 2 || (qryOpAln[k] & 0xFFFF) == 3) && k < qryLen) {
+                    ++consecGap;
+                    ++k;
+                }
+                for (size_t g = 0; g < consecGap; ++g) {
+                    refNewAln.push_back(3);
+                    qryNewAln.push_back(qryAln[qIdx]);
+                    tree->allNodes[n.first->identifier]->addGapPos.push_back(rIdx+g);
+                    qIdx += 1;
+                }
+            }
+            else {
+                int consecGap = 0;
+                int kr = rIdx, kq = qIdx;
+                while (((refOpAln[kr] & 0xFFFF) == refGap || (refOpAln[kr] & 0xFFFF) == 3) && kr < refLen) {
+                    ++consecGap;
+                    ++kr;
+                }
+                for (size_t g = 0; g < consecGap; ++g) {
+                    refNewAln.push_back(refAln[rIdx]);
+                    qryNewAln.push_back(3);
+                    tree->allNodes[n.second->identifier]->addGapPos.push_back(qIdx+g);
+                    rIdx += 1;
+                }
+                consecGap = 0;
+                while (((qryOpAln[kq] & 0xFFFF) == 2 || (qryOpAln[kq] & 0xFFFF) == 3) && kq < qryLen) {
+                    ++consecGap;
+                    ++kq;
+                }
+                for (size_t g = 0; g < consecGap; ++g) {
+                    refNewAln.push_back(3);
+                    qryNewAln.push_back(qryAln[qIdx]);
+                    tree->allNodes[n.first->identifier]->addGapPos.push_back(rIdx+g);
+                    qIdx += 1;
+                }
+            }
+        }
+        // printf("rIdx:%d, qIdx:%d, refLen:%d, qryLen:%d, alnLen: %d\n", rIdx, qIdx, refLen, qryLen, alignment[0].size());
+        if (rIdx < refLen) {
+            for (size_t g = rIdx; g < refLen; ++g) {
+                refNewAln.push_back(refAln[g]);
+                qryNewAln.push_back(3);    
+                tree->allNodes[n.second->identifier]->addGapPos.push_back(qIdx+g);
+            }
+        }
+        if (qIdx < qryLen) {
+            for (size_t g = qIdx; g < qryLen; ++g) {
+                refNewAln.push_back(3);
+                qryNewAln.push_back(qryAln[g]);
+                tree->allNodes[n.first->identifier]->addGapPos.push_back(rIdx+g);
+            }
+        }
+        assert (refNewAln.size() == qryNewAln.size());
+        tree->allNodes[n.first->identifier]->msaAln = refNewAln;
+        tree->allNodes[n.second->identifier]->msaAln = qryNewAln;
+        
+        for (auto id: tree->allNodes[n.second->identifier]->msa) tree->allNodes[n.first->identifier]->msa.push_back(id);
+        // tree->allNodes[n.first->identifier]->msaAln = refNewAln[0];
+    }
+    
+    // for (auto id: tree->root->msa) std::cout << id << ',' << tree->allNodes[id]->msaAln.size() << '\n';
+    // std::cout << '\n';
+
+    std::vector<Node*> preOrderList;
+    getPreOrderList(newtree->root, preOrderList);
+
+    for (auto idd: preOrderList) std::cout << idd->identifier << ',';
+    std::cout << '\n';
+    for (int i = 0; i < preOrderList.size(); ++i) {
+        for (auto ch: preOrderList[i]->children) {
+            std::cout << ch->identifier << '\n';
+            std::vector<int8_t> newAln, oldAln = tree->allNodes[ch->identifier]->msaAln;
+            int oldIdx = 0;
+            std::cout << "Aln Len: " << oldAln.size() << ',';
+            for (int j = 0; j < tree->allNodes[preOrderList[i]->identifier]->msaAln.size(); ++j) {
+                if ((tree->allNodes[preOrderList[i]->identifier]->msaAln[j] & 0XFFFF) == 3 && ((oldAln[oldIdx] & 0XFFF) != 3 && (oldAln[oldIdx] & 0XFFF) != 1)) {
+                    newAln.push_back(3);
+                }
+                else {
+                    newAln.push_back(oldAln[oldIdx]);
+                    ++oldIdx;
+                }
+            }
+            std::cout << "oldIdx: " << oldIdx << '\n';
+            tree->allNodes[ch->identifier]->msaAln = newAln;
+        }
+    }
+    
+
+
+    for (auto id: tree->root->msa) {
+        std::vector<int8_t> aln = tree->allNodes[id]->msaAln;
+        // std::cout << id << '\n';
+        // for (int a = 0; a < aln.size(); ++a) std::cout << (aln[a] & 0xFFFF);
+        // std::cout << '\n';
+        for (auto sIdx: tree->allNodes[id]->msaIdx) {
+            int64_t start = sIdx*util->memLen;
+            int orgIdx = 0;
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - util->seqsStorage[sIdx];
+            for (int j = 0; j < aln.size(); ++j) {
+                if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
+                    util->seqBuf[storeTo][start+j] = util->seqBuf[storeFrom][start+orgIdx];
+                    orgIdx++;
+                }
+                else {
+                    util->seqBuf[storeTo][start+j] = '-';
+                }
+            }
+            util->seqsLen[id] = aln.size();
+            util->changeStorage(sIdx);
+        }
+        if (id != tree->root->identifier) {
+            for (auto Idx: tree->allNodes[id]->msaIdx) {
+                tree->root->msaIdx.push_back(Idx);
+            }
+        }
+    }
+    tree->root->msa.clear();
+    
+
+
+    return;
+}
+*/
+
 
 void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param)
 {
@@ -2349,7 +2599,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     // });
 
     int numBlocks = 1024; 
-    int blockSize = 512;
+    int blockSize = 1024;
     int gpuNum;
     cudaGetDeviceCount(&gpuNum); // number of CUDA devices
     
@@ -3357,27 +3607,7 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, 
 
 */
 
-void getPostOrderList(Node* node, std::stack<Node*>& msaStack) {
-    std::stack<Node*> s1;
-    std::vector<std::vector<Node*>> hier;
-    size_t lowestLevel = 0; 
-    
-    s1.push(node); 
-    Node* current; 
-  
-    while (!s1.empty()) { 
-        current = s1.top(); 
-        msaStack.push(current); 
-        if (current->level > lowestLevel) lowestLevel = current->level;
-        s1.pop(); 
-        for (auto ch: current->children) {
-            if (ch->grpID == current->grpID) {
-                s1.push(ch);
-            }      
-        }
-    } 
-    return;
-}
+
 
 __global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result) {
     int32_t seqNum     = seqInfo[0]; 

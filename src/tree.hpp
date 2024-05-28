@@ -29,6 +29,7 @@ public:
     std::vector<std::string> msa; //use this to store identifier
     std::vector<int> msaIdx;
     std::vector<int8_t> msaAln;
+    std::vector<int> addGapPos;
     // std::vector<std::vector<uint16_t>> freq;
     size_t refStartPos = {0};
     size_t numLeaves = {0};
