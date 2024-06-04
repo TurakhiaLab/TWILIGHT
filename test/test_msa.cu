@@ -24,11 +24,12 @@ void parseArguments(int argc, char** argv)
         ("max-leaves,l",  po::value<int>()->default_value(0), "Maximum number of leaves per subtree")
         ("sp-score,s",  po::value<std::string>()->default_value("false"), "Calculate the sum-of-pairs score (True, False, Only)")
         ("output,o", po::value<std::string>()->default_value(""), "Output file name")
-        ("match",    po::value<int>()->default_value(2), "Match score")
-        ("mismatch", po::value<int>()->default_value(0), "Mismatch penalty")
-        ("gap-open", po::value<int>()->default_value(-3), "Gap open penalty")
-        ("gap-extend", po::value<int>()->default_value(-1), "Gap extend penalty")
-        ("xdrop", po::value<int>()->default_value(0), "X-drop value")
+        ("match",      po::value<paramType>()->default_value(2), "Match score")
+        ("mismatch",   po::value<paramType>()->default_value(0), "Mismatch penalty")
+        ("gap-open",   po::value<paramType>()->default_value(-3), "Gap open penalty")
+        ("gap-extend", po::value<paramType>()->default_value(-1), "Gap extend penalty")
+        ("trans",      po::value<paramType>()->default_value(0), "Transition score")
+        ("xdrop",      po::value<paramType>()->default_value(0), "X-drop value")
         ("help,h", "Print help messages");
 
 }
@@ -164,14 +165,27 @@ int main(int argc, char** argv) {
 
     
     // printTree(T->root);
-    int mat = vm["match"].as<int>();
-    int mis = vm["mismatch"].as<int>();
-    int gapOp = vm["gap-open"].as<int>();
-    int gapEx = vm["gap-extend"].as<int>();
-    int marker = 128;
-    int xdrop = vm["xdrop"].as<int>();
-    if (xdrop == 0) xdrop = -1*gapEx*200;
-    Params param(mat,mis,gapOp,gapEx,xdrop,marker);
+    paramType mat = vm["match"].as<paramType>();
+    paramType mis = vm["mismatch"].as<paramType>();
+    paramType gapOp = vm["gap-open"].as<paramType>();
+    paramType gapEx = vm["gap-extend"].as<paramType>();
+    paramType trans = vm["trans"].as<paramType>();
+    paramType marker = 128;
+    paramType xdrop = vm["xdrop"].as<paramType>();
+    // check parameters
+    float gapOp_int =  round(gapOp);
+    float gapEx_int =  round(gapEx);
+    float xdrop_int =  round(xdrop);
+    float gapOp_diff = gapOp-gapOp_int;
+    float gapEx_diff = gapEx-gapEx_int;
+    float xdrop_diff = xdrop-xdrop_int;
+    if (gapOp_diff != 0) printf("WARNING: Floating point gap open penalty is not allowed, %.0f is used intead of %f.\n", gapOp_int, gapOp);
+    if (gapEx_diff != 0) printf("WARNING: Floating point gap extend penalty is not allowed, %.0f is used intead of %f.\n", gapEx_int, gapEx);
+    if (xdrop_diff != 0) printf("WARNING: Floating point xdrop is not allowed, %.0f is used intead of %f.\n", xdrop_int, xdrop);
+
+    if (xdrop_int == 0) xdrop_int = -1*gapEx_int*200;
+    if (trans == 0) trans = mis + (mat-mis)/2;
+    Params param(mat,mis,trans,gapOp_int,gapEx_int,xdrop_int,marker);
 
     std::string calSP = vm["sp-score"].as<std::string>();
     std::string machine = vm["machine"].as<std::string>();
@@ -345,7 +359,7 @@ int main(int argc, char** argv) {
     if (partition->partitionsRoot.size() > 1) {
         std::vector<std::pair<Node*, Node*>> type1Aln;
         auto alnStart = std::chrono::high_resolution_clock::now();
-        // Copy from uti->seqBuf to Node->msa
+        // Copy from util->seqBuf to Node->msa
         for (auto n: newT->allNodes) {
             for (auto m: n.second->children) {
                 type1Aln.push_back(std::make_pair(T->allNodes[m->identifier], T->allNodes[n.second->identifier]));
@@ -387,6 +401,7 @@ int main(int argc, char** argv) {
         hier.clear();
 
         // Create a new tree with all roots of subtrees
+        auto mergeStart = std::chrono::high_resolution_clock::now();
         paritionInfo_t * newPartition = new paritionInfo_t(std::numeric_limits<size_t>::max(), 0, "centroid");
         partitionTree(newT->root, newPartition); 
         std::vector<std::pair<Node*, Node*>> mergePairs;
@@ -432,10 +447,38 @@ int main(int argc, char** argv) {
             //     std::cout << n.first->identifier << ',' << n.second->identifier << '\n';
             // }
         }
-        // Merging nodes in the new tree
-        auto mergeStart = std::chrono::high_resolution_clock::now();
+        std::vector<std::pair<Node*, Node*>> mergePairs_cpy = mergePairs;
+        std::vector<std::pair<Node*, Node*>> singleLevel;
+        std::map<std::string, char> addedNodes;
+        while (true) {
+            addedNodes.clear();
+            singleLevel.clear();
+            for (auto it = mergePairs.begin(); it != mergePairs.end();) {
+                Node* a = it->first;
+                Node* b = it->second;
+                if ((a->parent != nullptr && b->parent != nullptr) &&  
+                    (addedNodes.find(a->identifier) == addedNodes.end() && addedNodes.find(b->identifier) == addedNodes.end())) {
+                    singleLevel.push_back(std::make_pair(a, b));
+                    for (auto id: T->allNodes[a->identifier]->msa) addedNodes[id] = 0;
+                    for (auto id: T->allNodes[b->identifier]->msa) addedNodes[id] = 0;
+                    mergePairs.erase(it);
+                }
+                else {
+                    ++it;
+                }
+            }
+            bool breakLoop = false;
+            if (singleLevel.empty()) {
+                singleLevel.push_back(mergePairs[0]);
+                breakLoop = true;
+            }
+            // std::cout << kkk << ':' << singleLevel.size() << '\n';
+            transitivityMerge_cpu_mod(T, newT, singleLevel, util);
+            // mergeLevels.push_back(singleLevel);
+            if (breakLoop) break;
+        }
         // transitivityMerge_cpu(T, mergePairs, util);
-        transitivityMerge_cpu_mod(T, newT, mergePairs, util);
+        // transitivityMerge_cpu_mod(T, newT, mergePairs, util);
         auto mergeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
         std::cout << "Merge "<< newT->allNodes.size() << " subtrees (total " << T->root->msaIdx.size() << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
@@ -560,4 +603,3 @@ int main(int argc, char** argv) {
     // alignSeqToSeq(ref, query, param, alignment);
     
 }
-

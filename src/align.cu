@@ -2133,8 +2133,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
 */
 
 
-
-__global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, int32_t* alnLen, int32_t *seqInfo, int16_t* param)
+__global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, int32_t* alnLen, int32_t *seqInfo, paramType* param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -2142,7 +2141,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
     // int gs = gridDim.x;
     // int tidx = bx*bs+tx;
 
-    const int fLen = 1024; // frontier length (assuming anti-diagonal length cannot exceed 1024)
+    const int fLen = FRONT_WAVE_LEN; // frontier length (assuming anti-diagonal length cannot exceed 1024)
     // const int16_t reducedValue = (1 << 14);
     
     int32_t threadNum = seqInfo[3];
@@ -2183,12 +2182,14 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
         int32_t refLen = len[2*bx];
         int32_t qryLen = len[2*bx+1];
 
-        int16_t p_match = param[0];
-        int16_t p_mismatch = param[1];
-        int16_t p_gapOpen = param[2];
-        int16_t p_gapExtend = param[3];
-        int16_t p_xdrop = param[4];
-        int16_t p_marker = param[5];
+        paramType p_match = param[0];
+        paramType p_mismatch = param[1];
+        paramType p_gapOpen = param[2];
+        paramType p_gapExtend = param[3];
+        paramType p_xdrop = param[4];
+        paramType p_marker = param[5];
+        paramType p_trans = param[6];
+        // if (bx == 0 && tx == 0) printf("%d, %d, %d, %d, %d, %d, %d\n", p_match, p_mismatch, p_trans, p_gapOpen, p_gapExtend, p_xdrop, p_marker);
 
         int16_t tile = 0;
         int32_t last_k = 0;
@@ -2371,7 +2372,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                                 if ((m == 4 || l == 4) || (m == 5 && l == 5)) numerator += 0;
                                 else if (m == 5 || l == 5)                    numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_gapExtend;
                                 else if (m == l)                              numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_match;
-                                else if (abs(m-l) == 2)                       numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*(static_cast<float>(p_match)*0.5);
+                                else if (abs(m-l) == 2)                       numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_trans;
                                 else                                          numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_mismatch;
                             }
                         }
@@ -2988,6 +2989,11 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
                         denominator += freqMult;
                         if ((m == 4 || l == 4) || (m == 5 && l == 5)) numerator += 0;
                         else if (m == l)                              numerator += freqMult*param.match;
+                        else                                          numerator += freqMult*param.mismatch;
+                        if ((m == 4 || l == 4) || (m == 5 && l == 5)) numerator += 0;
+                        else if (m == 5 || l == 5)                    numerator += freqMult*param.gapExtend;
+                        else if (m == l)                              numerator += freqMult*param.match;
+                        else if (abs(m-l) == 2)                       numerator += freqMult*param.trans;
                         else                                          numerator += freqMult*param.mismatch;
                     }
                 }

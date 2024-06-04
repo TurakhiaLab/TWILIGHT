@@ -38,14 +38,15 @@ void printLeaves(Node* node);
 Tree* readNewick(po::variables_map& vm);
 // void readSequences(po::variables_map& vm, msa::utility* util);
 void checkAlignment(std::vector<std::string>& ref);
-void msaPostOrderTraversal_gpu_org(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
+void msaPostOrderTraversal_gpu_org(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, Params& param);
 void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
 
 void msaPostOrderTraversal_gpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
 void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
 void msaPostOrderTraversal_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
-void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util);
-void transitivityMerge_cpu_mod(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util);
+void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
+// void transitivityMerge_cpu_mod(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util);
+void transitivityMerge_cpu_mod(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
 void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode);
 void getPostOrderList(Node* node, std::stack<Node*>& msaStack);
 __global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result);
