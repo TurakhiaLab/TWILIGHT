@@ -9,28 +9,34 @@
 #include <bits/stdc++.h>
 #include <tbb/parallel_for.h>
 
+const int FRONT_WAVE_LEN = 512;
+
+typedef float paramType;
+
 struct Params 
 {
-    int16_t match;
-    int16_t mismatch;
-    int16_t gapOpen;
-    int16_t gapExtend; //for gap-affine
+    paramType match;
+    paramType mismatch;
+    paramType gapOpen;
+    paramType gapExtend; //for gap-affine
+    paramType trans; // transition
 
-    int16_t xdrop; //optional for now
-    int16_t marker; //optional for now
+    paramType xdrop; //optional for now
+    paramType marker; //optional for now
+    
 
 
-    Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen) : //linear gap
-        match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen) {}
+    Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen) : //linear gap
+        match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen) {}
 
-    Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen, int16_t t_gapExtend) : //affine gap 
-        match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend) {}
+    Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, paramType t_gapExtend) : //affine gap 
+        match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), gapExtend(t_gapExtend) {}
 
-    Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen, int16_t t_gapExtend, int16_t t_xdrop) : //xdrop with affine gap 
-        match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop){}
+    Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, paramType t_gapExtend, paramType t_xdrop) : //xdrop with affine gap 
+        match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop){}
 
-    Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen, int16_t t_gapExtend, int16_t t_xdrop, int16_t marker) : //TALCO-Xdrop with affine gap 
-        match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), marker(marker) {}
+    Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, paramType t_gapExtend, paramType t_xdrop, paramType marker) : //TALCO-Xdrop with affine gap 
+        match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), marker(marker) {}
 };
 
 
@@ -53,7 +59,7 @@ __global__ void alignGrpToGrp_talco
     int32_t* len,
     int32_t* alnLen,
     int32_t* seqInfo,
-    int16_t* param
+    paramType* param
 );
 
 void alignGrpToGrp_traditional
