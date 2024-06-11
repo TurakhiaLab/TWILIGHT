@@ -83,6 +83,10 @@ bool cmp(std::string a, std::string b) {
     return a < b;
 }
 
+bool cmp_branch(std::pair<std::pair<Node*, Node*>, float>& a, std::pair<std::pair<Node*, Node*>, float>& b) { 
+    return a.second < b.second; 
+} 
+
 void outputFile(std::string fileName, msa::utility* util) {
     std::ofstream outFile(fileName);
     std::vector<std::string> seqs;
@@ -151,17 +155,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences\n"); 
         exit(1);
     }
-    
-    
-
-    auto treeBuiltStart = std::chrono::high_resolution_clock::now();
-    int maxSubtreeSize = vm["max-leaves"].as<int>();
-    if (maxSubtreeSize == 0) maxSubtreeSize = INT_MAX;
-    paritionInfo_t * partition = new paritionInfo_t(maxSubtreeSize, 0, "centroid");
-    partitionTree(T->root, partition);
-    auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-    std::cout << "Partition the tree in: " <<  treeBuiltTime.count() << " ns\n";
 
     
     // printTree(T->root);
@@ -182,10 +175,12 @@ int main(int argc, char** argv) {
     if (gapOp_diff != 0) printf("WARNING: Floating point gap open penalty is not allowed, %.0f is used intead of %f.\n", gapOp_int, gapOp);
     if (gapEx_diff != 0) printf("WARNING: Floating point gap extend penalty is not allowed, %.0f is used intead of %f.\n", gapEx_int, gapEx);
     if (xdrop_diff != 0) printf("WARNING: Floating point xdrop is not allowed, %.0f is used intead of %f.\n", xdrop_int, xdrop);
-
-    if (xdrop_int == 0) xdrop_int = -1*gapEx_int*200;
+    printf("Xdrop: %f\n", xdrop_int);
+    if (xdrop_int == 0) xdrop_int = round(FRONT_WAVE_LEN/(-1*gapEx_int*3));
+    printf("Xdrop: %f\n", xdrop_int);
     if (trans == 0) trans = mis + (mat-mis)/2;
     Params param(mat,mis,trans,gapOp_int,gapEx_int,xdrop_int,marker);
+    
 
     std::string calSP = vm["sp-score"].as<std::string>();
     std::string machine = vm["machine"].as<std::string>();
@@ -236,6 +231,14 @@ int main(int argc, char** argv) {
     // for (auto p: partition->partitionsRoot) {
     //     std::cout << std::left<< std::setw(20) << p.first << std::left<< std::setw(20) << p.second.second << T->allNodes[p.first]->grpID << '\n';
     // }
+    auto treeBuiltStart = std::chrono::high_resolution_clock::now();
+    int maxSubtreeSize = vm["max-leaves"].as<int>();
+    if (maxSubtreeSize == 0) maxSubtreeSize = INT_MAX;
+    paritionInfo_t * partition = new paritionInfo_t(maxSubtreeSize, 0, "centroid");
+    partitionTree(T->root, partition);
+    auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
+    std::cout << "Partition the tree in: " <<  treeBuiltTime.count() << " ns\n";
     
     Tree* newT = reconsturctTree(T->root, partition->partitionsRoot);
     // printTree(newT->root);
@@ -405,6 +408,7 @@ int main(int argc, char** argv) {
         paritionInfo_t * newPartition = new paritionInfo_t(std::numeric_limits<size_t>::max(), 0, "centroid");
         partitionTree(newT->root, newPartition); 
         std::vector<std::pair<Node*, Node*>> mergePairs;
+        std::vector<std::pair<std::pair<Node*, Node*>, float>> sortedMergePairs;
         for (auto &p: newPartition->partitionsRoot) {
             std::stack<Node*> msaStack;
             getPostOrderList(p.second.first, msaStack);
@@ -444,13 +448,24 @@ int main(int argc, char** argv) {
             }
             // std::cout << "\nDEBUG:MERGE PAIRS\n";
             // for (auto n: mergePairs) {
-            //     std::cout << n.first->identifier << ',' << n.second->identifier << '\n';
+            //     std::cout << n.first->identifier << ',' << n.second->identifier << ':' << n.second->branchLength << '\n';
             // }
         }
+        for (auto n:  mergePairs) { 
+            sortedMergePairs.push_back(std::make_pair(n, n.second->branchLength)); 
+        }
+        sort(sortedMergePairs.begin(), sortedMergePairs.end(), cmp_branch);
+        mergePairs.clear();
+        for (auto n: sortedMergePairs) mergePairs.push_back(n.first);
         std::vector<std::pair<Node*, Node*>> mergePairs_cpy = mergePairs;
         std::vector<std::pair<Node*, Node*>> singleLevel;
         std::map<std::string, char> addedNodes;
+        // std::cout << "\nDEBUG:MERGE PAIRS\n";
+        // for (auto n: mergePairs) {
+        //     std::cout << n.first->identifier << ',' << n.second->identifier << ':' << n.second->branchLength << '\n';
+        // }
         while (true) {
+            auto roundStart = std::chrono::high_resolution_clock::now();
             addedNodes.clear();
             singleLevel.clear();
             for (auto it = mergePairs.begin(); it != mergePairs.end();) {
@@ -472,9 +487,11 @@ int main(int argc, char** argv) {
                 singleLevel.push_back(mergePairs[0]);
                 breakLoop = true;
             }
-            // std::cout << kkk << ':' << singleLevel.size() << '\n';
             transitivityMerge_cpu_mod(T, newT, singleLevel, util);
             // mergeLevels.push_back(singleLevel);
+            auto roundEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds roundTime = roundEnd - roundStart;
+            std::cout << "Merge "<< singleLevel.size() << " edges in " << roundTime.count() / 1000000 << " ms\n";
             if (breakLoop) break;
         }
         // transitivityMerge_cpu(T, mergePairs, util);

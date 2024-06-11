@@ -467,12 +467,12 @@ void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::unordered_map<st
     if (nodes.find(node->identifier) != nodes.end()) {
         Node* NodeCopy;
         if (T->allNodes.size() == 0) {
-            NodeCopy = new Node(node->identifier, 0);
+            NodeCopy = new Node(node->identifier, node->branchLength);
             NodeCopy->grpID = -1;
             T->root = NodeCopy;
         }
         else {
-            NodeCopy = new Node(node->identifier, parent, 0);
+            NodeCopy = new Node(node->identifier, parent, node->branchLength);
             NodeCopy->grpID = -1;
             // T->allNodes[parent->identifier]->children.push_back(NodeCopy);
         }

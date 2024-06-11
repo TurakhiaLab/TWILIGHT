@@ -9,7 +9,8 @@
 #include <bits/stdc++.h>
 #include <tbb/parallel_for.h>
 
-const int FRONT_WAVE_LEN = 512;
+const int FRONT_WAVE_LEN = 1024;
+const int THREAD_NUM = 256;
 
 typedef float paramType;
 
