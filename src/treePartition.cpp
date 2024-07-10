@@ -11,13 +11,14 @@ class paritionInfo_t
 {
 public:
     size_t maxPartitionSize;
+    size_t minPartitionSize;
     size_t numPartitions;
     std::stack<Node*> partitionsStack;
     std::unordered_map<std::string, std::pair<Node*, size_t>> partitionsRoot;
     std::string partitionOption;
 
-    paritionInfo_t (size_t t_maxPartitionSize, size_t t_numPartitions, std::string option):
-        maxPartitionSize(t_maxPartitionSize), numPartitions(t_numPartitions) {
+    paritionInfo_t (size_t t_maxPartitionSize, size_t t_minPartitionSize, size_t t_numPartitions, std::string option):
+        maxPartitionSize(t_maxPartitionSize), minPartitionSize(t_minPartitionSize), numPartitions(t_numPartitions) {
             if (option == "centroid" || option == "longest") partitionOption = option;
             else {fprintf(stderr, "Error: Wrong partition option: %s\n", option.c_str()); exit(1);} 
         }
@@ -143,19 +144,20 @@ Node* getCentroidEdge(Node* node, int rootID){
     return centroidEdge;
 }
 
-void updateLongestEdge (Node* node, Node* root, size_t totalLeaves, float& longestLen, Node*& breakEdge){
+void updateLongestEdge (Node* node, Node* root, size_t totalLeaves, size_t minSize, float& longestLen, Node*& breakEdge){
     // std::cout << "DEBUG: updateLongestEdge " << node->grpID << '\t' << rootID << '\n';
     if (node->grpID != root->grpID ) return;
     size_t numLeaves = getNumLeaves(node, node->grpID);
-    if ((node->children).size() != 0 && numLeaves == 0) return;
+    // if ((node->children).size() != 0 && numLeaves == 0) return;
+    if (numLeaves == 0 || numLeaves < minSize) return;
     if ((node->children).size() != 0) { 
         for (auto ch: node->children){
-            updateLongestEdge(ch, root, totalLeaves, longestLen, breakEdge);
+            updateLongestEdge(ch, root, totalLeaves, minSize, longestLen, breakEdge);
         }
     }
     if (node->identifier == root->identifier) return;
     if (numLeaves == totalLeaves) return;
-    if (node->branchLength > longestLen) {
+    if (node->branchLength > longestLen && (totalLeaves-numLeaves >= minSize)) {
         // std::cout << "DEBUG: branchLength\t" << node->branchLength << "\tLongest\t" << longestLen << '\n';
         longestLen = node->branchLength;
         breakEdge = node;
@@ -189,12 +191,13 @@ Node* getLowestChild(Node* node, std::string identifier) {
     
 }
 
+/*
 Node* getLongestEdge(Node* node, int rootID){
     Node* longestEdge = node;
     float longestLen = 0;
     size_t totalLeaves = getNumLeaves(node, node->grpID);
     updateLongestEdge (node, node, totalLeaves, longestLen, longestEdge);
-    // std::cout << "DEBUG: getLongestEdge " << longestEdge->identifier << '\t' << longestEdge->branchLength << '\n'; 
+    std::cout << "DEBUG: getLongestEdge " << longestEdge->identifier << '\t' << longestEdge->branchLength << '\n'; 
     // Update branch Length
     Node* traceback = longestEdge;
     bool downTraversal = false;
@@ -376,10 +379,57 @@ Node* getLongestEdge(Node* node, int rootID){
     
     return longestEdge;
 }
+*/
 
-Node* getBreakingEdge(Node* root, std::string option){
+
+Node* getLongestEdge(Node* node, int rootID, int minSize){
+    Node* longestEdge = node;
+    float longestLen = 0;
+    size_t totalLeaves = getNumLeaves(node, node->grpID);
+    updateLongestEdge (node, node, totalLeaves, minSize, longestLen, longestEdge);
+    // std::cout << "DEBUG: getLongestEdge " << longestEdge->identifier << '\t' << longestEdge->branchLength << '\n'; 
+    if (longestEdge->parent == nullptr) return longestEdge;
+    std::vector<Node*> validChildren;
+    for (auto ch: longestEdge->parent->children) {
+        if (ch->grpID == longestEdge->parent->grpID && ch->identifier != longestEdge->identifier) validChildren.push_back(ch);
+    }
+    // Parent is not the root
+    if (longestEdge->parent->parent != nullptr) {
+        if (validChildren.size() == 1) {
+            // Parent's parent is in the same group
+            if (longestEdge->parent->parent->grpID == longestEdge->parent->grpID) {
+                // update parent/child relationship
+                validChildren[0]->parent = longestEdge->parent->parent;
+                for (int c = 0; c < longestEdge->parent->parent->children.size(); ++c) {
+                    if (longestEdge->parent->parent->children[c]->identifier == validChildren[0]->parent->identifier) {
+                        longestEdge->parent->parent->children[c] = validChildren[0];
+                    }
+                }
+                validChildren[0]->branchLength += longestEdge->parent->branchLength;
+            }
+            else {
+                // Set the branch to be unbreakable
+                validChildren[0]->branchLength = 0;
+            }
+        }
+    }
+    else {
+        if (validChildren.size() == 1) {
+            validChildren[0]->branchLength = 0;
+        }
+        else if (validChildren.size() == 2) {
+            validChildren[0]->branchLength += validChildren[1]->branchLength;
+            validChildren[1]->branchLength += validChildren[0]->branchLength;
+        }
+    }
+    
+    return longestEdge;
+}
+
+
+Node* getBreakingEdge(Node* root, std::string option, int minSize){
     if (option == "centroid") return getCentroidEdge(root, root->grpID);
-    else if (option == "longest") return getLongestEdge(root, root->grpID);
+    else if (option == "longest") return getLongestEdge(root, root->grpID, minSize);
     else {fprintf(stderr, "Error: Wrong partition option: %s\n", option.c_str()); exit(1);} 
 }
 
@@ -423,18 +473,37 @@ void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root, par
 
 void partitionTree(Node* root, paritionInfo_t* partition) {
     size_t totalLeaves = getNumLeaves(root, root->grpID);
-    if (totalLeaves <= partition->maxPartitionSize) {
-        if (partition->partitionsRoot.empty()) {
-            setChildrenGrpID(root, root->grpID, 0);
-            size_t numLeaves = getNumLeaves(root, root->grpID);
-            partition->partitionsRoot[root->identifier] = std::make_pair(root, numLeaves);
+    if (partition->partitionOption == "centroid") {
+        if (totalLeaves <= partition->maxPartitionSize) {
+            if (partition->partitionsRoot.empty()) {
+                setChildrenGrpID(root, root->grpID, 0);
+                size_t numLeaves = getNumLeaves(root, root->grpID);
+                partition->partitionsRoot[root->identifier] = std::make_pair(root, numLeaves);
+            }
+            return;
         }
-        return;
     }
-    // std::cout << "DEBUG: Now partiotion at " << root->identifier << '\n';
-    Node* breakEdge = getBreakingEdge(root, partition->partitionOption);
+    if (partition->partitionOption == "longest") {
+        if (totalLeaves <= partition->maxPartitionSize && totalLeaves >= partition->minPartitionSize) {
+            if (partition->partitionsRoot.empty()) {
+                setChildrenGrpID(root, root->grpID, 0);
+                size_t numLeaves = getNumLeaves(root, root->grpID);
+                partition->partitionsRoot[root->identifier] = std::make_pair(root, numLeaves);
+            }
+            return;
+        }
+    }
     
+    // std::cout << "DEBUG: Now partiotion at " << root->identifier << '\n';
+    Node* breakEdge = getBreakingEdge(root, partition->partitionOption, partition->minPartitionSize);
     // std::cout << "DEBUG: get breaking edge at " << breakEdge->identifier << '\n';
+    if (breakEdge->identifier == root->identifier) {
+        return;
+        // fprintf(stderr, "Error: Unable to partition the tree!\n"); 
+        // exit(1);
+    }
+    
+    
     Node* tree1 = nullptr;
     Node* tree2 = nullptr;
     bipartition(root, breakEdge, tree1, tree2, partition);

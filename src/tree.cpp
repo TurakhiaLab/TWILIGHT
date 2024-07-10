@@ -28,6 +28,15 @@ size_t Node::getNumLeaves(){
     return num_leaves;
 }
 
+size_t Node::getNumNodes(){
+    size_t num_nodes = 1;
+    if (children.size() == 0) return num_nodes;
+    for (auto ch: children){
+        num_nodes += ch->getNumNodes();
+    }
+    return num_nodes;
+}
+
 void stringSplit (std::string const& s, char delim, std::vector<std::string>& words) {
     size_t start_pos = 0, end_pos = 0;
     while ((end_pos = s.find(delim, start_pos)) != std::string::npos) {

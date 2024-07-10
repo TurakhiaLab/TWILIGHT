@@ -33,7 +33,7 @@ namespace po = boost::program_options;
 // po::options_description mainDesc("MSA Command Line Arguments");
 
 // void parseArguments(int argc, char** argv);
-void printTree(Node* node);
+void printTree(Node* node, int grpID);
 void printLeaves(Node* node);
 Tree* readNewick(po::variables_map& vm);
 // void readSequences(po::variables_map& vm, msa::utility* util);
@@ -49,6 +49,7 @@ void transitivityMerge_cpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nod
 void transitivityMerge_cpu_mod(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
 void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode);
 void getPostOrderList(Node* node, std::stack<Node*>& msaStack);
+void getPostOrderList_subtree(Node* node, std::stack<Node*>& msaStack);
 __global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result);
 double getSPScore_cpu(std::vector<std::string>& alignment, Params& param);
 double getSPScore_gpu(std::vector<std::string>& alignment, msa::utility* util, Params& param);

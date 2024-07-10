@@ -16,6 +16,7 @@ public:
     Node(std::string id, float len);
     Node(std::string id, Node* par, float len);
     size_t getNumLeaves();
+    size_t getNumNodes();
     bool is_leaf() {return !(identifier.substr(0,4) == "node");}
     void setNumleaves() {numLeaves = getNumLeaves();};
 
