@@ -20,29 +20,11 @@ include(${TBB_DIR}/cmake/TBBBuild.cmake)
 tbb_build(TBB_ROOT ${TBB_DIR} CONFIG_DIR TBB_DIR MAKE_ARGS tbb_cpf=1)
 find_package(TBB REQUIRED tbbmalloc tbbmalloc_proxy tbb_preview)
 
-add_executable (msa
-                src/msa.cpp
-                src/tree.cpp
-                src/align.cpp)
-
-add_executable (test-align
-                test/test_align.cpp
-                src/tree.cpp
-                src/align.cpp)
-
-add_executable (test-msa
-                test/test_msa.cpp
-                src/tree.cpp
-                src/align.cpp)
-
 add_executable (msa-gpu
-	        test/test_msa.cu
+	        src/msa-gpu.cu
 		src/tree.cpp
 		src/align.cu
 		src/TALCO-XDrop.cpp
                 src/util.cu)
 
-target_link_libraries(msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
-target_link_libraries(test-align PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
-target_link_libraries(test-msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
 target_link_libraries(msa-gpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
