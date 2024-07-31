@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <iostream>
 #include <chrono>
+#include <map>
 
 
 class Node 
@@ -19,20 +20,18 @@ public:
     size_t getNumNodes();
     bool is_leaf() {return !(identifier.substr(0,4) == "node");}
     void setNumleaves() {numLeaves = getNumLeaves();};
+    void setLongestDescendant(Node* n) {longestDescendant = n;};
 
     float branchLength;
     size_t level;
-
-
     std::string identifier;
     Node* parent;
+    Node* longestDescendant;
     std::vector< Node* > children;
     std::vector<std::string> msa; //use this to store identifier
     std::vector<int> msaIdx;
     std::vector<int8_t> msaAln;
-    std::vector<int> addGapPos;
-    // std::vector<std::vector<uint16_t>> freq;
-    size_t refStartPos = {0};
+    std::map<int, std::string> msaSeq;
     size_t numLeaves = {0};
 
     /*Partition*/

@@ -13,19 +13,15 @@ namespace msa
         std::unordered_map<std::string, int>  seqsLen;
         std::unordered_map<int, bool> seqsStorage;
         char** seqBuf[2] = {nullptr, nullptr};
-        // char* seqBuf0 = nullptr;
-        // char* seqBuf1 = nullptr;
         int memLen;
         int memNum;
         int nowStore = 0;
-        const float timesBigger = 1.5;
+        const float timesBigger = 1.3;
         void changeStorage(int idx) {
             seqsStorage[idx] = (seqsStorage[idx] == 0) ? 1 : 0;
             return;
         }
         void seqFree(){
-            // free(seqBuf[0]);
-            // free(seqBuf[1]);
             for (int i = 0; i < this->memNum; ++i) {
                 delete [] seqBuf[0][i];
                 delete [] seqBuf[1][i];
@@ -34,39 +30,7 @@ namespace msa
             delete [] seqBuf[1];
             return;
         }
-        
         void seqMalloc(int seqNum, int seqLen){
-            // if (seqBuf[0] != nullptr && seqBuf[1] != nullptr) {
-            //     char* temp[2] = {nullptr, nullptr};
-            //     int adjustLen = static_cast<int>(seqLen * this->timesBigger); 
-            //     temp[0] = (char*)malloc(seqNum * adjustLen * sizeof(char));
-            //     temp[1] = (char*)malloc(seqNum * adjustLen * sizeof(char));
-            //     for (int j = 0; j < seqNum; ++j) {
-            //         for (int i = 0; i < adjustLen; ++i) {
-            //             if (i < memLen) {
-            //                 temp[0][j*adjustLen+i] = seqBuf[0][j*memLen+i];
-            //                 temp[1][j*adjustLen+i] = seqBuf[1][j*memLen+i];
-            //             }
-            //             else {
-            //                 temp[0][j*adjustLen+i] = 0;
-            //                 temp[1][j*adjustLen+i] = 0;
-            //             }
-            //         }
-            //     }
-            //     seqFree();
-            //     seqBuf[0] = temp[0];
-            //     seqBuf[1] = temp[1];
-            //     memLen = adjustLen;
-            // }
-            // else {
-            //     int adjustLen = static_cast<int>(seqLen * this->timesBigger); 
-            //     this->seqBuf[0] = (char*)malloc(seqNum * adjustLen * sizeof(char));
-            //     this->seqBuf[1] = (char*)malloc(seqNum * adjustLen * sizeof(char));
-            //     this->memNum = seqNum;
-            //     this->memLen = adjustLen;
-            // }    
-            // printf("Allocate memory... Size = %d x %d\n", memNum, memLen);
-            // return;
             if (seqBuf[0] != nullptr && seqBuf[1] != nullptr) {
                 char** temp[2] = {nullptr, nullptr};
                 int adjustLen = static_cast<int>(seqLen * this->timesBigger);
@@ -115,7 +79,7 @@ namespace msa
         }
         
         void memCheck(int seqLen) {
-            if (seqLen > this->memLen) {
+            if (seqLen > this->memLen*0.9) {
                 printf("Reallocate Memory. SeqLen (%d) > MemLen (%d)\n", seqLen, this->memLen);
                 seqMalloc(this->memNum, seqLen);
             }

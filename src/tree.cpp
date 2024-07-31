@@ -7,6 +7,7 @@ Node::Node(std::string id, float len){
     level = 1;
     branchLength = len;
     parent = nullptr;
+    longestDescendant = nullptr;
 }
 
 
@@ -16,6 +17,7 @@ Node::Node(std::string id, Node* par, float len){
     parent = par;
     level = par->level + 1;
     par->children.push_back(this);
+    longestDescendant = nullptr;
 }
 
 size_t Node::getNumLeaves(){
