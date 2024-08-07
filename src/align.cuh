@@ -23,53 +23,29 @@ struct Params
     paramType trans; // transition
 
     paramType xdrop; //optional for now
-    paramType marker; //optional for now
-    int scoreMode; //0: match/mismatch, 1: hoxd70
+    // paramType marker; //optional for now
+    bool userDefine;
+    // hoxd70
+    // paramType userMatrix [5][5] = { {  91, -114,  -31, -123, -100},
+    //                                 {-114,  100, -125,  -31, -100},
+    //                                 { -31, -125,  100, -114, -100},
+    //                                 {-123,  -31, -114,   91, -100},
+    //                                 {-100, -100, -100, -100, -100} }; 
+    // paramType userGapOpen = -400;
+    // paramType userGapExtend = -30;
 
-    // paramType hoxd70 [5][5] = { {  91, -114,  -31, -123, -100},
-    //                             {-114,  100, -125,  -31, -100},
-    //                             { -31, -125,  100, -114, -100},
-    //                             {-123,  -31, -114,   91, -100},
-    //                             {-100, -100, -100, -100, -100} }; 
-    // paramType hoxd70_gapOpen = -400;
-    // paramType hoxd70_gapExtend = -30;
+    paramType userMatrix [5][5] = { {  2.22,  -1.86,  -1.46,  -1.39 },  // a
+                                    { -1.86,   1.16,  -2.48,  -1.05 },  // c
+                                    { -1.46,  -2.48,   1.03,  -1.74 },  // g
+                                    { -1.39,  -1.05,  -1.74,   1.65 }}; // t
+    paramType userGapOpen = -20;
+    paramType userGapExtend = -2;
 
-    paramType hoxd70 [5][5] = { {  2.22,  -1.86,  -1.46,  -1.39 },  // a
-                                { -1.86,   1.16,  -2.48,  -1.05 },  // c
-                                { -1.46,  -2.48,   1.03,  -1.74 },  // g
-                                { -1.39,  -1.05,  -1.74,   1.65 }}; // t
-    paramType hoxd70_gapOpen = -20;
-    paramType hoxd70_gapExtend = -2;
-
-
-    // Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, int mode) : //linear gap
-    //     match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), scoreMode(mode) {}
-
-    // Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, paramType t_gapExtend, int mode) : //affine gap 
-    //     match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), gapExtend(t_gapExtend), scoreMode(mode) {}
-
-    Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, paramType t_gapExtend, paramType t_xdrop, int mode) : //xdrop with affine gap 
-        match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), gapExtend(t_gapExtend), scoreMode(mode) {
-            // if (mode == 0)      this->xdrop = round((FRONT_WAVE_LEN/3)*(-t_gapExtend));
-            // // else if (mode == 1) this->xdrop = round((FRONT_WAVE_LEN/3)*(-hoxd70_gapExtend));
-            // else if (mode == 1) this->xdrop = 1000000;
-            this->xdrop = round((FRONT_WAVE_LEN/3)*(-t_gapExtend));
-        }
-
-    // Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, paramType t_gapExtend, paramType t_xdrop, paramType marker, int mode) : //TALCO-Xdrop with affine gap 
-    //     match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), marker(marker), scoreMode(mode) {}
+    Params(paramType t_match, paramType t_mismatch, paramType t_trans, paramType t_gapOpen, paramType t_gapExtend, paramType t_xdrop, bool user):
+        match(t_match), mismatch(t_mismatch), trans(t_trans), gapOpen(t_gapOpen), gapExtend(t_gapExtend), userDefine(user) {
+        this->xdrop = (t_xdrop == 0) ? round((FRONT_WAVE_LEN/3)*(-t_gapExtend)) : t_xdrop;
+    }
 };
-
-
-// __global__ void alignGrpToGrp_talco
-// (
-//     char* ref,
-//     char* query,
-//     int16_t* param,
-//     char* alignment,
-//     int32_t* seqInfo
-    
-// );
 
 __global__ void alignGrpToGrp_talco
 (

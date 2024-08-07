@@ -1,31 +1,6 @@
-#ifndef TREE_HPP
-#include "tree.hpp"
+#ifndef PARTITION_HPP
+#include "treePartition.hpp"
 #endif
-
-#include <stack> 
-#include <utility> 
-#include <limits> 
-
-
-class paritionInfo_t
-{
-public:
-    size_t maxPartitionSize;
-    size_t minPartitionSize;
-    size_t numPartitions;
-    std::stack<Node*> partitionsStack;
-    std::unordered_map<std::string, std::pair<Node*, size_t>> partitionsRoot;
-    std::string partitionOption;
-
-    paritionInfo_t (size_t t_maxPartitionSize, size_t t_minPartitionSize, size_t t_numPartitions, std::string option):
-        maxPartitionSize(t_maxPartitionSize), minPartitionSize(t_minPartitionSize), numPartitions(t_numPartitions) {
-            if (option == "centroid" || option == "longest") partitionOption = option;
-            else {fprintf(stderr, "Error: Wrong partition option: %s\n", option.c_str()); exit(1);} 
-        }
-
-    void createPartition(Tree* T, paritionInfo_t* partition);
-    
-};
 
 void findLongestBranchLength(Node* node, int grpID, float& maxBranchLength, Node ** nodeWithLongestBranchLength)
 {
@@ -191,197 +166,6 @@ Node* getLowestChild(Node* node, std::string identifier) {
     
 }
 
-/*
-Node* getLongestEdge(Node* node, int rootID){
-    Node* longestEdge = node;
-    float longestLen = 0;
-    size_t totalLeaves = getNumLeaves(node, node->grpID);
-    updateLongestEdge (node, node, totalLeaves, longestLen, longestEdge);
-    std::cout << "DEBUG: getLongestEdge " << longestEdge->identifier << '\t' << longestEdge->branchLength << '\n'; 
-    // Update branch Length
-    Node* traceback = longestEdge;
-    bool downTraversal = false;
-    bool doAdjustBranch = false;
-    Node* lowestChild1 = nullptr;
-    Node* lowestChild2 = nullptr;
-    if (longestEdge->parent->parent != nullptr) {
-        while (getNumLeaves(traceback->parent, traceback->parent->grpID) == getNumLeaves(longestEdge, longestEdge->grpID) && traceback->parent->grpID == longestEdge->grpID) {
-            if (traceback->parent->parent == nullptr) {
-                downTraversal = true;
-                break;
-            }
-            traceback = traceback->parent;
-        }
-    }
-    else {
-        downTraversal = true;
-    }
-    if (downTraversal == false && doAdjustBranch == false) {
-        if (traceback->identifier == longestEdge->identifier) {
-            // check whether parents are dead route, i.e. no other leaves 
-            Node* tb_traceback = traceback->parent;
-            bool deadparent = true;
-            
-            while (tb_traceback->parent->grpID == traceback->grpID) {
-                
-                if (getNumLeaves(tb_traceback->parent, tb_traceback->parent->grpID) != getNumLeaves(tb_traceback, tb_traceback->grpID)) {
-                    deadparent = false;
-                    break;
-                }
-                if (tb_traceback == nullptr) break;
-                tb_traceback = tb_traceback->parent;
-            }
-            if (deadparent == true) {
-                traceback = getLowestChild(longestEdge->parent, longestEdge->identifier);
-                size_t numChildren = 0;
-                lowestChild1 = nullptr;
-                lowestChild2 = nullptr;
-
-                if (traceback->children.size() > 0) {
-                    for (auto ch: traceback->children) {
-                        if (ch->grpID == traceback->grpID) {
-                            ++numChildren;
-                            if (numChildren >= 3) break;
-                            if (lowestChild1 == nullptr) lowestChild1 = ch;
-                            else lowestChild2 = ch;
-                        }
-
-                    }
-                    if (numChildren == 2) {
-                        // Always add shorter lenght to longer one
-                        if (lowestChild1->branchLength <= lowestChild2->branchLength) {
-                            Node* temp = lowestChild1;
-                            lowestChild1 = lowestChild2;
-                            lowestChild2 = temp;
-                        }
-                        doAdjustBranch = true;
-                    }
-                }
-            }
-            else {
-                lowestChild1 = getLowestChild(traceback->parent, traceback->identifier);
-                lowestChild2 = traceback->parent;
-                doAdjustBranch = true;
-            }
-            
-        }
-        else {
-            lowestChild1 = getLowestChild(traceback->parent, traceback->identifier);
-            lowestChild2 = traceback->parent;
-            doAdjustBranch = true;
-        }
-        if (doAdjustBranch) {
-            for (auto ch: (lowestChild1->parent)->children) {
-                if (ch->identifier == lowestChild1->identifier) {
-                    // std::cout << "DEBUG: " << ch->identifier << '+' << lowestChild2->identifier << '\n';
-                    // std::cout << "DEBUG: " << ch->branchLength << '+' << lowestChild2->branchLength  << '=' << ch->branchLength + lowestChild2->branchLength<< '\n'; 
-                    ch->branchLength += lowestChild2->branchLength;
-                }
-            }
-        }
-    }
-    else {
-        size_t remainNumChildren = 0;
-        for (auto ch: longestEdge->parent->children) {
-            if (ch->grpID == node->grpID && ch->identifier != longestEdge->identifier) {
-                remainNumChildren++;
-                if (lowestChild1 == nullptr) {
-                    lowestChild1 = getLowestChild(ch, ch->identifier);
-                }
-                else {
-                    lowestChild2 = getLowestChild(ch, ch->identifier);
-                }
-            }
-        }
-        if (remainNumChildren == 2) {
-            if (lowestChild1->branchLength < lowestChild2->branchLength) {
-                Node* temp = lowestChild1;
-                lowestChild1 = lowestChild2;
-                lowestChild2 = temp;
-            }
-            for (auto ch: (lowestChild1->parent)->children) {
-                if (ch->identifier == lowestChild1->identifier) {
-                    // std::cout << "DEBUG: " << ch->branchLength << '+' << lowestChild2->branchLength << '=' << ch->branchLength + lowestChild2->branchLength<< '\n'; 
-                    ch->branchLength += lowestChild2->branchLength;
-                }
-            }
-        }
-        else if (remainNumChildren == 1) {
-            traceback = getLowestChild(lowestChild1, lowestChild1->identifier);
-            size_t numChildren = 0;
-            lowestChild1 = nullptr;
-            lowestChild2 = nullptr;
-            if (traceback->children.size() > 0) {
-                for (auto ch: traceback->children) {
-                    if (ch->grpID == traceback->grpID) {
-                        ++numChildren;
-                        if (numChildren >= 3) break;
-                        if (lowestChild1 == nullptr) lowestChild1 = ch;
-                        else lowestChild2 = ch;
-                    }
-                }
-                if (numChildren == 2) {
-                    // Always add shorter lenght to longer one
-                    if (lowestChild1->branchLength <= lowestChild2->branchLength) {
-                        Node* temp = lowestChild1;
-                        lowestChild1 = lowestChild2;
-                        lowestChild2 = temp;
-                    }
-                    doAdjustBranch = true;
-                }
-            }
-            for (auto ch: (lowestChild1->parent)->children) {
-                if (ch->identifier == lowestChild1->identifier) {
-                    // std::cout << "DEBUG: " << ch->identifier << '+' << lowestChild2->identifier << '\n';
-                    // std::cout << "DEBUG: " << ch->branchLength << '+' << lowestChild2->branchLength  << '=' << ch->branchLength + lowestChild2->branchLength<< '\n'; 
-                    ch->branchLength += lowestChild2->branchLength;
-                }
-            }
-        }
-        
-    }
-    // Check another side
-    
-    lowestChild1 = nullptr;
-    lowestChild2 = nullptr;
-    size_t numChildren = 0;
-    if (longestEdge->children.size() > 1) {
-        for (auto ch: longestEdge->children) {
-            if (ch->grpID == longestEdge->grpID) {
-                ++numChildren;
-                if (numChildren >= 3) break;
-                if (lowestChild1 == nullptr) {
-                    lowestChild1 = ch;  
-                }
-                else {
-                    lowestChild2 = ch;
-                }
-            }
-            
-        }
-        if (numChildren == 2) {
-            if (lowestChild1->branchLength > lowestChild2->branchLength) {
-                Node* temp = lowestChild1;
-                lowestChild1 = lowestChild2;
-                lowestChild2 = temp;
-            }
-            for (auto ch: (lowestChild2->parent)->children) {
-                if (ch->identifier == lowestChild2->identifier) {
-                    // std::cout << "DEBUG: " << ch->branchLength << '+' << lowestChild1->branchLength  << '=' << ch->branchLength + lowestChild1->branchLength<< '\n'; 
-                    ch->branchLength += lowestChild1->branchLength;
-
-                }
-            }
-            
-
-        }
-    }
-    
-    return longestEdge;
-}
-*/
-
-
 Node* getLongestEdge(Node* node, int rootID, int minSize){
     Node* longestEdge = node;
     float longestLen = 0;
@@ -400,7 +184,7 @@ Node* getLongestEdge(Node* node, int rootID, int minSize){
             if (longestEdge->parent->parent->grpID == longestEdge->parent->grpID) {
                 // update parent/child relationship
                 validChildren[0]->parent = longestEdge->parent->parent;
-                for (int c = 0; c < longestEdge->parent->parent->children.size(); ++c) {
+                for (size_t c = 0; c < longestEdge->parent->parent->children.size(); ++c) {
                     if (longestEdge->parent->parent->children[c]->identifier == validChildren[0]->parent->identifier) {
                         longestEdge->parent->parent->children[c] = validChildren[0];
                     }
@@ -426,14 +210,13 @@ Node* getLongestEdge(Node* node, int rootID, int minSize){
     return longestEdge;
 }
 
-
 Node* getBreakingEdge(Node* root, std::string option, int minSize){
     if (option == "centroid") return getCentroidEdge(root, root->grpID);
     else if (option == "longest") return getLongestEdge(root, root->grpID, minSize);
     else {fprintf(stderr, "Error: Wrong partition option: %s\n", option.c_str()); exit(1);} 
 }
 
-void setChildrenGrpID(Node*& node, size_t ID_org, int ID) {
+void setChildrenGrpID(Node*& node, int ID_org, int ID) {
     if (node->grpID != ID_org) return;
     node->grpID = ID;
     if (node->children.size() == 0) return;
@@ -494,13 +277,9 @@ void partitionTree(Node* root, paritionInfo_t* partition) {
         }
     }
     
-    // std::cout << "DEBUG: Now partiotion at " << root->identifier << '\n';
     Node* breakEdge = getBreakingEdge(root, partition->partitionOption, partition->minPartitionSize);
-    // std::cout << "DEBUG: get breaking edge at " << breakEdge->identifier << '\n';
     if (breakEdge->identifier == root->identifier) {
         return;
-        // fprintf(stderr, "Error: Unable to partition the tree!\n"); 
-        // exit(1);
     }
     
     
@@ -554,12 +333,48 @@ void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::unordered_map<st
     return;
 }
 
-Tree* reconsturctTree(Node* root, std::unordered_map<std::string, std::pair<Node*, size_t>>& partitionRoots) {
+Tree* reconsturctTree(Node* root, std::unordered_map<std::string, std::pair<Node*, size_t>>& nodes) {
     Tree* T = new Tree();
     Node* nullNode = nullptr;
-    preOrderTraversal(nullNode, root, T, partitionRoots);
+    preOrderTraversal(nullNode, root, T, nodes);
     return T;
 }
+
+
+void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::map<std::string, std::string>& nodes) {
+    std::cout << node->identifier << '\n';
+    if (nodes.find(node->identifier) != nodes.end()) {
+        Node* NodeCopy;
+        if (T->allNodes.size() == 0) {
+            std::cout << "0" << node->identifier << '\n';
+            NodeCopy = new Node(node->identifier, node->branchLength);
+            NodeCopy->grpID = -1;
+            T->root = NodeCopy;
+        }
+        else {
+            std::cout << "1" << node->identifier << '\n';
+            NodeCopy = new Node(node->identifier, parent, node->branchLength);
+            NodeCopy->grpID = -1;
+            // T->allNodes[parent->identifier]->children.push_back(NodeCopy);
+        }
+        parent = NodeCopy;
+        T->allNodes[NodeCopy->identifier] = NodeCopy;
+    }
+    for (auto ch: node->children) {
+        preOrderTraversal(parent, ch, T, nodes);
+    }
+    return;
+}
+
+Tree* reconsturctTree(Node* root, std::map<std::string, std::string>& nodes) {
+    Tree* T = new Tree();
+    Node* nullNode = nullptr;
+    preOrderTraversal(nullNode, root, T, nodes);
+    return T;
+}
+
+
+
 
 void paritionInfo_t::createPartition(Tree* T, paritionInfo_t* partition)
 {

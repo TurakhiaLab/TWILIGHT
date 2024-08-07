@@ -698,7 +698,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
         __shared__ bool conv_logic;
         
         int32_t seqLen = seqInfo[0];
-        int32_t scoreMode = seqInfo[4];
+        // int32_t scoreMode = seqInfo[4];
 
         int32_t refLen = len[2*bx];
         int32_t qryLen = len[2*bx+1];
@@ -1423,7 +1423,7 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
     int32_t L[3], U[3];
     std::vector<int32_t> wfLL, wfLen;
     paramType scoreMat [25];
-    if (param.scoreMode == 0) {
+    if (param.userDefine == 0) {
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
                 if (i == 5 || j == 5)          scoreMat[i*5+j] = 0;
@@ -1433,8 +1433,8 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
             }
         }
     }
-    else if (param.scoreMode == 1) {
-        for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) scoreMat[i*5+j] = param.hoxd70[i][j];
+    else if (param.userDefine == 1) {
+        for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) scoreMat[i*5+j] = param.userMatrix[i][j];
     }
 
     //Output

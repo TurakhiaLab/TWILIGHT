@@ -31,7 +31,8 @@ public:
     std::vector<std::string> msa; //use this to store identifier
     std::vector<int> msaIdx;
     std::vector<int8_t> msaAln;
-    std::map<int, std::string> msaSeq;
+    std::vector<std::vector<uint16_t>> msaFreq;
+    // std::map<int, std::string> msaSeq;
     size_t numLeaves = {0};
 
     /*Partition*/
@@ -52,7 +53,9 @@ public:
     Node* root;
     std::unordered_map< std::string, Node* > allNodes;
     Tree(std::string newick);
+    Tree(Node* node);
     Tree() {root = nullptr;}
+    ~Tree();
 };
 
 #endif

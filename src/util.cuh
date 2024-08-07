@@ -7,6 +7,8 @@
 #include <boost/program_options.hpp> 
 #include <tbb/parallel_for.h>
 #include <tbb/task_group.h>
+#include <cstdio>
+
 
 
 #include "../src/kseq.h"
@@ -28,6 +30,11 @@
 #include "../src/TALCO-XDrop.hpp"
 #endif
 
+#ifndef PARTITION_HPP
+#include "../src/treePartition.hpp"
+#endif
+
+
 namespace po = boost::program_options;
 
 // KSEQ_INIT2(, gzFile, gzread)
@@ -39,7 +46,32 @@ namespace po = boost::program_options;
 void printTree(Node* node, int grpID);
 void printLeaves(Node* node);
 Tree* readNewick(po::variables_map& vm);
+Tree* readNewick(std::string treeFileName);
+void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util);
+void getFreq(Tree* tree, paritionInfo_t* partition, msa::utility* util);
 
+void outputFile(std::string fileName, msa::utility* util, Tree* T, int grpID);
+void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID);
+void outputSubtree(std::string fileName, Tree* T);
+void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string> seqs);
+// void readMSANUpdate(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, int& totalSeqs);
+
+
+void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, Params& param);
+void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, Params& param);
+void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
+void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Params& param);
+void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, Params& param);
+void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util);
+
+void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode);
+void getPostOrderList(Node* node, std::stack<Node*>& msaStack);
+
+__global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result);
+double getSPScore_cpu(std::vector<std::string>& alignment, Params& param);
+double getSPScore_gpu(msa::utility* util, Params& param);
+
+// Regressive method
 // void getLongestDescendent(Tree* tree, msa::utility* util);
 // void getSubMSANodes(std::vector<Node*>& subMSANodes, Node* startNode, int N);
 // void getSubMSAs(std::map<int, std::vector<std::vector<Node*>>>& subMSAs, Tree* T, int N);
@@ -50,17 +82,6 @@ Tree* readNewick(po::variables_map& vm);
 // void merger_qry(Tree* tree, std::vector<Node*>& qryNodes, msa::utility* util, std::string& refString, std::string& qryString, int qLevel);
 // void transitivityMerge_regressive(Tree* tree, std::map<int, std::vector<std::vector<Node*>>>& subMSAs, msa::utility* util);
 // void msaPostOrderTraversal_multigpu_regressive(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
-
-void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
-void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, msa::utility* util, Params& param);
-void transitivityMerge_cpu_mod(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
-
-void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode);
-void getPostOrderList(Node* node, std::stack<Node*>& msaStack);
-
-__global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result);
-double getSPScore_cpu(std::vector<std::string>& alignment, Params& param);
-double getSPScore_gpu(std::vector<std::string>& alignment, msa::utility* util, Params& param);
 
 
 #endif

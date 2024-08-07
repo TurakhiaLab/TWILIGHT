@@ -188,3 +188,36 @@ Tree::Tree(std::string newickString) {
     root = treeRoot;
 }
 
+
+
+Tree::Tree(Node* node) {
+    Node* root = new Node(node->identifier, node->branchLength);
+    int grp = node->grpID;
+    root->grpID = -1;
+    this->allNodes[node->identifier] = root;
+    this->root = root;
+    std::stack<Node*> s1;
+    s1.push(node); 
+    Node* current; 
+    while (!s1.empty()) { 
+        current = s1.top();
+        if (current->identifier != this->root->identifier) {
+            Node* copyNode = new Node(current->identifier, this->allNodes[current->parent->identifier], current->branchLength);
+            copyNode->grpID = -1; copyNode->level = current->level - node->level;
+            this->allNodes[current->identifier] = copyNode;
+        }
+        if (current->is_leaf()) this->m_numLeaves += 1;
+        s1.pop(); 
+        for (auto ch: current->children) {
+            if (ch->grpID == grp) s1.push(ch);      
+        }
+    } 
+    
+}
+
+Tree::~Tree() {
+    for (auto n: this->allNodes) {
+        delete n.second;
+    }
+    this->allNodes.clear();
+}
