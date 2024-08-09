@@ -21,10 +21,10 @@ tbb_build(TBB_ROOT ${TBB_DIR} CONFIG_DIR TBB_DIR MAKE_ARGS tbb_cpf=1)
 find_package(TBB REQUIRED tbbmalloc tbbmalloc_proxy tbb_preview)
 
 add_executable (msa-gpu
-	        src/msa-gpu.cu
-		src/tree.cpp
-		src/align.cu
-		src/TALCO-XDrop.cpp
-                src/util.cu)
+	        	src/msa-gpu.cu
+			src/util.cu
+			src/align.cu
+		    	src/tree.cpp
+			src/treePartition.cpp)
 
 target_link_libraries(msa-gpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
