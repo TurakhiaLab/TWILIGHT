@@ -21,12 +21,12 @@ void parseArguments(int argc, char** argv)
         ("cpu-num,c",  po::value<int>(), "Number of CPU threads")
         ("gpu-num,g",  po::value<int>(), "Number of GPUs")
         ("max-leaves,l",  po::value<int>()->default_value(0), "Maximum number of leaves per sub-subtree")
-        ("max-subtree-size,m", po::value<int>()->default_value(100000), "Maximum number of leaves per subtree")
+        ("max-subtree-size,m", po::value<int>()->default_value(1000000), "Maximum number of leaves per subtree")
         
         ("output,o", po::value<std::string>()->default_value(""), "Output file name")
-        ("match",      po::value<paramType>()->default_value(2.5), "Match score")
+        ("match",      po::value<paramType>()->default_value(2), "Match score")
         ("mismatch",   po::value<paramType>()->default_value(0), "Mismatch penalty")
-        ("gap-open",   po::value<paramType>()->default_value(-4), "Gap open penalty")
+        ("gap-open",   po::value<paramType>()->default_value(-3), "Gap open penalty")
         ("gap-extend", po::value<paramType>()->default_value(-1), "Gap extend penalty")
         ("trans",      po::value<paramType>()->default_value(0), "Transition score")
         ("xdrop",      po::value<paramType>()->default_value(0), "X-drop value")
@@ -136,10 +136,13 @@ void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t*
             std::cout << tempDir << " created\n";
         }
     }
+    else tempDir = vm["temp-dir"].as<std::string>();
+            
     if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
 
     std::string seqFileName = vm["sequences"].as<std::string>();
     size_t maxLen = 0, totalLen = 0, seqNum = 0;
+    std::cout << "Total " <<  partition->partitionsRoot.size() << " subtrees.\n";
     for (auto subroot: partition->partitionsRoot) {
         int subtreeIdx = tree->allNodes[subroot.first]->grpID;
         Tree* subT = new Tree(subroot.second.first);
@@ -374,8 +377,7 @@ int main(int argc, char** argv) {
             util->setSubtreeIdx(subtree);
         }
         else {
-            std::string tempDir;
-            if (!vm.count("temp-dir")) tempDir =  "./temp";
+            std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             std::string subtreeFileName = "subtree-" + std::to_string(subtree);
             std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
@@ -441,8 +443,7 @@ int main(int argc, char** argv) {
         for (auto sIdx: subT->root->msaIdx) T->allNodes[subT->root->identifier]->msaIdx.push_back(sIdx);
         // for (auto node: subT->allNodes) delete node.second;
         if (batches) {
-            std::string tempDir;
-            if (!vm.count("temp-dir")) tempDir =  "./temp";
+            std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             std::string subtreeFileName = "subtree-" + std::to_string(subtree);
             std::string subtreeAlnFile = tempDir + '/' + subtreeFileName + ".temp.aln";
@@ -460,8 +461,7 @@ int main(int argc, char** argv) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         util->nowProcess = 1; // merge subtrees
         if (batches) {
-            std::string tempDir;
-            if (!vm.count("temp-dir")) tempDir =  "./temp";
+            std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             readFreq(tempDir, T, P, util);
         }
@@ -478,18 +478,12 @@ int main(int argc, char** argv) {
         std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
         int totalSeqs = 0;
         if (batches) {
-            std::string tempDir;
-            if (!vm.count("temp-dir")) tempDir =  "./temp";
+            std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             outputFinal (tempDir, T, P, util, totalSeqs);
         }
         else totalSeqs = T->root->msaIdx.size();
         std::cout << "Merge " << newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
-    }
-
-    // clear temporary files
-    if (batches) {
-        
     }
 
 
@@ -535,7 +529,9 @@ int main(int argc, char** argv) {
     if (vm["output"].as<std::string>() != "") {
         std::string outFile = vm["output"].as<std::string>();
         auto outStart = std::chrono::high_resolution_clock::now();
+        std::string subtreeFreqFile = outFile + ".freq.txt";
         outputFile(outFile, util, T, -1);
+        outputFreq(subtreeFreqFile, util, T, -1);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";

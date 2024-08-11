@@ -808,7 +808,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                 // if (tidx == 0) printf("ref+qry: %d\n", reference_length + query_length - 1);
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                     if (tx == 0) {
-                        float threshold = 0.9;
+                        float threshold = 0.7;
                         int minLen = min(refLen, qryLen);
                         if (alnLen[bx] < static_cast<int32_t>(threshold*minLen)) {
                             xdrop = true;
@@ -821,7 +821,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                 }
                 
                 if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
-                    if (tx == 0) printf("No.%d ERROR: anti-diagonal larger than the max limit!\n", bx);
+                    if (tx == 0) printf("No.%d ERROR: anti-diagonal larger than the max limit! align length = %d, k = %d\n", bx, alnLen[bx], k);
                     if (tx == 0) last_tile = true;
                     __syncthreads();
                     break;
@@ -1423,7 +1423,9 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
     int32_t L[3], U[3];
     std::vector<int32_t> wfLL, wfLen;
     paramType scoreMat [25];
-    if (param.userDefine == 0) {
+    paramType gapOpen = (param.userDefine) ? param.userGapOpen : param.gapOpen;
+    paramType gapExtend = (param.userDefine) ? param.userGapExtend : param.gapExtend;
+    if (!param.userDefine) {
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
                 if (i == 5 || j == 5)          scoreMat[i*5+j] = 0;
@@ -1463,6 +1465,7 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
     }
 
     for (int32_t k=0; k<refLen+queryLen+1; k++) {
+        // if (k % 1000 == 0 && k != 0) std::cout << "k: " << k << '\n';
         L[k%3] = (k<=queryLen)?0:k-queryLen;
         U[k%3] = (k<=refLen)?k:refLen;
         wfLL.push_back(L[k%3]);
@@ -1498,12 +1501,12 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
                 match = H[(k+1)%3][offsetDiag] + similarScore;
             }
             if (offsetUp >= 0) {
-                insOp = H[(k+2)%3][offsetUp] + param.gapOpen;
-                insExt = I[(k+1)%2][offsetUp] + param.gapExtend;
+                insOp = H[(k+2)%3][offsetUp] + gapOpen;
+                insExt = I[(k+1)%2][offsetUp] + gapExtend;
             }
             if (offsetLeft >=0) {
-                delOp = H[(k+2)%3][offsetLeft] + param.gapOpen;
-                delExt = D[(k+1)%2][offsetLeft] + param.gapExtend;
+                delOp = H[(k+2)%3][offsetLeft] + gapOpen;
+                delExt = D[(k+1)%2][offsetLeft] + gapExtend;
             }
             I[k%2][offset] =  insOp;
             D[k%2][offset] =  delOp;
@@ -1533,11 +1536,7 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
                 currentHState = STATE::HD;
             }
 
-            // if (j==0) std::cout << (int)currentHState << "-" << (int)currentIState << "-" << (int)currentDState << "-" << (int)updateState(currentHState, currentIState, currentDState) << std::endl;
-            // if (i == U[k%3]/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
             TB.push_back(updateState(currentHState, currentIState, currentDState));
-            // if (i == (U[k%3]-L[k%3])/2) printf("k: %d, idx: %d, state: %d, H: %d, D: %d, I: %d\n", k, i, updateState(currentHState, currentIState, currentDState), H[k%3][offset], D[k%2][offset], I[k%2][offset]);
-            // score = H[k%3][offset];
             state = currentHState;
         }
     }
@@ -1551,10 +1550,7 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
         }
     }
 
-    // for (int i = 1100; i < 1200; ++i) {
-    //     printf("%d,", wfLL[i]);
-    //     if (i%10 == 9) printf("\n");
-    // }
+    
     tracebackGrpToGrp (state, TB, wfLL, wfLen, aln, refLen, queryLen);
     return;
 

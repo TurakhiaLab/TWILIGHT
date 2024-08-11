@@ -1831,6 +1831,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
 
     std::atomic<int> nowRound;
     nowRound.store(0);
+    // nowRound.store(roundGPU-1);
+
 
     int maxThreads = tbb::this_task_arena::max_concurrency();
     
@@ -1861,6 +1863,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             
             
             while (nowRound < roundGPU) {
+            // while (nowRound >= 0) {
                 int rn = nowRound.fetch_add(1);
                 int alnPairs = (nodes.size() - rn*numBlocks > numBlocks) ? numBlocks : nodes.size() - rn*numBlocks;
                 int seqNum = 0;
@@ -1892,6 +1895,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
                         int storage = util->seqsStorage[sIdx];
                         int maxLen = max(refLen, qryLen);
+                        tbb::this_task_arena::isolate( [&]{
                         tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
                         for (int s = r.begin(); s < r.end(); ++s) {
                         // for (int s = 0; s < refLen; ++s) {
@@ -1904,11 +1908,13 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                             else                                                                                             hostFreq[gn][12*seqLen*n+6*s+5]+=1;
                         }
                         });
+                        });
                         seqNum += 1;
                     }
                     qryIdx = seqNum;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
                     int storage = util->seqsStorage[sIdx];
+                    tbb::this_task_arena::isolate( [&]{
                     tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
                     for (int s = r.begin(); s < r.end(); ++s) {
                     // for (int s = 0; s < qryLen; ++s) {
@@ -1920,6 +1926,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                         else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[gn][12*seqLen*n+6*(seqLen+s)+4]+=1;
                         else                                                                                             hostFreq[gn][12*seqLen*n+6*(seqLen+s)+5]+=1;
                     }
+                    });
                     });
                     seqNum += 1;
                 }
@@ -1963,66 +1970,68 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                 util->memCheck(maxAlnLen);
                 if (rn % 10 == 0 && rn > 0) std::cout << rn*numBlocks << " pairs have been processed.\n";
                 
-                // tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
-                // for (int n = range.begin(); n < range.end(); ++n) {
-                for (int n = 0; n < alnPairs; ++n) {
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
+                for (int n = range.begin(); n < range.end(); ++n) {
+                // for (int n = 0; n < alnPairs; ++n) {
                     
                     int32_t refNum = seqIdx[n].second - seqIdx[n].first;
                     int32_t qryNum = (n !=  alnPairs-1) ? seqIdx[n+1].first - seqIdx[n].second : seqNum - seqIdx[n].second;
                     int32_t nIdx = n + rn*numBlocks;
 
+                    // if (nIdx % 400 == 399) {
                     if (hostAlnLen[gn][n] <= 0) {
                         cpuFallback[nIdx] = true;
-                        int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-                        int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-                        uint16_t *freq = new uint16_t[12*seqLen]; 
-                        for (int i = 0; i < 12*seqLen; ++i) freq[i] = hostFreq[gn][12*seqLen*n+i];
-                        std::vector<int8_t> aln;
-                        alignGrpToGrp_traditional (
-                            freq,
-                            seqLen,
-                            refLen,
-                            qryLen,
-                            param,
-                            aln
-                        );
-                        delete [] freq;
-                        int32_t alnLen = aln.size();
-                        util->memCheck(alnLen);
-                        std::reverse(aln.begin(), aln.end());
-                        for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
-                            int storeFrom = util->seqsStorage[sIdx];
-                            int storeTo = 1 - util->seqsStorage[sIdx];
-                            int orgIdx = 0;
-                            for (int j = 0; j < aln.size(); ++j) {
-                                if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
-                                    util->alnStorage[storeTo][sIdx][j] = util->alnStorage[storeFrom][sIdx][orgIdx];
-                                    orgIdx++;
-                                }
-                                else {
-                                    util->alnStorage[storeTo][sIdx][j] = '-';
-                                }
-                            }
-                            util->seqsLen[nodes[nIdx].first->identifier] = aln.size();
-                            util->changeStorage(sIdx);
-                        }
-                        for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
-                            int storeFrom = util->seqsStorage[sIdx];
-                            int storeTo = 1 - util->seqsStorage[sIdx];
-                            int orgIdx = 0;
-                            for (int j = 0; j < aln.size(); ++j) {
-                                if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 1) {
-                                    util->alnStorage[storeTo][sIdx][j] = util->alnStorage[storeFrom][sIdx][orgIdx];
-                                    orgIdx++;
-                                }
-                                else {
-                                    util->alnStorage[storeTo][sIdx][j] = '-';
-                                }
-                            }
-                            util->seqsLen[nodes[nIdx].second->identifier] = aln.size();
-                            util->changeStorage(sIdx);
-                        }
-                        std::cout << "CPU fallback (traditional global alignment) on No. " << n << " (" << tree->allNodes[nodes[nIdx].first->identifier]->identifier << ")\n";
+                        // int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+                        // int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+                        // uint16_t *freq = new uint16_t[12*seqLen]; 
+                        // for (int i = 0; i < 12*seqLen; ++i) freq[i] = hostFreq[gn][12*seqLen*n+i];
+                        // std::vector<int8_t> aln;
+                        // alignGrpToGrp_traditional (
+                        //     freq,
+                        //     seqLen,
+                        //     refLen,
+                        //     qryLen,
+                        //     param,
+                        //     aln
+                        // );
+                        // delete [] freq;
+                        // int32_t alnLen = aln.size();
+                        // util->memCheck(alnLen);
+                        // std::reverse(aln.begin(), aln.end());
+                        // for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+                        //     int storeFrom = util->seqsStorage[sIdx];
+                        //     int storeTo = 1 - util->seqsStorage[sIdx];
+                        //     int orgIdx = 0;
+                        //     for (int j = 0; j < aln.size(); ++j) {
+                        //         if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
+                        //             util->alnStorage[storeTo][sIdx][j] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                        //             orgIdx++;
+                        //         }
+                        //         else {
+                        //             util->alnStorage[storeTo][sIdx][j] = '-';
+                        //         }
+                        //     }
+                        //     util->seqsLen[nodes[nIdx].first->identifier] = aln.size();
+                        //     util->changeStorage(sIdx);
+                        // }
+                        // for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                        //     int storeFrom = util->seqsStorage[sIdx];
+                        //     int storeTo = 1 - util->seqsStorage[sIdx];
+                        //     int orgIdx = 0;
+                        //     for (int j = 0; j < aln.size(); ++j) {
+                        //         if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 1) {
+                        //             util->alnStorage[storeTo][sIdx][j] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                        //             orgIdx++;
+                        //         }
+                        //         else {
+                        //             util->alnStorage[storeTo][sIdx][j] = '-';
+                        //         }
+                        //     }
+                        //     util->seqsLen[nodes[nIdx].second->identifier] = aln.size();
+                        //     util->changeStorage(sIdx);
+                        // }
+                        // std::cout << "CPU fallback (traditional global alignment) on No. " << n << " (" << tree->allNodes[nodes[nIdx].first->identifier]->identifier << ")\n";
                     }
                     else {
                         for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
@@ -2057,40 +2066,40 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                             util->seqsLen[nodes[nIdx].second->identifier] = hostAlnLen[gn][n];
                             util->changeStorage(sIdx);
                         }
+                        for (auto q: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+                            tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
+                        }
+                        tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
                     }
-                    for (auto q: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
-                        tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
-                    }
-                    tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
+                    
                 }
-                // });
+                });
+                });
                 
             }  
 
-            cudaFree(deviceFreq[gn]);
-            cudaFree(deviceAln[gn]);
-            cudaFree(deviceLen[gn]);
-            cudaFree(deviceAlnLen[gn]);
-            cudaFree(deviceSeqInfo[gn]);
-            cudaFree(deviceParam[gn]);
-            cudaDeviceSynchronize();  
-            free(hostFreq[gn]);
-            free(hostAln[gn]);
-            free(hostLen[gn]);
-            free(hostAlnLen[gn]);
-            free(hostSeqInfo[gn]);
+            
         }
     });
     
     // free memory  
     free(hostParam);
-    // for (int gn = 0; gn < gpuNum; ++gn) {
-    //     cudaSetDevice(gn);
-        
-        
-    // }
+    for (int gn = 0; gn < gpuNum; ++gn) {
+        cudaSetDevice(gn);
+        cudaFree(deviceFreq[gn]);
+        cudaFree(deviceAln[gn]);
+        cudaFree(deviceLen[gn]);
+        cudaFree(deviceAlnLen[gn]);
+        cudaFree(deviceSeqInfo[gn]);
+        cudaFree(deviceParam[gn]);
+        cudaDeviceSynchronize();  
+        free(hostFreq[gn]);
+        free(hostAln[gn]);
+        free(hostLen[gn]);
+        free(hostAlnLen[gn]);
+        free(hostSeqInfo[gn]);
+    }
     
-    // delete [] cpuFallback;
     delete [] deviceFreq;
     delete [] deviceAlnLen;
     delete [] deviceAln;
@@ -2102,99 +2111,108 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     delete [] hostLen;
     delete [] hostAln;
     delete [] hostSeqInfo;
-    // CPU Fallback
-    delete [] cpuFallback;
     
-    // std::vector<int> fallbackPairs;
-    // for (int i = 0; i < nodes.size(); ++i) if (cpuFallback[i] == true) fallbackPairs.push_back(i);
-    // // std::cout << "FFF\n";
-    // delete [] cpuFallback;
-    // // std::cout << "GGGG\n"
+    
+    // CPU Fallback
+    std::vector<int> fallbackPairs;
+    for (int i = 0; i < nodes.size(); ++i) if (cpuFallback[i]) fallbackPairs.push_back(i);
+    delete [] cpuFallback;
+    if (fallbackPairs.size() > 0) std::cout << "CPU Fallback. Num of pairs: " << fallbackPairs.size() << '\n';
+    else return;
+    tbb::parallel_for(tbb::blocked_range<int>(0, fallbackPairs.size()), [&](tbb::blocked_range<int> range) {
+    for (int n = range.begin(); n < range.end(); ++n) {
+                
     // for (auto nIdx: fallbackPairs) {
-    //     uint16_t *freq = new uint16_t[12*seqLen]; 
-    //     for (int i = 0; i < 12*seqLen; ++i) freq[i] = 0;
-    //     int32_t qryIdx = 0;
-    //     int32_t refIdx = 0;
-    //     int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-    //     int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-    //     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
-    //         int storage = util->seqsStorage[sIdx];
-    //         int maxLen = max(refLen, qryLen);
-    //         tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
-    //         for (int s = r.begin(); s < r.end(); ++s) {
-    //         // for (int s = 0; s < refLen; ++s) {
-    //             if      (util->seqBuf[storage][sIdx][s] == 'A' || util->seqBuf[storage][sIdx][s] == 'a') freq[6*s+0]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'C' || util->seqBuf[storage][sIdx][s] == 'c') freq[6*s+1]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'G' || util->seqBuf[storage][sIdx][s] == 'g') freq[6*s+2]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'T' || util->seqBuf[storage][sIdx][s] == 't' ||
-    //                      util->seqBuf[storage][sIdx][s] == 'U' || util->seqBuf[storage][sIdx][s] == 'u') freq[6*s+3]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'N' || util->seqBuf[storage][sIdx][s] == 'n') freq[6*s+4]+=1;
-    //             else                                                                                     freq[6*s+5]+=1;
-    //         }
-    //         });
-    //     }
-    //     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
-    //         int storage = util->seqsStorage[sIdx];
-    //         tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
-    //         for (int s = r.begin(); s < r.end(); ++s) {
-    //         // for (int s = 0; s < qryLen; ++s) {
-    //             if      (util->seqBuf[storage][sIdx][s] == 'A' || util->seqBuf[storage][sIdx][s] == 'a') freq[6*(seqLen+s)+0]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'C' || util->seqBuf[storage][sIdx][s] == 'c') freq[6*(seqLen+s)+1]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'G' || util->seqBuf[storage][sIdx][s] == 'g') freq[6*(seqLen+s)+2]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'T' || util->seqBuf[storage][sIdx][s] == 't' ||
-    //                      util->seqBuf[storage][sIdx][s] == 'U' || util->seqBuf[storage][sIdx][s] == 'u') freq[6*(seqLen+s)+3]+=1;
-    //             else if (util->seqBuf[storage][sIdx][s] == 'N' || util->seqBuf[storage][sIdx][s] == 'n') freq[6*(seqLen+s)+4]+=1;
-    //             else                                                                                     freq[6*(seqLen+s)+5]+=1;
-    //         }
-    //         });
-    //     }
-    //     std::vector<int8_t> aln;
-    //     alignGrpToGrp_traditional (
-    //         freq,
-    //         seqLen,
-    //         refLen,
-    //         qryLen,
-    //         param,
-    //         aln
-    //     );
-    //     delete [] freq;
-    //     int32_t alnLen = aln.size();
-    //     util->memCheck(alnLen);
-    //     std::reverse(aln.begin(), aln.end());
-    //     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
-    //         int storeFrom = util->seqsStorage[sIdx];
-    //         int storeTo = 1 - util->seqsStorage[sIdx];
-    //         int orgIdx = 0;
-    //         for (int j = 0; j < aln.size(); ++j) {
-    //             if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
-    //                 util->seqBuf[storeTo][sIdx][j] = util->seqBuf[storeFrom][sIdx][orgIdx];
-    //                 orgIdx++;
-    //             }
-    //             else {
-    //                 util->seqBuf[storeTo][sIdx][j] = '-';
-    //             }
-    //         }
-    //         util->seqsLen[nodes[nIdx].first->identifier] = aln.size();
-    //         util->changeStorage(sIdx);
-    //     }
-    //     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
-    //         int storeFrom = util->seqsStorage[sIdx];
-    //         int storeTo = 1 - util->seqsStorage[sIdx];
-    //         int orgIdx = 0;
-    //         for (int j = 0; j < aln.size(); ++j) {
-    //             if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 1) {
-    //                 util->seqBuf[storeTo][sIdx][j] = util->seqBuf[storeFrom][sIdx][orgIdx];
-    //                 orgIdx++;
-    //             }
-    //             else {
-    //                 util->seqBuf[storeTo][sIdx][j] = '-';
-    //             }
-    //         }
-    //         util->seqsLen[nodes[nIdx].second->identifier] = aln.size();
-    //         util->changeStorage(sIdx);
-    //     }
-    //     printf("CPU fallback (traditional global alignment) on No. %d (%s), Alignment Length: %d\n", nIdx, tree->allNodes[nodes[nIdx].first->identifier]->identifier.c_str(), aln.size());
-    // }
+        int nIdx = fallbackPairs[n];
+        uint16_t *freq = new uint16_t[12*seqLen]; 
+        for (int i = 0; i < 12*seqLen; ++i) freq[i] = 0;
+        int32_t qryIdx = 0;
+        int32_t refIdx = 0;
+        int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+        int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+        for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
+            int storage = util->seqsStorage[sIdx];
+            int maxLen = max(refLen, qryLen);
+            // tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+            // for (int s = r.begin(); s < r.end(); ++s) {
+            for (int s = 0; s < refLen; ++s) {
+                if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freq[6*s+0]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freq[6*s+1]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freq[6*s+2]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
+                         util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') freq[6*s+3]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freq[6*s+4]+=1;
+                else                                                                                             freq[6*s+5]+=1;
+            }
+            // });
+        }
+        for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
+            int storage = util->seqsStorage[sIdx];
+            // tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
+            // for (int s = r.begin(); s < r.end(); ++s) {
+            for (int s = 0; s < qryLen; ++s) {
+                if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freq[6*(seqLen+s)+0]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freq[6*(seqLen+s)+1]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freq[6*(seqLen+s)+2]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
+                         util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') freq[6*(seqLen+s)+3]+=1;
+                else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freq[6*(seqLen+s)+4]+=1;
+                else                                                                                             freq[6*(seqLen+s)+5]+=1;
+            }
+            // });
+        }
+        std::vector<int8_t> aln;
+        alignGrpToGrp_traditional (
+            freq,
+            seqLen,
+            refLen,
+            qryLen,
+            param,
+            aln
+        );
+        delete [] freq;
+        int32_t alnLen = aln.size();
+        util->memCheck(alnLen);
+        std::reverse(aln.begin(), aln.end());
+        for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - util->seqsStorage[sIdx];
+            int orgIdx = 0;
+            for (int j = 0; j < aln.size(); ++j) {
+                if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
+                    util->alnStorage[storeTo][sIdx][j] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                    orgIdx++;
+                }
+                else {
+                    util->alnStorage[storeTo][sIdx][j] = '-';
+                }
+            }
+            util->seqsLen[nodes[nIdx].first->identifier] = aln.size();
+            util->changeStorage(sIdx);
+        }
+        for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - util->seqsStorage[sIdx];
+            int orgIdx = 0;
+            for (int j = 0; j < aln.size(); ++j) {
+                if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 1) {
+                    util->alnStorage[storeTo][sIdx][j] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                    orgIdx++;
+                }
+                else {
+                    util->alnStorage[storeTo][sIdx][j] = '-';
+                }
+            }
+            util->seqsLen[nodes[nIdx].second->identifier] = aln.size();
+            util->changeStorage(sIdx);
+        }
+        for (auto q: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+            tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
+        }
+        tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
+        printf("CPU fallback (traditional global alignment) on No. %d (%s), Alignment Length: %d\n", nIdx, tree->allNodes[nodes[nIdx].first->identifier]->identifier.c_str(), aln.size());
+    }
+    });
     
     
     
