@@ -752,6 +752,11 @@ void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, Params& param) {
 }
 
 void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util) {
+    for (auto n: newT->allNodes) {
+        T->allNodes[n.first]->msa.clear();
+        T->allNodes[n.first]->msa.push_back(n.first);
+    }
+    
     std::vector<std::pair<Node*, Node*>> mergePairs;
     for (auto n: newT->allNodes) {
         if (n.second->children.size() > 1) {
@@ -768,8 +773,11 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util) {
     std::vector<std::pair<Node*, Node*>> singleLevel;
     std::map<std::string, char> addedNodes;
     
+    int totalEdges = 0;
+    int totalLevels = 0;
     while (true) {
         auto roundStart = std::chrono::high_resolution_clock::now();
+        ++totalLevels;
         addedNodes.clear();
         singleLevel.clear();
         for (auto it = mergePairs.begin(); it != mergePairs.end();) {
@@ -794,6 +802,20 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util) {
             breakLoop = true;
         }
         transitivityMerge(T, newT, singleLevel, util);
+        for (auto n: singleLevel) {
+            std::vector<std::string> temp = T->allNodes[n.first->identifier]->msa;
+
+            for (int r = 1; r < T->allNodes[n.first->identifier]->msa.size(); ++r) {
+                std::string grpNode = T->allNodes[n.first->identifier]->msa[r];
+                for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[grpNode]->msa.push_back(id);
+            }
+            for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[n.first->identifier]->msa.push_back(id);
+            for (int r = 1; r < T->allNodes[n.second->identifier]->msa.size(); ++r) {
+                std::string grpNode = T->allNodes[n.second->identifier]->msa[r];
+                for (auto id: temp) T->allNodes[grpNode]->msa.push_back(id);
+            }
+            for (auto id: temp) T->allNodes[n.second->identifier]->msa.push_back(id);
+        }
         auto roundEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds roundTime = roundEnd - roundStart;
         if (singleLevel.size() > 1) {
@@ -802,10 +824,16 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util) {
         else {
             std::cout << "Merged "<< singleLevel.size() << " edge in " << roundTime.count() / 1000000 << " ms\n";
         }
+        totalEdges += singleLevel.size();
         if (breakLoop) break;
+        if (totalLevels % 100 == 0) std::cout << "=============" << totalLevels << "=================\n";
     }
+    std::cout << "Total Edges/Levels: " << totalEdges << '/' << totalLevels << '\n';
     return;
 }
+
+
+
 
 void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, Params& param)
 {
@@ -1054,12 +1082,12 @@ void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, m
         }
     });
     
-    for (auto n: nodes) {
-        tree->allNodes[n.first->identifier]->msa.clear();
-        tree->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
-        tree->allNodes[n.second->identifier]->msa.clear();
-        tree->allNodes[n.second->identifier]->msa.push_back(n.second->identifier);    
-    }
+    // for (auto n: nodes) {
+    //     tree->allNodes[n.first->identifier]->msa.clear();
+    //     tree->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
+    //     tree->allNodes[n.second->identifier]->msa.clear();
+    //     tree->allNodes[n.second->identifier]->msa.push_back(n.second->identifier);    
+    // }
 
     // free memory  
     for (int gn = 0; gn < gpuNum; ++gn) {
@@ -1312,18 +1340,18 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
             tree->allNodes[id]->msaAln = qryNewAln[i];
         } 
         
-        std::vector<std::string> temp = tree->allNodes[n.first->identifier]->msa;
+        // std::vector<std::string> temp = tree->allNodes[n.first->identifier]->msa;
 
-        for (int r = 1; r < tree->allNodes[n.first->identifier]->msa.size(); ++r) {
-            std::string grpNode = tree->allNodes[n.first->identifier]->msa[r];
-            for (auto id: tree->allNodes[n.second->identifier]->msa) tree->allNodes[grpNode]->msa.push_back(id);
-        }
-        for (auto id: tree->allNodes[n.second->identifier]->msa) tree->allNodes[n.first->identifier]->msa.push_back(id);
-        for (int r = 1; r < tree->allNodes[n.second->identifier]->msa.size(); ++r) {
-            std::string grpNode = tree->allNodes[n.second->identifier]->msa[r];
-            for (auto id: temp) tree->allNodes[grpNode]->msa.push_back(id);
-        }
-        for (auto id: temp) tree->allNodes[n.second->identifier]->msa.push_back(id);
+        // for (int r = 1; r < tree->allNodes[n.first->identifier]->msa.size(); ++r) {
+        //     std::string grpNode = tree->allNodes[n.first->identifier]->msa[r];
+        //     for (auto id: tree->allNodes[n.second->identifier]->msa) tree->allNodes[grpNode]->msa.push_back(id);
+        // }
+        // for (auto id: tree->allNodes[n.second->identifier]->msa) tree->allNodes[n.first->identifier]->msa.push_back(id);
+        // for (int r = 1; r < tree->allNodes[n.second->identifier]->msa.size(); ++r) {
+        //     std::string grpNode = tree->allNodes[n.second->identifier]->msa[r];
+        //     for (auto id: temp) tree->allNodes[grpNode]->msa.push_back(id);
+        // }
+        // for (auto id: temp) tree->allNodes[n.second->identifier]->msa.push_back(id);
     }
     });
     
