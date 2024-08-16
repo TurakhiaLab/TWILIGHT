@@ -746,7 +746,7 @@ void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, Params& param) {
     }
     // for (auto n: type1Aln) std::cout << n.first->identifier << ':' << util->seqsLen[n.first->identifier] << 
     //                              ',' << n.second->identifier << ':' << util->seqsLen[n.second->identifier] <<'\n';
-
+    std::cout << "Align sub-subtrees, total " << type1Aln.size() << " pairs.\n"; 
     createOverlapMSA(T, type1Aln, util, param);
     return;
 }
@@ -988,8 +988,8 @@ void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, m
                 for (int n = range.begin(); n < range.end(); ++n) {
                 // for (int n = 0; n < alnPairs; ++n) {
                     int32_t nIdx = n + rn*numBlocks;
-                    if (nIdx % 100 == 0) {
-                    // if (hostAlnLen[gn][n] <= 0) {
+                    // if (nIdx % 100 == 0) {
+                    if (hostAlnLen[gn][n] <= 0) {
                         std::vector<int8_t> aln;
                         std::vector<std::vector<int>> freqRef;
                         std::vector<std::vector<int>> freqQry;
