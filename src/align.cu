@@ -740,11 +740,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
             int16_t ftr_lower_limit_idx = 0;
             // int32_t max_score_prime = -(p_xdrop+1);
             int16_t max_score_prime = -(p_xdrop+1);
-            // int32_t max_score_start_addr; 
-            // int32_t max_score_start_ftr;
             
-            // int32_t max_score_ref_idx;    
-            // int32_t max_score_query_idx;
             int16_t tb_idx = 0;
             for (size_t sIndx=0; sIndx<3; sIndx++) {
                 L[sIndx] = sIndx;
@@ -804,17 +800,17 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                     max_score_list[tx] = -(p_xdrop+1); 
                 }
                 __syncthreads();
-                // if (bx == 45 && tx == 0) printf("tile: %d, k: %d, len: %d, L: %d, U: %d, last_k: %d\n", tile, k, alnLen[bx], L[k%3]+1, U[k%3], last_k);
-                // if (tidx == 0) printf("ref+qry: %d\n", reference_length + query_length - 1);
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                     if (tx == 0) {
-                        float threshold = 0.7;
+                        float threshold = 0.9;
                         int minLen = min(refLen, qryLen);
                         if (alnLen[bx] < static_cast<int32_t>(threshold*minLen)) {
                             xdrop = true;
                             last_tile = true;
-                            printf("No.%d No more cells to compute based on x-drop critieria, align length = %d, k = %d, threshold: %d\n", bx, alnLen[bx], k, static_cast<int32_t>(threshold*minLen));
+                            printf("No.%d No more cells to compute based on x-drop criteria, align length = %d, k = %d, threshold: %d\n", bx, alnLen[bx], k, static_cast<int32_t>(threshold*minLen));
                         }
+                        // last_tile = true;
+                        // printf("No.%d No more cells to compute based on x-drop criteria, align length = %d, k = %d, minSeqLen: %d\n", bx, alnLen[bx], k, static_cast<int32_t>(minLen));
                     }
                     __syncthreads();
                     break;
@@ -901,46 +897,15 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
                         tempD = (ExtOp >> 16) & 0xFFFF;
                         tempI = ExtOp & 0xFFFF;
 
-                        // tempI =  insOp;
-                        // tempD =  delOp;
-                        // Iptr = false;
-                        // Dptr = false;
-                        // if (insExt >= insOp) {
-                        //     tempI = insExt;
-                        //     Iptr = true;
-                        // }
-                        // if (delExt >= delOp) {
-                        //     tempD = delExt;
-                        //     Dptr = true;
-                        // }
                         int32_t mat32 = ((match) << 16 | (0 & 0xFFFF));
                         int32_t ins32 = ((tempI) << 16 | (1 & 0xFFFF));
                         int32_t del32 = ((tempD) << 16 | (2 & 0xFFFF));
                         int32_t max32 = __vimax3_s32(mat32, ins32, del32);
                         tempH = (max32 >> 16) & 0xFFFF;
                         ptr = (max32) & 0xFF;
-                        // if (match > tempI) {
-                        //     if (match > tempD) {
-                        //         tempH = match;
-                        //         ptr = 0;
-                        //     }
-                        //     else {
-                        //         tempH = tempD;
-                        //         ptr = 2;
-                        //     }
-                        // }
-                        // else if (tempI > tempD) {
-                        //     tempH = tempI;
-                        //     ptr = 1;
-                        // }
-                        // else {
-                        //     tempH = tempD;
-                        //     ptr = 2;
-                        // }
                         if (tempH < max_score-p_xdrop) {
                             tempH = -inf;
                         }
-                        // if(bx == 0 && tx == (U[k%3]-L[k%3])/2 && tile == 0) printf("k: %d, (%d, %d), idx: %d, H: %d, D: %d, I: %d, ptr: %d\n", k, i, j, tx, tempH, tempD, tempI, ptr);
                         D[(k%2)*fLen+offset] = tempD; 
                         I[(k%2)*fLen+offset] = tempI;
                         S[(k%3)*fLen+offset] = tempH;
@@ -1465,7 +1430,6 @@ void alignGrpToGrp_traditional (uint16_t* freq, int32_t seqLen, int32_t refLen, 
     }
 
     for (int32_t k=0; k<refLen+queryLen+1; k++) {
-        // if (k % 1000 == 0 && k != 0) std::cout << "k: " << k << '\n';
         L[k%3] = (k<=queryLen)?0:k-queryLen;
         U[k%3] = (k<=refLen)?k:refLen;
         wfLL.push_back(L[k%3]);

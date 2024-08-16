@@ -11,27 +11,27 @@
 
 
 
-#include "../src/kseq.h"
+#include "kseq.h"
 #include "zlib.h"
 
 #ifndef TREE_HPP
-#include "../src/tree.hpp"
+#include "tree.hpp"
 #endif
 
 #ifndef MSA_HPP
-#include "../src/msa.hpp"
+#include "msa.hpp"
 #endif
 
 #ifndef ALIGN_HPP
-#include "../src/align.cuh"
+#include "align.cuh"
 #endif
 
-#ifndef ALIGN_TALCO_HPP
-#include "../src/TALCO-XDrop.hpp"
+#ifndef TALCO_HPP
+#include "TALCO-XDrop.hpp"
 #endif
 
 #ifndef PARTITION_HPP
-#include "../src/treePartition.hpp"
+#include "treePartition.hpp"
 #endif
 
 
@@ -64,7 +64,7 @@ void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Param
 void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, Params& param);
 void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util);
 
-void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& hier, std::stack<Node*> msaStack, int grpID, int mode);
+void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrder, std::stack<Node*> postOrder, int grpID);
 void getPostOrderList(Node* node, std::stack<Node*>& msaStack);
 
 __global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result);

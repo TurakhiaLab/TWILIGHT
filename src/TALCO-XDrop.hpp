@@ -1,22 +1,60 @@
+#ifndef TALCO_HPP
+#define TALCO_HPP
+
 #include <stdint.h>
 #include "timer.hpp"
 #include <vector>
 #include <string>
+#include <iostream>
+#include <stdlib.h>
+#include <fstream>
+#include <vector>
+#include <unordered_map>
+#include <cmath>
+
+typedef float paramType;
 
 namespace Talco_xdrop {
-    struct Params 
-    {
-        int16_t match;
-        int16_t mismatch;
-        int16_t gapOpen;
-        int16_t gapExtend;
+    struct Params {
+        paramType scoreMatrix [5][5];
+        paramType gapOpen;
+        paramType gapExtend;
+        int xdrop;
 
-        int16_t xdrop;
-        int16_t marker;
-
-        Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen, int16_t t_gapExtend, int16_t t_xdrop, int16_t marker) : 
-            match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), marker(marker) {}
+        Params(paramType* t_param) {
+            for (int i = 0; i < 5; ++i) {
+                for (int j = 0; j < 5; ++j) {
+                    this->scoreMatrix[i][j] = t_param[i*5+j];
+                }
+            }
+            this->gapOpen = t_param[25];
+            this->gapExtend = t_param[26];
+            this->xdrop = 1000;
+        }
     };
+    // struct Params 
+    // {
+    //     int16_t match;
+    //     int16_t mismatch;
+    //     int16_t gapOpen;
+    //     int16_t gapExtend;
+
+    //     int16_t xdrop;
+    //     int16_t marker;
+    //     int16_t scoreMode;
+
+    //     int16_t hoxd70 [5][5] = { {  91, -114,  -31, -123, -100},
+    //                             {-114,  100, -125,  -31, -100},
+    //                             { -31, -125,  100, -114, -100},
+    //                             {-123,  -31, -114,   91, -100},
+    //                             {-100, -100, -100, -100, -100} }; 
+    
+    //     int16_t hoxd70_gapOpen = -400;
+    //     int16_t hoxd70_gapExtend = -30;
+
+    //     Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen, int16_t t_gapExtend, int16_t t_xdrop, int16_t scoreMode) : 
+    //         match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), scoreMode(scoreMode) {}
+    // };
 
     
     void Align (
@@ -83,3 +121,4 @@ namespace Talco_xdrop {
     
 }
 
+#endif

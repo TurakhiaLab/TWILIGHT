@@ -3,7 +3,6 @@
 
 #include <string>
 #include <vector>
-#include <thrust/device_vector.h>
 #include <iostream>
 #include <cmath>
 #include <bits/stdc++.h>

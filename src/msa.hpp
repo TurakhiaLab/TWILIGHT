@@ -9,7 +9,7 @@ namespace msa
 {
     struct utility
     {
-        // std::unordered_map<std::string, std::string> seqs;
+        std::map<int, std::vector<Node*>> badSequences;
         std::map<int, std::vector<int>> subtrees;
         std::unordered_map<std::string, int>  seqsIdx;
         std::unordered_map<std::string, int>  seqsLen;
@@ -57,7 +57,6 @@ namespace msa
 
         void seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap){
             this->seqNum = seqsMap.size();
-            std::cout << "seqsMap size: " << seqsMap.size() << '\n';
             this->seqs = new char*[this->seqNum]; 
             this->seqLen = seqLen;
             

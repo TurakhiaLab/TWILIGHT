@@ -52,7 +52,7 @@ void readSequences(po::variables_map& vm, msa::utility* util, Tree* tree)
 
     kseq_t* kseq_rd = kseq_init(f_rd);
 
-    int seqNum = 0, maxLen = 0;
+    int seqNum = 0, maxLen = 0, minLen = INT_MAX;
     uint64_t totalLen = 0;
     
     std::map<std::string, std::pair<std::string, int>> seqs;
@@ -63,12 +63,18 @@ void readSequences(po::variables_map& vm, msa::utility* util, Tree* tree)
         int subtreeIdx = tree->allNodes[seqName]->grpID;
         seqs[seqName] = std::make_pair(std::string(kseq_rd->seq.s, seqLen), subtreeIdx);
         if (seqLen > maxLen) maxLen = seqLen;
+        if (seqLen < minLen) minLen = seqLen;
         totalLen += seqLen;
     }
     
     seqNum = seqs.size();
     uint32_t avgLen = totalLen/seqNum;
-    std::cout << "(Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
+    std::cout << "=== Sequence information ===\n";
+    std::cout << "Number : " << seqNum << '\n';
+    std::cout << "Max. Length: " << maxLen << '\n';
+    std::cout << "Min. Length: " << minLen << '\n';
+    std::cout << "Avg. Length: " << avgLen << '\n';
+    std::cout << "============================\n";
 
     util->seqsMallocNStore(maxLen, seqs);
     
@@ -76,7 +82,6 @@ void readSequences(po::variables_map& vm, msa::utility* util, Tree* tree)
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
-
 
 void readSequences(std::string seqFileName, msa::utility* util, Tree* tree)
 {
@@ -287,6 +292,7 @@ int main(int argc, char** argv) {
 
     // Partition tree into subtrees
     Tree* T = readNewick(vm);
+    // printTree(T->root, -1);
     int maxSubtreeSize = vm["max-subtree-size"].as<int>();
     paritionInfo_t* P = new paritionInfo_t(maxSubtreeSize, 0, 0, "centroid"); 
     partitionTree(T->root, P);
@@ -333,7 +339,7 @@ int main(int argc, char** argv) {
     if (maxSubSubtreeSize == 0) maxSubSubtreeSize = INT_MAX;
     bool debug = vm.count("debug");
     bool batches = vm.count("read-batches");
-    std::vector<std::string> beforeAln, afterAln;
+    std::vector<std::string> seqName, beforeAln, afterAln;
         
     // read sequences
     if (!batches) {
@@ -349,17 +355,32 @@ int main(int argc, char** argv) {
             }
         }
         if (debug) {
-            for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
-                std::string r = "";
-                int j = 0;
-                while (util->seqs[sIdx][j] != 0) {
-                    if (util->seqs[sIdx][j] != '-') {
-                        r += util->seqs[sIdx][j];
+            for (auto s: T->allNodes) {
+                if (s.second->is_leaf()) {
+                    seqName.push_back(s.first);
+                    int sIdx = util->seqsIdx[s.first];
+                    std::string r = "";
+                    int j = 0;
+                    while (util->seqs[sIdx][j] != 0) {
+                        if (util->seqs[sIdx][j] != '-') {
+                            r += util->seqs[sIdx][j];
+                        }
+                        ++j;
                     }
-                    ++j;
+                    beforeAln.push_back(r);
                 }
-                beforeAln.push_back(r);
-            }   
+            }
+            // for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
+            //     std::string r = "";
+            //     int j = 0;
+            //     while (util->seqs[sIdx][j] != 0) {
+            //         if (util->seqs[sIdx][j] != '-') {
+            //             r += util->seqs[sIdx][j];
+            //         }
+            //         ++j;
+            //     }
+            //     beforeAln.push_back(r);
+            // }   
         }
     }
     else {
@@ -459,7 +480,7 @@ int main(int argc, char** argv) {
 
     if (P->partitionsRoot.size() > 1) {
         auto alnStart = std::chrono::high_resolution_clock::now();
-        util->nowProcess = 1; // merge subtrees
+        util->nowProcess = 2; // merge subtrees
         if (batches) {
             std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
@@ -491,7 +512,9 @@ int main(int argc, char** argv) {
     if (debug) {
         auto dbgStart = std::chrono::high_resolution_clock::now();
         int alnLen = 0;
-        for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
+        // for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
+        for (int s = 0; s < seqName.size(); ++s) {
+            int sIdx = util->seqsIdx[seqName[s]];
             std::string r = "";
             int offset = 0;
             while (util->seqs[sIdx][offset] != 0) {
@@ -500,9 +523,9 @@ int main(int argc, char** argv) {
                 }
                 ++offset;
             }
-            if (sIdx == 0) alnLen = offset;
+            if (s == 0) alnLen = offset;
             else {
-                if (alnLen != offset) printf("No: %d, the sequence length (%d) did not match (%d)\n", sIdx, offset, alnLen);
+                if (alnLen != offset) printf("No: %d, seq: %s, the sequence length (%d) did not match (%d)\n", sIdx, seqName[s].c_str(), offset, alnLen);
             }
             afterAln.push_back(r);
         }
