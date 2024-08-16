@@ -22,9 +22,10 @@ find_package(TBB REQUIRED tbbmalloc tbbmalloc_proxy tbb_preview)
 
 add_executable (msa-gpu
 	        	src/msa-gpu.cu
-			src/util.cu
 			src/align.cu
 		    	src/tree.cpp
-			src/treePartition.cpp)
+			src/treePartition.cpp
+			src/TALCO-XDrop.cpp
+			src/util.cu)
 
 target_link_libraries(msa-gpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
