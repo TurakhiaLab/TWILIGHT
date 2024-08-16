@@ -432,7 +432,7 @@ int main(int argc, char** argv) {
        
         auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-        std::cout << "Partition the subtree in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
+        std::cout << "Partition the subtree into " << subP->partitionsRoot.size() << " trees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
         // Progressive alignment on each sub-subtree
         auto msaStart = std::chrono::high_resolution_clock::now();
         Tree* newSubT = reconsturctTree(subT->root, subP->partitionsRoot);

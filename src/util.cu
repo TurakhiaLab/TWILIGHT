@@ -988,25 +988,57 @@ void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, m
                 for (int n = range.begin(); n < range.end(); ++n) {
                 // for (int n = 0; n < alnPairs; ++n) {
                     int32_t nIdx = n + rn*numBlocks;
-                    if (hostAlnLen[gn][n] <= 0) {
+                    if (nIdx % 100 == 0) {
+                    // if (hostAlnLen[gn][n] <= 0) {
+                        std::vector<int8_t> aln;
+                        std::vector<std::vector<int>> freqRef;
+                        std::vector<std::vector<int>> freqQry;
                         int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
                         int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-                        uint16_t *freq = new uint16_t[12*seqLen]; 
-                        for (int i = 0; i < 12*seqLen; ++i) freq[i] = hostFreq[gn][12*seqLen*n+i];
-                        std::vector<int8_t> aln;
-                        alignGrpToGrp_traditional (
-                            freq,
-                            seqLen,
-                            refLen,
-                            qryLen,
-                            param,
+            
+                        for (int r = 0; r < refLen; r++) {
+                            std::vector<int> temp;
+                            for (int f = 0; f < 6; ++f) temp.push_back(0);
+                            freqRef.push_back(temp);
+                        }
+                        for (int q = 0; q < qryLen; q++) {
+                            std::vector<int> temp;
+                            for (int f = 0; f < 6; ++f) temp.push_back(0);
+                            freqQry.push_back(temp);
+                        }
+
+                        for (int s = 0; s < refLen; ++s) for (int j = 0; j < 6; ++j) freqRef[s][j] = hostFreq[gn][12*seqLen*n+6*s+j];
+                        for (int s = 0; s < qryLen; ++s) for (int j = 0; j < 6; ++j) freqQry[s][j] = hostFreq[gn][12*seqLen*n+6*(seqLen+s)+j];
+        
+        
+                        Talco_xdrop::Params talco_params(hostParam);
+                        Talco_xdrop::Align_freq (
+                            talco_params,
+                            freqRef,
+                            freqQry,
                             aln
                         );
-                        delete [] freq;
+
+                        // int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+                        // int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+                        if (aln.empty()) {
+                            uint16_t *freq = new uint16_t[12*seqLen]; 
+                            for (int i = 0; i < 12*seqLen; ++i) freq[i] = hostFreq[gn][12*seqLen*n+i];
+                            std::vector<int8_t> aln;
+                            alignGrpToGrp_traditional (
+                                freq,
+                                seqLen,
+                                refLen,
+                                qryLen,
+                                param,
+                                aln
+                            );
+                            delete [] freq;
+                            std::reverse(aln.begin(), aln.end());
+                        }
                         int32_t alnLen = aln.size();
-                        std::reverse(aln.begin(), aln.end());
                         tree->allNodes[nodes[nIdx].first->identifier]->msaAln = aln;
-                        std::cout << "CPU fallback (traditional global alignment) on No. " << n << " (" << tree->allNodes[nodes[nIdx].first->identifier]->identifier << ")\n";
+                        std::cout << "CPU fallback on No. " << n << " (" << tree->allNodes[nodes[nIdx].first->identifier]->identifier << ")\n";
                     }
                     else {
                         std::vector<int8_t> aln;
