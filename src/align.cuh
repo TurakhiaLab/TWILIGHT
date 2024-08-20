@@ -48,8 +48,8 @@ struct Params
 
 __global__ void alignGrpToGrp_talco
 (
-    // char* seqs,
-    uint16_t* freq,
+    // uint16_t* freq,
+    int32_t* freq,
     int8_t* aln,
     // int32_t* seqIdx,
     int32_t* len,
@@ -60,7 +60,8 @@ __global__ void alignGrpToGrp_talco
 
 void alignGrpToGrp_traditional
 (
-    uint16_t* freq,
+    // uint16_t* freq,
+    int32_t* freq,
     int32_t seqLen,
     int32_t refLen,
     int32_t qryLen,

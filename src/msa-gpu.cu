@@ -339,7 +339,7 @@ int main(int argc, char** argv) {
     if (maxSubSubtreeSize == 0) maxSubSubtreeSize = INT_MAX;
     bool debug = vm.count("debug");
     bool batches = vm.count("read-batches");
-    std::vector<std::string> seqName, beforeAln, afterAln;
+    std::unordered_map<std::string, std::string> beforeAln, afterAln;
         
     // read sequences
     if (!batches) {
@@ -357,30 +357,20 @@ int main(int argc, char** argv) {
         if (debug) {
             for (auto s: T->allNodes) {
                 if (s.second->is_leaf()) {
-                    seqName.push_back(s.first);
+                    std::string seqName = s.first;
                     int sIdx = util->seqsIdx[s.first];
+                    int storage = util->seqsStorage[sIdx];
                     std::string r = "";
                     int j = 0;
-                    while (util->seqs[sIdx][j] != 0) {
-                        if (util->seqs[sIdx][j] != '-') {
-                            r += util->seqs[sIdx][j];
+                    while (util->alnStorage[storage][sIdx][j] != 0) {
+                        if (util->alnStorage[storage][sIdx][j] != '-') {
+                            r += util->alnStorage[storage][sIdx][j];
                         }
                         ++j;
                     }
-                    beforeAln.push_back(r);
+                    beforeAln[seqName] = r;
                 }
-            }
-            // for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
-            //     std::string r = "";
-            //     int j = 0;
-            //     while (util->seqs[sIdx][j] != 0) {
-            //         if (util->seqs[sIdx][j] != '-') {
-            //             r += util->seqs[sIdx][j];
-            //         }
-            //         ++j;
-            //     }
-            //     beforeAln.push_back(r);
-            // }   
+            }   
         }
     }
     else {
@@ -426,7 +416,6 @@ int main(int argc, char** argv) {
         
         auto treeBuiltStart = std::chrono::high_resolution_clock::now();
         
-        util->alnMalloc(util->seqLen);
         paritionInfo_t * subP = new paritionInfo_t(maxSubSubtreeSize, 0, 0, "centroid");
         partitionTree(subT->root, subP);
        
@@ -460,7 +449,7 @@ int main(int argc, char** argv) {
             std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
             std::cout << "Finished the alignment on subtree No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
         }
-        util->updateSeqs();
+        
         for (auto sIdx: subT->root->msaIdx) T->allNodes[subT->root->identifier]->msaIdx.push_back(sIdx);
         // for (auto node: subT->allNodes) delete node.second;
         if (batches) {
@@ -471,7 +460,6 @@ int main(int argc, char** argv) {
             std::string subtreeFreqFile = tempDir + '/' + subtreeFileName + ".freq.txt";
             outputFile(subtreeAlnFile, util, subT, 0);
             outputFreq(subtreeFreqFile, util, subT, subtree);
-            util->reset();
         }
         delete subT;
         delete subP;
@@ -513,26 +501,35 @@ int main(int argc, char** argv) {
         auto dbgStart = std::chrono::high_resolution_clock::now();
         int alnLen = 0;
         // for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
-        for (int s = 0; s < seqName.size(); ++s) {
-            int sIdx = util->seqsIdx[seqName[s]];
+        bool theFirst = true;
+        for (auto s: beforeAln) {
+            int sIdx = util->seqsIdx[s.first];
+            int storage = util->seqsStorage[sIdx];
             std::string r = "";
             int offset = 0;
-            while (util->seqs[sIdx][offset] != 0) {
-                if (util->seqs[sIdx][offset] != '-') {
-                    r += util->seqs[sIdx][offset];
+            while (util->alnStorage[storage][sIdx][offset] != 0) {
+                if (util->alnStorage[storage][sIdx][offset] != '-') {
+                    r += util->alnStorage[storage][sIdx][offset];
                 }
                 ++offset;
             }
-            if (s == 0) alnLen = offset;
+            if (theFirst) {alnLen = offset; theFirst = false;}
             else {
-                if (alnLen != offset) printf("No: %d, seq: %s, the sequence length (%d) did not match (%d)\n", sIdx, seqName[s].c_str(), offset, alnLen);
+                if (alnLen != offset) printf("seq: %s, the sequence length (%d) did not match (%d)\n", s.first.c_str(), offset, alnLen);
             }
-            afterAln.push_back(r);
-        }
-        for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
-            if (beforeAln[sIdx] != afterAln[sIdx]) {
-                printf("No: %d, the sequence did not match\n", sIdx);
+            if (r != s.second) {
+                printf("seq: %s, the sequence did not match\n", s.first.c_str());
+                if (r.size() != s.second.size()) {
+                    std::cout << "Wrong length. " << r.size() << '/' << s.second.size() << ".\n";
+                }
+                for (int i = 0; i < s.second.size(); ++i) {
+                    if (r[i] != s.second[i]) {
+                        std::cout << "Mismatch at position " << i << '\n';
+                        break;
+                    }
+                }                
             }
+            
         }
         auto dbgEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;

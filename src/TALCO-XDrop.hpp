@@ -29,7 +29,7 @@ namespace Talco_xdrop {
             }
             this->gapOpen = t_param[25];
             this->gapExtend = t_param[26];
-            this->xdrop = 1000;
+            this->xdrop = 2000;
         }
     };
     // struct Params 
@@ -55,18 +55,6 @@ namespace Talco_xdrop {
     //     Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen, int16_t t_gapExtend, int16_t t_xdrop, int16_t scoreMode) : 
     //         match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), scoreMode(scoreMode) {}
     // };
-
-    
-    void Align (
-        Params params,
-        const std::vector<std::string>& reference,
-        const std::vector<std::string>& query,
-        // const std::vector<std::vector<int>>& freqRef,
-        // const std::vector<std::vector<int>>& freqQry,
-        std::vector<int8_t>& aln
-        // size_t num_alignments
-    );
-
 
     void Align_freq (
         Params params,
@@ -106,7 +94,8 @@ namespace Talco_xdrop {
         const int16_t tb_start_idx,
         const int16_t ref_start_idx,
         const std::vector<int8_t> &tb,
-        std::vector<int8_t> &aln
+        std::vector<int8_t> &aln,
+        bool firstTile
     );
 
     int Score (

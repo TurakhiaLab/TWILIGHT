@@ -34,13 +34,18 @@ void Talco_xdrop::Align_freq (
                 // Talco_xdrop::Tile(reference, query, params, reference_idx, query_idx, tile_aln, state, last_tile, tile);
                 Talco_xdrop::Tile(freqRef, freqQry, params, reference_idx, query_idx, tile_aln, state, last_tile, tile);
                 // printf("Tile: %d, (r,q) = (%d,%d), tile_aln_size: %d\n",tile, reference_idx, query_idx, tile_aln.size());
+                if (tile_aln.empty()) {
+                    aln.clear();
+                    return;
+                }
                 for (int i= tile_aln.size()-1; i>=0; i--){
                     if (i == tile_aln.size()-1 && tile>0){
                         continue;
                     }
-                    // std::cout << i << "\n";
                     aln.push_back(tile_aln[i]);
+                    // std::cout << (tile_aln[i] & 0xFFFF);
                 }
+                // std::cout << '\n';
                 
                 tile_aln.clear();
                 
@@ -65,6 +70,7 @@ void Talco_xdrop::Align_freq (
         
         // printf("%f\n", time);
         // printf("%d\n", count);
+        return;
 
 }
 
@@ -88,7 +94,8 @@ void Talco_xdrop::Traceback(
     const int16_t tb_start_idx,
     const int16_t ref_start_idx,
     const std::vector<int8_t> &tb,
-    std::vector<int8_t> &aln
+    std::vector<int8_t> &aln,
+    bool firstTile
     ){
     int32_t addr = tb_start_addr; 
     int16_t ftr = tb_start_ftr;
@@ -185,13 +192,14 @@ void Talco_xdrop::Traceback(
         // printf("ftr: %d\n", ftr);
         // printf("addr: %d\n", addr);
         // printf("aln_idx: %d\n", aln.size());
-        // printf("dir: %d\n", dir);
+        // printf("%d", (dir&0xFFFF));
         // printf("traceback_idx: %d\n", idx);
         aln.push_back(dir);   
         // std::cout << "aln_idx:" << aln.size() << '\n'; 
         // state = next_state;
         // if (DEBUG)  std::cout << " Final State: " << (state&0xFF) << " End Addr: " << addr << " index:" << ref_idx << ", " << query_idx << std::endl;
     }
+    // std::cout << '\n';
     // std::cout << count << std::endl;   
     // if (DEBUG) std::cout << ref_idx << " " << query_idx << std::endl; 
     // std::cout << "aln_idx:" << aln.size() << '\n'; 
@@ -232,9 +240,9 @@ void Talco_xdrop::Tile (
         
         // Initialising variables
         int32_t inf = param.xdrop + 1;
-        int marker = 256;
+        int marker = 128;
         // int32_t fLen = (1 << 10); // frontier length (assuming anti-diagonal length cannot exceed 1024)
-        int32_t fLen = (1 << 12); //4096 
+        int32_t fLen = (1 << 13); //8192 
         bool converged = false; bool conv_logic = false;
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
@@ -298,6 +306,8 @@ void Talco_xdrop::Tile (
             exit(1); 
         }
         // printf("Tile: %d (%d, %d)\n", tile, reference_length, query_length);
+        // printf("Tile: %d, refIdx: %d, qryIdx: %d, refLen: %d, qryLen: %d\n", tile, reference_idx, query_idx, reference_length, query_length);
+            
         for (int32_t k = 0; k < reference_length + query_length - 1; k++){
             // printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
             if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
@@ -323,9 +333,9 @@ void Talco_xdrop::Tile (
                 // std::cout << k << " ftr length: " << U[k%3] - L[k%3] + 1 << " ftr_addr: " << ftr_addr << " ftr lower limit: " << L[k%3] << " tb len: " << tb.size() << std::endl;
             }
             // if (tile == 0) printf("k:%d, i_st: %d, i_en: %d\n",k, L[k%3], U[k%3]+1);
-            for (int16_t i = L[k%3]; i < U[k%3]+1; i++) { // i-> query_idx, j -> reference_idx
-                int16_t Lprime = std::max(0, static_cast<int16_t>(k)-static_cast<int16_t>(reference_length) + 1); 
-                int16_t j = std::min(static_cast<int16_t>(k), static_cast<int16_t>(reference_length - 1)) - (i-Lprime); 
+            for (int32_t i = L[k%3]; i < U[k%3]+1; i++) { // i-> query_idx, j -> reference_idx
+                int32_t Lprime = std::max(0, static_cast<int32_t>(k)-static_cast<int32_t>(reference_length) + 1); 
+                int32_t j = std::min(static_cast<int32_t>(k), static_cast<int32_t>(reference_length - 1)) - (i-Lprime); 
                 
                 if (j < 0) {
                     fprintf(stderr, "ERROR: j less than 0.\n");
@@ -419,6 +429,8 @@ void Talco_xdrop::Tile (
                 if (S[k%3][offset] < max_score-param.xdrop) {
                     S[k%3][offset] = -inf;
                 }
+
+                // if (tile == 0 && i == (U[k%3]+1-L[k%3])/2) printf("%d, %d, %d, %d, %d, %d, %d\n", tile, i, L[k%3], U[k%3]+1, S[k%3][offset],  D[k%2][offset], I[k%2][offset]);
 
                 score = S[k%3][offset];
 
@@ -613,13 +625,7 @@ void Talco_xdrop::Tile (
 
         reference_idx += conv_ref_idx;
         query_idx += conv_query_idx;
-        // if (conv_query_idx < 10) printf("TB: tile: %d, refidx: %d, qryidx:%d, last:%d\n", tile, reference_idx, query_idx, last_tile);
-        // if (conv_query_idx < 10) printf("TB: tile: %d, refLen: %d, qryLen:%d, last:%d\n", tile, reference_length, query_length, last_tile);
-        // if (DEBUG) std::cout <<  "tb_start_addr: " << tb_start_addr << " \ntb_start_ftr: " << tb_start_ftr << std::endl;
 
-        Traceback(ftr_length, ftr_lower_limit, tb_start_addr, tb_start_ftr, (tb_state%3), conv_query_idx, conv_ref_idx, tb, aln);
-        state = tb_state%3;
-        
         if (reference_idx == reference.size()-1 && query_idx < query.size()-1) { // dir == 1
             for (int q = 0; q < query.size()-query_idx-1; ++q) aln.push_back(static_cast<int16_t>(1));
             last_tile = true;
@@ -628,6 +634,17 @@ void Talco_xdrop::Tile (
             for (int r = 0; r < reference.size()-reference_idx-1; ++r) aln.push_back(static_cast<int16_t>(2));
             last_tile = true;
         }
+                
+        // if (conv_query_idx < 10) printf("TB: tile: %d, refidx: %d, qryidx:%d, last:%d\n", tile, reference_idx, query_idx, last_tile);
+        // if (conv_query_idx < 10) printf("TB: tile: %d, refLen: %d, qryLen:%d, last:%d\n", tile, reference_length, query_length, last_tile);
+        // if (DEBUG) std::cout <<  "tb_start_addr: " << tb_start_addr << " \ntb_start_ftr: " << tb_start_ftr << std::endl;
+        bool firstTile = (tile == 0);
+        Traceback(ftr_length, ftr_lower_limit, tb_start_addr, tb_start_ftr, (tb_state%3), conv_query_idx, conv_ref_idx, tb, aln, firstTile);
+        state = tb_state%3;
+        // printf("conv_idx: %d, %d\n", conv_ref_idx, conv_query_idx);
+        
+        
+        
 
         // Deallocate memory
         for (size_t sIndx=0; sIndx<3; sIndx++) {
