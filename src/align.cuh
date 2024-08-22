@@ -61,8 +61,10 @@ __global__ void alignGrpToGrp_talco
 void alignGrpToGrp_traditional
 (
     // uint16_t* freq,
-    int32_t* freq,
-    int32_t seqLen,
+    // int32_t* freq,
+    // int32_t seqLen,
+    const std::vector<std::vector<int>>& reference,
+    const std::vector<std::vector<int>>& query, 
     int32_t refLen,
     int32_t qryLen,
     Params& param,

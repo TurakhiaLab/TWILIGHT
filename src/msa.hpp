@@ -190,6 +190,14 @@
 
 namespace msa
 {
+    // struct control
+    // {
+    //     int gpuNum;
+    //     int cpuNum;
+    //     std::vector<int> gpuID;
+    //     int nowProcess;
+    // };
+
     struct utility
     {
         std::map<int, std::vector<std::string>> badSequences;

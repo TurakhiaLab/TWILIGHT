@@ -1355,7 +1355,7 @@ void tracebackGrpToGrp (int8_t state, std::vector<int8_t>& TB, std::vector<int32
         }
         aln.push_back(dir);   
     }
-
+    std::reverse(aln.begin(), aln.end());
 
     while (refIndex>=0)
     {
@@ -1368,10 +1368,16 @@ void tracebackGrpToGrp (int8_t state, std::vector<int8_t>& TB, std::vector<int32
         aln.push_back(static_cast<int8_t>(1));
         k--;queryIndex--;
     }
+
+    
+
     return;
 }
 
-void alignGrpToGrp_traditional (int32_t* freq, int32_t seqLen, int32_t refLen, int32_t queryLen, Params& param, std::vector<int8_t>& aln) {
+void alignGrpToGrp_traditional (
+    const std::vector<std::vector<int>>& reference,
+    const std::vector<std::vector<int>>& query, 
+    int32_t refLen, int32_t queryLen, Params& param, std::vector<int8_t>& aln) {
 
     if (refLen<=0 || queryLen<=0) {fprintf(stderr, "Error: Ref/Query length <= 0\n"); exit(1);}
     
@@ -1449,15 +1455,28 @@ void alignGrpToGrp_traditional (int32_t* freq, int32_t seqLen, int32_t refLen, i
                 int32_t similarScore = 0;
                 float denominator = 0;
                 float numerator = 0;
-                for (int l=0; l<6; l++) {
-                    for (int m=0; m<6; m++) {
-                        float freqMult = freq[6*(i-1)+l]*freq[6*(seqLen+j-1)+m];
+                for (int l = 0; l < 6; ++l) {
+                    for (int m = 0; m < 6; ++m) {
+                        float freqMult = reference[i-1][l]*query[j-1][m];
                         denominator += freqMult;
                         if (m == 5 && l == 5)      numerator += 0;
                         else if (m == 5 || l == 5) numerator += freqMult*param.gapExtend;
                         else                       numerator += freqMult*scoreMat[m*5+l];
                     }
                 }
+
+                // int32_t similarScore = 0;
+                // float denominator = 0;
+                // float numerator = 0;
+                // for (int l=0; l<6; l++) {
+                //     for (int m=0; m<6; m++) {
+                //         float freqMult = freq[6*(i-1)+l]*freq[6*(seqLen+j-1)+m];
+                //         denominator += freqMult;
+                //         if (m == 5 && l == 5)      numerator += 0;
+                //         else if (m == 5 || l == 5) numerator += freqMult*param.gapExtend;
+                //         else                       numerator += freqMult*scoreMat[m*5+l];
+                //     }
+                // }
                 similarScore = static_cast<int32_t>(round(numerator/denominator));
                 // if (i == (U[k%3]-L[k%3])/2) printf("k: %d, idx: %d, score: %d\n", k, i, similarScore);
                 match = H[(k+1)%3][offsetDiag] + similarScore;

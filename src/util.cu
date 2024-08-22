@@ -1182,18 +1182,18 @@ void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, m
                         // int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
                         // int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
                         if (aln.empty()) {
-                            int32_t *freq = new int32_t[12*seqLen]; 
-                            for (int i = 0; i < 12*seqLen; ++i) freq[i] = hostFreq[gn][12*seqLen*n+i];
-                            std::vector<int8_t> aln;
+                            // int32_t *freq = new int32_t[12*seqLen]; 
+                            // for (int i = 0; i < 12*seqLen; ++i) freq[i] = hostFreq[gn][12*seqLen*n+i];
+                            // std::vector<int8_t> aln;
                             alignGrpToGrp_traditional (
-                                freq,
-                                seqLen,
+                                freqRef,
+                                freqQry,
                                 refLen,
                                 qryLen,
                                 param,
                                 aln
                             );
-                            delete [] freq;
+                            // delete [] freq;
                             std::reverse(aln.begin(), aln.end());
                         }
                         int32_t alnLen = aln.size();
@@ -2093,8 +2093,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             hostLen[gn] = (int32_t*)malloc(   2 *          numBlocks * sizeof(int32_t));
             hostAlnLen[gn] = (int32_t*)malloc(             numBlocks * sizeof(int32_t));
             hostSeqInfo[gn] = (int32_t*)malloc(5                     * sizeof(int32_t));
-            cudaSetDevice(gn);
-            // cudaSetDevice(1);
+            // cudaSetDevice(gn);
+            cudaSetDevice(1);
             cudaMalloc((void**)&deviceFreq[gn],  12 * seqLen * numBlocks * sizeof(int32_t));
             
             cudaMalloc((void**)&deviceAln[gn],    2 * seqLen * numBlocks * sizeof(int8_t));
@@ -2479,8 +2479,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     
     // free memory  
     for (int gn = 0; gn < gpuNum; ++gn) {
-        cudaSetDevice(gn);
-        // cudaSetDevice(1);
+        // cudaSetDevice(gn);
+        cudaSetDevice(1);
         cudaFree(deviceFreq[gn]);
         cudaFree(deviceAln[gn]);
         cudaFree(deviceLen[gn]);
@@ -2554,6 +2554,12 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     }
     else {
         std::cout << "CPU Fallback. Num of pairs: " << fallbackPairs.size() << '\n';
+        std::vector<std::vector<int8_t>> alns;
+        for (int i = 0; i < fallbackPairs.size(); ++i) {
+            std::vector<int8_t> aln;
+            alns.push_back(aln);
+        }
+        tbb::this_task_arena::isolate( [&]{
         tbb::parallel_for(tbb::blocked_range<int>(0, fallbackPairs.size()), [&](tbb::blocked_range<int> range) {
         for (int n = range.begin(); n < range.end(); ++n) {
             int nIdx = fallbackPairs[n];
@@ -2609,22 +2615,38 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                 aln
             );
             if (aln.empty()) {
-                int32_t *freq = new int32_t[12*seqLen]; 
-                for (int i = 0; i < 12*seqLen; ++i) freq[i] = 0;
-                for (int s = 0; s < refLen; ++s) for (int j = 0; j < 6; ++j) freq[6*s+j] = freqRef[s][j];
-                for (int s = 0; s < qryLen; ++s) for (int j = 0; j < 6; ++j) freq[6*(seqLen+s)+j] = freqQry[s][j];
+                // int32_t *freq = new int32_t[12*seqLen]; 
+                // for (int i = 0; i < 12*seqLen; ++i) freq[i] = 0;
+                // for (int s = 0; s < refLen; ++s) for (int j = 0; j < 6; ++j) freq[6*s+j] = freqRef[s][j];
+                // for (int s = 0; s < qryLen; ++s) for (int j = 0; j < 6; ++j) freq[6*(seqLen+s)+j] = freqQry[s][j];
                 alignGrpToGrp_traditional (
-                    freq,
-                    seqLen,
+                    freqRef,
+                    freqQry,
                     refLen,
                     qryLen,
                     param,
                     aln
                 );
-                std::reverse(aln.begin(), aln.end());
-                delete [] freq;
+                // std::reverse(aln.begin(), aln.end());
+                // delete [] freq;
             }
-            util->memCheck(aln.size());
+            alns[n] = aln;
+        }
+        });
+        });
+
+        int maxAlnLen = 0;
+        for (auto aln: alns) maxAlnLen = (aln.size() > maxAlnLen) ? aln.size() : maxAlnLen;
+        util->memCheck(maxAlnLen);
+
+        tbb::this_task_arena::isolate( [&]{
+        tbb::parallel_for(tbb::blocked_range<int>(0, fallbackPairs.size()), [&](tbb::blocked_range<int> range) {
+        for (int n = range.begin(); n < range.end(); ++n) {
+            int nIdx = fallbackPairs[n];
+            auto aln = alns[n];
+            if (nodes[nIdx].first->identifier == "node_2") for (auto a: aln) std::cout << (a&0xFFFF);
+            if (nodes[nIdx].first->identifier == "node_2") std::cout << '\n';
+            
             for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
                 int storeFrom = util->seqsStorage[sIdx];
                 int storeTo = 1 - util->seqsStorage[sIdx];
@@ -2661,8 +2683,9 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                 tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
             }
             tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
-            printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", nIdx, tree->allNodes[nodes[nIdx].first->identifier]->identifier.c_str(), aln.size());
+            if (nodes[nIdx].first->identifier == "node_2") printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", nIdx, nodes[nIdx].first->identifier.c_str(), aln.size());
         }
+        });
         });
     }
     free(hostParam);

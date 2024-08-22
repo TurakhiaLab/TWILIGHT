@@ -242,7 +242,7 @@ void Talco_xdrop::Tile (
         int32_t inf = param.xdrop + 1;
         int marker = 128;
         // int32_t fLen = (1 << 10); // frontier length (assuming anti-diagonal length cannot exceed 1024)
-        int32_t fLen = (1 << 13); //8192 
+        int32_t fLen = (1 << 12); //4096
         bool converged = false; bool conv_logic = false;
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
@@ -367,7 +367,7 @@ void Talco_xdrop::Tile (
                             else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[m*5+l];
                         }
                     }
-                    similarScore = static_cast<int32_t>(std::floor(numerator/denominator));
+                    similarScore = static_cast<int32_t>(std::round(numerator/denominator));
                     if (offsetDiag < 0) match = similarScore + score_from_prev_tile;
                     else                match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;
                     // match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;
@@ -567,17 +567,7 @@ void Talco_xdrop::Tile (
                 break;
             }
         }
-        // Deallocate memory for scores
-        // for (size_t sIndx=0; sIndx<3; sIndx++) {
-        //     std::free(S[sIndx]);
-        //     std::free(CS[sIndx]);
-        //     if (sIndx < 2) {
-        //         std::free(I[sIndx]);
-        //         std::free(D[sIndx]);
-        //         std::free(CI[sIndx]);
-        //         std::free(CD[sIndx]);
-        //     }
-        // }
+        
         // if (DEBUG) std::cout <<  "Frontier addr: " << ftr_addr << " \ntb_start_ftr: " << ftr_length.size() << "\nmarker: " << params.marker << std::endl;
         // if (tile == 0) std::cout <<  "Frontier addr: " << ftr_addr << " \ntb_start_ftr: " << ftr_length.size() << "\nmarker: " << params.marker << std::endl;
         if (conv_logic) {

@@ -29,7 +29,7 @@ namespace Talco_xdrop {
             }
             this->gapOpen = t_param[25];
             this->gapExtend = t_param[26];
-            this->xdrop = 2000;
+            this->xdrop = 1500;
         }
     };
     // struct Params 

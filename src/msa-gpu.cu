@@ -225,7 +225,7 @@ void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, ms
         outputSubtreeSeqs(subtreeSeqFile, seqs);    
         kseq_destroy(kseq_rd);
         gzclose(f_rd);
-        std::remove(tempAlnFile.c_str());
+        // std::remove(tempAlnFile.c_str());
         totalSeqs += seqs.size();
         uint16_t** freq = new uint16_t* [6];
         for (int i = 0; i < 6; ++i) {
@@ -297,6 +297,13 @@ int main(int argc, char** argv) {
     paritionInfo_t* P = new paritionInfo_t(maxSubtreeSize, 0, 0, "centroid"); 
     partitionTree(T->root, P);
     Tree* newT = reconsturctTree(T->root, P->partitionsRoot);
+
+    // int subtreeCount = 0;
+    // for (auto p: P->partitionsRoot) {
+    //     ++subtreeCount;
+    //     std::cout << subtreeCount << '\t' << T->allNodes[p.first]->getNumLeaves() << '\n';
+    // }
+    // return;
     // Define MSA utility
     msa::utility* util = new msa::utility;
 
@@ -376,7 +383,7 @@ int main(int argc, char** argv) {
     else {
         readSequencesNoutputTemp(vm, T, P);
     }
-
+    // return;
     for (auto subRoot: P->partitionsRoot) {
         auto subtreeStart = std::chrono::high_resolution_clock::now();
         int subtree = T->allNodes[subRoot.first]->grpID;
@@ -423,6 +430,7 @@ int main(int argc, char** argv) {
         std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
         std::cout << "Partition the subtree into " << subP->partitionsRoot.size() << " trees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
         // Progressive alignment on each sub-subtree
+        
         auto msaStart = std::chrono::high_resolution_clock::now();
         Tree* newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
         // std::cout << newSubT->root->getNumLeaves() << '\n';
