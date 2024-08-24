@@ -2,6 +2,334 @@
 #include "util.cuh"
 #endif
 
+KSEQ_INIT2(, gzFile, gzread);
+// po::options_description mainDesc("MSA Command Line Arguments");
+
+Params* setParameters(po::variables_map& vm) {
+    // Set parameters
+    paramType mat = vm["match"].as<paramType>();
+    paramType mis = vm["mismatch"].as<paramType>();
+    paramType gapOp = vm["gap-open"].as<paramType>();
+    paramType gapEx = vm["gap-extend"].as<paramType>();
+    float gapOp_int =  round(gapOp);
+    float gapEx_int =  round(gapEx);
+    float gapOp_diff = gapOp-gapOp_int;
+    float gapEx_diff = gapEx-gapEx_int;
+    if (gapOp_diff != 0) printf("WARNING: Floating point gap open penalty is not allowed, %.0f is used intead of %f.\n", gapOp_int, gapOp);
+    if (gapEx_diff != 0) printf("WARNING: Floating point gap extend penalty is not allowed, %.0f is used intead of %f.\n", gapEx_int, gapEx);
+    
+    float xdrop_int;
+    if (!vm.count("xdrop")) xdrop_int = round((FRONT_WAVE_LEN/3)*(-gapEx_int));
+    else {
+        paramType xdrop = vm["xdrop"].as<paramType>();
+        xdrop_int =  round(xdrop);
+        float xdrop_diff = xdrop-xdrop_int;
+        if (xdrop_diff != 0) printf("WARNING: Floating point xdrop is not allowed, %.0f is used intead of %f.\n", xdrop_int, xdrop);
+    }
+    float trans = (!vm.count("trans")) ? mis + (mat-mis)/2 : vm["trans"].as<paramType>();
+    bool userDefine = vm.count("user-define-parameters");
+    Params* param = new Params(mat,mis,trans,gapOp_int,gapEx_int,xdrop_int,userDefine);
+    return param;
+}
+
+void setOptions(po::variables_map& vm, msa::option* option) {
+    int maxSubtreeSize = vm["max-subtree-size"].as<int>();
+    int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT_MAX;
+    int maxCpuThreads = tbb::this_task_arena::max_concurrency();
+    int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
+    if (cpuNum <= 0) {
+        std::cout << "ERROR: requested cpu threads <= 0.\n";
+        exit(1);
+    }
+    if (cpuNum > maxCpuThreads) {
+        std::cout << "ERROR: requested cpu threads more available threads.\n";
+        exit(1);
+    }
+    printf("Maximum available CPU threads: %d. Using %d CPU threads.\n", maxCpuThreads, cpuNum);
+    tbb::task_scheduler_init init(cpuNum);
+    int maxGpuNum;
+    cudaGetDeviceCount(&maxGpuNum);
+    int gpuNum = (vm.count("gpu-num")) ? vm["gpu-num"].as<int>() : maxGpuNum;
+    if (gpuNum <= 0) {
+        std::cout << "ERROR: requested number of GPU <= 0.\n";
+        exit(1);
+    }
+    if (gpuNum > maxGpuNum) {
+        std::cout << "ERROR: requested number of GPU more than available GPUs.\n";
+        exit(1);
+    }
+    std::vector<int> gpuIdx;
+    if (vm.count("gpu-index")) {
+        std::string gpuIdxString = vm["gpu-index"].as<std::string>();
+        std::string id = "";
+        for (int i = 0; i < gpuIdxString.size(); ++i) {
+            if (gpuIdxString[i] == ',') {
+                gpuIdx.push_back(std::atoi(id.c_str()));
+                id = "";
+            }
+            else if (i == gpuIdxString.size()-1) {
+                id += gpuIdxString[i];
+                gpuIdx.push_back(std::atoi(id.c_str()));
+                id = "";
+            }
+            else id += gpuIdxString[i];
+        }
+    }
+    else {
+        for (int i = 0; i < gpuNum; ++i) gpuIdx.push_back(i);
+    }
+    if (gpuIdx.size() != gpuNum) {
+        std::cout << "ERROR: the number of requested GPUs does not match the number of specified gpu indexes.\n";
+        exit(1);
+    }
+    for (auto id: gpuIdx) {
+        if (id >= maxGpuNum) {
+            std::cout << "ERROR: specified gpu index >= the number of GPUs\n";
+            exit(1);
+        }
+    }
+    printf("Maximum available GPUs: %d. Using %d GPUs.\n", maxGpuNum, gpuNum);
+    
+    option->cpuNum = cpuNum; 
+    option->gpuNum = gpuNum;
+    option->gpuIdx = gpuIdx;
+    option->maxSubtree = maxSubtreeSize;
+    option->maxSubSubtree = maxSubSubtreeSize;
+    option->debug = vm.count("debug");
+    option->readBatches = vm.count("read-batches");
+}
+
+void readSequences(po::variables_map& vm, msa::utility* util, Tree* tree)
+{
+    auto seqReadStart = std::chrono::high_resolution_clock::now();
+
+    std::string seqFileName = vm["sequences"].as<std::string>();
+    gzFile f_rd = gzopen(seqFileName.c_str(), "r");
+    if (!f_rd) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
+        exit(1);
+    }
+
+    kseq_t* kseq_rd = kseq_init(f_rd);
+
+    int seqNum = 0, maxLen = 0, minLen = INT_MAX;
+    uint64_t totalLen = 0;
+    
+    std::map<std::string, std::pair<std::string, int>> seqs;
+    
+    while (kseq_read(kseq_rd) >= 0) {
+        size_t seqLen = kseq_rd->seq.l;
+        std::string seqName = kseq_rd->name.s;
+        int subtreeIdx = tree->allNodes[seqName]->grpID;
+        seqs[seqName] = std::make_pair(std::string(kseq_rd->seq.s, seqLen), subtreeIdx);
+        if (seqLen > maxLen) maxLen = seqLen;
+        if (seqLen < minLen) minLen = seqLen;
+        totalLen += seqLen;
+    }
+    
+    seqNum = seqs.size();
+    uint32_t avgLen = totalLen/seqNum;
+    std::cout << "=== Sequence information ===\n";
+    std::cout << "Number : " << seqNum << '\n';
+    std::cout << "Max. Length: " << maxLen << '\n';
+    std::cout << "Min. Length: " << minLen << '\n';
+    std::cout << "Avg. Length: " << avgLen << '\n';
+    std::cout << "============================\n";
+
+    util->seqsMallocNStore(maxLen, seqs);
+    
+    auto seqReadEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
+    std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+}
+
+void readSequences(std::string seqFileName, msa::utility* util, Tree* tree)
+{
+    auto seqReadStart = std::chrono::high_resolution_clock::now();
+
+    gzFile f_rd = gzopen(seqFileName.c_str(), "r");
+    if (!f_rd) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
+        exit(1);
+    }
+
+    kseq_t* kseq_rd = kseq_init(f_rd);
+
+    int seqNum = 0, maxLen = 0;
+    uint64_t totalLen = 0;
+    
+    std::map<std::string, std::pair<std::string, int>> seqs;
+    
+    while (kseq_read(kseq_rd) >= 0) {
+        size_t seqLen = kseq_rd->seq.l;
+        std::string seqName = kseq_rd->name.s;
+        int subtreeIdx = tree->allNodes[seqName]->grpID;
+        seqs[seqName] = std::make_pair(std::string(kseq_rd->seq.s, seqLen), subtreeIdx);
+        if (seqLen > maxLen) maxLen = seqLen;
+        totalLen += seqLen;
+    }
+    
+    seqNum = seqs.size();
+    uint32_t avgLen = totalLen/seqNum;
+    std::cout << "(Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
+
+    util->seqsMallocNStore(maxLen, seqs);
+    
+    auto seqReadEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
+    std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+}
+
+void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t* partition)
+{
+    auto seqReadStart = std::chrono::high_resolution_clock::now();
+    std::string tempDir;
+    if (!vm.count("temp-dir")) {
+        tempDir =  "./temp";
+        if (mkdir(tempDir.c_str(), 0777) == -1) {
+            if( errno == EEXIST ) {
+                std::cout << tempDir << " already exists.\n";
+            }
+            else {
+                fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str());
+                exit(1);
+            }
+            
+        }
+        else {
+            std::cout << tempDir << " created\n";
+        }
+    }
+    else tempDir = vm["temp-dir"].as<std::string>();
+            
+    if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
+
+    std::string seqFileName = vm["sequences"].as<std::string>();
+    size_t maxLen = 0, totalLen = 0, seqNum = 0;
+    std::cout << "Total " <<  partition->partitionsRoot.size() << " subtrees.\n";
+    for (auto subroot: partition->partitionsRoot) {
+        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
+        Tree* subT = new Tree(subroot.second.first);
+        gzFile f_rd = gzopen(seqFileName.c_str(), "r");
+        if (!f_rd) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
+            exit(1);
+        }
+        kseq_t* kseq_rd = kseq_init(f_rd);
+        std::map<std::string, std::string> seqs;
+        while (kseq_read(kseq_rd) >= 0) {
+            size_t seqLen = kseq_rd->seq.l;
+            std::string seqName = kseq_rd->name.s;
+            if (subT->allNodes.find(seqName) != subT->allNodes.end()) {
+                seqs[seqName] = std::string(kseq_rd->seq.s, seqLen);
+                if (seqLen > maxLen) maxLen = seqLen;
+                totalLen += seqLen;
+                ++seqNum;
+            }
+        }
+        std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
+        std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
+        outputSubtree(subtreeTreeFile, subT);
+        std::string subtreeSeqFile = tempDir + '/' + subtreeFileName + ".raw.fa";
+        outputSubtreeSeqs(subtreeSeqFile, seqs);
+        seqs.clear();
+        // subtreeIdx += 1;
+        delete subT;
+        
+        kseq_destroy(kseq_rd);
+        gzclose(f_rd);
+
+    }
+
+    uint32_t avgLen = totalLen/seqNum;
+    auto seqReadEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
+    std::cout << "Seqences: (Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
+    std::cout << "Created " << partition->partitionsRoot.size() << " subtree files in " << tempDir << " in " <<  seqReadTime.count() / 1000000 << " ms\n";
+}
+
+void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, int& totalSeqs) {
+    for (auto id: tree->root->msa) {
+        // std::cout << "ID: " << id << '\n';
+        int subtree = tree->allNodes[id]->grpID;
+        std::string tempAlnFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".temp.aln";
+        gzFile f_rd = gzopen(tempAlnFile.c_str(), "r");
+        if (!f_rd) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", tempAlnFile.c_str());
+            exit(1);
+        }
+
+        kseq_t* kseq_rd = kseq_init(f_rd);
+        std::map<std::string, std::string> seqs;
+        std::vector<int8_t> aln = tree->allNodes[id]->msaAln;
+        size_t seqLen = tree->allNodes[id]->msaAln.size();
+        while (kseq_read(kseq_rd) >= 0) {
+            size_t seqLen = kseq_rd->seq.l;
+            std::string seqName = kseq_rd->name.s;
+            std::string finalAln = "";
+            std::string seq = std::string(kseq_rd->seq.s, seqLen);
+            int orgIdx = 0;
+            for (int j = 0; j < aln.size(); ++j) {
+                if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
+                    finalAln += seq[orgIdx];
+                    ++orgIdx;
+                }
+                else {
+                    finalAln += '-';
+                }
+            }
+            seqs[seqName] = finalAln;
+        }
+        std::string subtreeSeqFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".final.aln";
+        outputSubtreeSeqs(subtreeSeqFile, seqs);    
+        kseq_destroy(kseq_rd);
+        gzclose(f_rd);
+        // std::remove(tempAlnFile.c_str());
+        totalSeqs += seqs.size();
+        uint16_t** freq = new uint16_t* [6];
+        for (int i = 0; i < 6; ++i) {
+            freq[i] = new uint16_t [seqLen];
+            for (int j = 0; j < seqLen; ++j) freq[i][j] = 0;
+        }
+        for (auto sIdx = seqs.begin(); sIdx != seqs.end(); ++sIdx) {
+            for (int j = 0; j < seqLen; ++j) {
+                if      (sIdx->second[j] == 'A' || sIdx->second[j] == 'a') freq[0][j]+=1;
+                else if (sIdx->second[j] == 'C' || sIdx->second[j] == 'c') freq[1][j]+=1;
+                else if (sIdx->second[j] == 'G' || sIdx->second[j] == 'g') freq[2][j]+=1;
+                else if (sIdx->second[j] == 'T' || sIdx->second[j] == 't' ||
+                         sIdx->second[j] == 'U' || sIdx->second[j] == 'u') freq[3][j]+=1;
+                else if (sIdx->second[j] == 'N' || sIdx->second[j] == 'n') freq[4][j]+=1;
+                else                                                       freq[5][j]+=1;
+            }
+        }
+
+        std::string subtreeFreqFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".final.freq.txt";
+        std::ofstream outFile(subtreeFreqFile);
+        if (!outFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", subtreeFreqFile.c_str());
+            exit(1);
+        }
+        // Info subtreeIdx, seqNum, seqLen
+        outFile << subtree << ',' << seqs.size() << ',' << seqLen << '\n';
+        seqs.clear();
+        for (int i = 0; i < 6; ++i) {
+            for (int j = 0; j < seqLen-1; ++j) {
+                outFile << freq[i][j] << ',';
+            }
+            outFile << freq[i][seqLen-1] << '\n';
+        }
+
+        for (int i = 0; i < 6; ++i) delete [] freq[i];
+        delete [] freq;
+        outFile.close();
+    }
+    
+    tree->root->msa.clear();
+    return;
+}
+
+
+
 void printTree(Node* node, int grpID)
 {
     if (grpID == -1) {
@@ -613,8 +941,9 @@ void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>> nodes, ms
 }
 */
 
-void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Params& param) {
+void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInfo_t* partition, Params& param) {
     
+    auto progressiveStart = std::chrono::high_resolution_clock::now();
     std::vector<std::vector<std::pair<Node*, Node*>>> hier;
     for (auto &p: partition->partitionsRoot) {
         std::stack<Node*> msaStack;
@@ -713,7 +1042,7 @@ void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Param
     int level = 0;
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
-        msaPostOrderTraversal_multigpu(T, m, util, param);
+        msaPostOrderTraversal_multigpu(T, m, util, option, param);
         // int err = 0;
         // for (auto s: beforeAln) {
         //     int sIdx = util->seqsIdx[s.first];
@@ -776,7 +1105,13 @@ void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Param
             }
         }
     }
-
+    auto progressiveEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds progessiveTime = progressiveEnd - progressiveStart;
+    std::cout << "Progressive alignment in " <<  progessiveTime.count() / 1000000000 << " s\n";
+    
+    auto badStart = std::chrono::high_resolution_clock::now();
+    std::cout << "Adding bad profiles back.\n";
+    
     int levelThreshold = 0;
     int maxIteration = 2;
     int iteration = 0;
@@ -786,7 +1121,6 @@ void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Param
         
     
     while (!util->badSequences.empty() && iteration < maxIteration) {
-        std::cout << "Iteraton " << iteration << '\n';
         // if (iteration == maxIteration-1) lastIter = true;
         if (lastIter || iteration == maxIteration-1) util->nowProcess = 1;
         ++iteration;
@@ -848,10 +1182,10 @@ void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Param
         util->badSequences.clear();
         level = 0;
         if (!hier.empty()) {
-            std::cout << "Add bad sequences back. " << hier.size() << " levels.\n";
+            std::cout << "Iteraton " << iteration-1 << ". Total " << hier.size() << " levels.\n";
             for (auto m: hier) {
                 auto alnStart = std::chrono::high_resolution_clock::now();
-                msaPostOrderTraversal_multigpu(T, m, util, param);
+                msaPostOrderTraversal_multigpu(T, m, util, option, param);
                 auto alnEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds alnTime = alnEnd - alnStart;
                 if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
@@ -865,10 +1199,13 @@ void msaOnSubtree (Tree* T, msa::utility* util, paritionInfo_t* partition, Param
         std::cout << "The number of Bad profiles: Before " << badSeqBefore << " / After " << badSeqAfter << '\n';
     }
 
+    auto badEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds badTime = badEnd - badStart;
+    std::cout << "Added bad profiles in " <<  badTime.count() / 1000000000 << " s\n";
     return;
 }
 
-void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, Params& param) {
+void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option, Params& param) {
     std::vector<std::pair<Node*, Node*>> type1Aln;
     for (auto n: newT->allNodes) {
         for (auto m: n.second->children) {
@@ -880,7 +1217,7 @@ void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, Params& param) {
     // for (auto n: type1Aln) std::cout << n.first->identifier << ':' << util->seqsLen[n.first->identifier] << 
     //                              ',' << n.second->identifier << ':' << util->seqsLen[n.second->identifier] <<'\n';
     std::cout << "Align sub-subtrees, total " << type1Aln.size() << " pairs.\n"; 
-    createOverlapMSA(T, type1Aln, util, param);
+    createOverlapMSA(T, type1Aln, util, option, param);
     return;
 }
 
@@ -968,12 +1305,12 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util) {
 
 
 
-void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, Params& param)
+void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
 
     int numBlocks = 1024; 
     int blockSize = THREAD_NUM;
-    int gpuNum = util->gpuNum;
+    int gpuNum = option->gpuNum;
     // cudaGetDeviceCount(&gpuNum); // number of CUDA devices
     
     // get maximum sequence/profile length 
@@ -1172,11 +1509,13 @@ void createOverlapMSA(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, m
         
         
                         Talco_xdrop::Params talco_params(hostParam);
+                        int16_t errorType = 0;
                         Talco_xdrop::Align_freq (
                             talco_params,
                             freqRef,
                             freqQry,
-                            aln
+                            aln,
+                            errorType
                         );
 
                         // int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
@@ -1978,7 +2317,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
 */
 
 
-void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, Params& param)
+void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
 
     
@@ -2024,7 +2363,7 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
 
     int numBlocks = 1024; 
     int blockSize = THREAD_NUM;
-    int gpuNum = util->gpuNum;
+    int gpuNum = option->gpuNum;
     // cudaGetDeviceCount(&gpuNum); // number of CUDA devices
             
     // get maximum sequence/profile length 
@@ -2093,8 +2432,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
             hostLen[gn] = (int32_t*)malloc(   2 *          numBlocks * sizeof(int32_t));
             hostAlnLen[gn] = (int32_t*)malloc(             numBlocks * sizeof(int32_t));
             hostSeqInfo[gn] = (int32_t*)malloc(5                     * sizeof(int32_t));
-            // cudaSetDevice(gn);
-            cudaSetDevice(1);
+            cudaSetDevice(option->gpuIdx[gn]);
+            // cudaSetDevice(1);
             cudaMalloc((void**)&deviceFreq[gn],  12 * seqLen * numBlocks * sizeof(int32_t));
             
             cudaMalloc((void**)&deviceAln[gn],    2 * seqLen * numBlocks * sizeof(int8_t));
@@ -2385,33 +2724,6 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                     // if (nIdx % 1000 == 0) {
                     if (hostAlnLen[gn][n] <= 0) {
                         cpuFallback[nIdx] = true;
-                        // if (util->nowProcess == 1) {
-                        //     cpuFallback[nIdx] = true;
-                        // }
-                        // else {
-                        //     int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
-                        //     if (util->badSequences.find(grpID) == util->badSequences.end()) {
-                        //         std::vector<std::string> temp;
-                        //         util->badSequences[grpID] = temp;
-                        //     }
-                        //     if (refNum < qryNum) {
-                        //         // proceed with qry and store ref as bad sequences
-                        //         int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-                        //         int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-                                
-                        //         util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
-                        //         util->seqsLen[nodes[nIdx].second->identifier] = refLen;
-                        //         util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
-                        //         auto temp = nodes[nIdx].second->msaIdx;
-                        //         tree->allNodes[nodes[nIdx].second->identifier]->msaIdx = nodes[nIdx].first->msaIdx;
-                        //         tree->allNodes[nodes[nIdx].first->identifier]->msaIdx = temp;
-                        //         std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << refNum <<" seqeuences).\n";
-                        //     }
-                        //     else {
-                        //         util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
-                        //         std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << qryNum <<" seqeuences).\n";
-                        //     }
-                        // }
                     }
                     else {
                         for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
@@ -2479,8 +2791,9 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     
     // free memory  
     for (int gn = 0; gn < gpuNum; ++gn) {
+        cudaSetDevice(option->gpuIdx[gn]);
         // cudaSetDevice(gn);
-        cudaSetDevice(1);
+        // cudaSetDevice(1);
         cudaFree(deviceFreq[gn]);
         cudaFree(deviceAln[gn]);
         cudaFree(deviceLen[gn]);
@@ -2606,31 +2919,37 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                     else                                                                                             freqQry[s][5]+=1;
                 }
             }
-
             Talco_xdrop::Params talco_params(hostParam);
-            Talco_xdrop::Align_freq (
-                talco_params,
-                freqRef,
-                freqQry,
-                aln
-            );
-            if (aln.empty()) {
-                // int32_t *freq = new int32_t[12*seqLen]; 
-                // for (int i = 0; i < 12*seqLen; ++i) freq[i] = 0;
-                // for (int s = 0; s < refLen; ++s) for (int j = 0; j < 6; ++j) freq[6*s+j] = freqRef[s][j];
-                // for (int s = 0; s < qryLen; ++s) for (int j = 0; j < 6; ++j) freq[6*(seqLen+s)+j] = freqQry[s][j];
-                alignGrpToGrp_traditional (
+            while (aln.empty()) {
+                int16_t errorType = 0;
+                Talco_xdrop::Align_freq (
+                    talco_params,
                     freqRef,
                     freqQry,
-                    refLen,
-                    qryLen,
-                    param,
-                    aln
+                    aln,
+                    errorType
                 );
-                // std::reverse(aln.begin(), aln.end());
-                // delete [] freq;
+                // assert((aln.empty() && errorType != 0) || (!aln.empty() && errorType == 0));
+                if (errorType == 1) {
+                    std::cout << "Updated x-drop value on No. " << nIdx << '\n';
+                    talco_params.updateXDrop(2*talco_params.xdrop);
+                }
+                if (errorType == 2) {
+                    std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+                    talco_params.updateFLen(talco_params.fLen << 1);
+                }
             }
             alns[n] = aln;
+            // if (aln.empty()) {
+            //     alignGrpToGrp_traditional (
+            //         freqRef,
+            //         freqQry,
+            //         refLen,
+            //         qryLen,
+            //         param,
+            //         aln
+            //     );
+            // }
         }
         });
         });
@@ -2644,8 +2963,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
         for (int n = range.begin(); n < range.end(); ++n) {
             int nIdx = fallbackPairs[n];
             auto aln = alns[n];
-            if (nodes[nIdx].first->identifier == "node_2") for (auto a: aln) std::cout << (a&0xFFFF);
-            if (nodes[nIdx].first->identifier == "node_2") std::cout << '\n';
+            // if (nodes[nIdx].first->identifier == "node_2") for (auto a: aln) std::cout << (a&0xFFFF);
+            // if (nodes[nIdx].first->identifier == "node_2") std::cout << '\n';
             
             for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
                 int storeFrom = util->seqsStorage[sIdx];
@@ -2683,7 +3002,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                 tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.push_back(q);
             }
             tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.clear();
-            if (nodes[nIdx].first->identifier == "node_2") printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", nIdx, nodes[nIdx].first->identifier.c_str(), aln.size());
+            // if (nodes[nIdx].first->identifier == "node_2") printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", nIdx, nodes[nIdx].first->identifier.c_str(), aln.size());
+            printf("CPU fallback on No. %d (%s), Alignment Length: %d\n", nIdx, nodes[nIdx].first->identifier.c_str(), aln.size());
         }
         });
         });

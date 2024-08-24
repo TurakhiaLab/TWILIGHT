@@ -2,14 +2,6 @@
 #include "../src/util.cuh"
 #endif
 
-#include <sys/stat.h>
-#include <tbb/task_scheduler_init.h>
-#include <tbb/task_arena.h>
-
-KSEQ_INIT2(, gzFile, gzread)
-
-namespace po = boost::program_options;
-
 po::options_description mainDesc("MSA Command Line Arguments");
 
 void parseArguments(int argc, char** argv)
@@ -20,253 +12,24 @@ void parseArguments(int argc, char** argv)
         ("sequences,i", po::value<std::string>()->required(), "Input tip sequences - Fasta format (required)")
         ("cpu-num,c",  po::value<int>(), "Number of CPU threads")
         ("gpu-num,g",  po::value<int>(), "Number of GPUs")
-        ("max-leaves,l",  po::value<int>()->default_value(0), "Maximum number of leaves per sub-subtree")
+        ("max-leaves,l",  po::value<int>(), "Maximum number of leaves per sub-subtree")
         ("max-subtree-size,m", po::value<int>()->default_value(1000000), "Maximum number of leaves per subtree")
         
-        ("output,o", po::value<std::string>()->default_value(""), "Output file name")
+        ("output,o", po::value<std::string>(), "Output file name")
         ("match",      po::value<paramType>()->default_value(2), "Match score")
         ("mismatch",   po::value<paramType>()->default_value(0), "Mismatch penalty")
         ("gap-open",   po::value<paramType>()->default_value(-3), "Gap open penalty")
         ("gap-extend", po::value<paramType>()->default_value(-1), "Gap extend penalty")
-        ("trans",      po::value<paramType>()->default_value(0), "Transition score")
-        ("xdrop",      po::value<paramType>()->default_value(0), "X-drop value")
+        ("trans",      po::value<paramType>(), "Transition score")
+        ("xdrop",      po::value<paramType>(), "X-drop value")
         ("temp-dir", po::value<std::string>(), "Directory for storing temporary files")
+        ("gpu-index", po::value<std::string>(), "Specify the GPU index, separated by commas. Ex. 0,2,3")
         ("read-batches", "Read sequences in batches and create temporary files")
         ("user-define-parameters", "Using user defined parameters. Please modify align.cuh")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment")
-        ("debug", "Enable debug and print debug messages")
+        ("debug", "Enable debug on the final alignment")
         ("help,h", "Print help messages");
 
-}
-
-void readSequences(po::variables_map& vm, msa::utility* util, Tree* tree)
-{
-    auto seqReadStart = std::chrono::high_resolution_clock::now();
-
-    std::string seqFileName = vm["sequences"].as<std::string>();
-    gzFile f_rd = gzopen(seqFileName.c_str(), "r");
-    if (!f_rd) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
-        exit(1);
-    }
-
-    kseq_t* kseq_rd = kseq_init(f_rd);
-
-    int seqNum = 0, maxLen = 0, minLen = INT_MAX;
-    uint64_t totalLen = 0;
-    
-    std::map<std::string, std::pair<std::string, int>> seqs;
-    
-    while (kseq_read(kseq_rd) >= 0) {
-        size_t seqLen = kseq_rd->seq.l;
-        std::string seqName = kseq_rd->name.s;
-        int subtreeIdx = tree->allNodes[seqName]->grpID;
-        seqs[seqName] = std::make_pair(std::string(kseq_rd->seq.s, seqLen), subtreeIdx);
-        if (seqLen > maxLen) maxLen = seqLen;
-        if (seqLen < minLen) minLen = seqLen;
-        totalLen += seqLen;
-    }
-    
-    seqNum = seqs.size();
-    uint32_t avgLen = totalLen/seqNum;
-    std::cout << "=== Sequence information ===\n";
-    std::cout << "Number : " << seqNum << '\n';
-    std::cout << "Max. Length: " << maxLen << '\n';
-    std::cout << "Min. Length: " << minLen << '\n';
-    std::cout << "Avg. Length: " << avgLen << '\n';
-    std::cout << "============================\n";
-
-    util->seqsMallocNStore(maxLen, seqs);
-    
-    auto seqReadEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
-    std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
-}
-
-void readSequences(std::string seqFileName, msa::utility* util, Tree* tree)
-{
-    auto seqReadStart = std::chrono::high_resolution_clock::now();
-
-    gzFile f_rd = gzopen(seqFileName.c_str(), "r");
-    if (!f_rd) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
-        exit(1);
-    }
-
-    kseq_t* kseq_rd = kseq_init(f_rd);
-
-    int seqNum = 0, maxLen = 0;
-    uint64_t totalLen = 0;
-    
-    std::map<std::string, std::pair<std::string, int>> seqs;
-    
-    while (kseq_read(kseq_rd) >= 0) {
-        size_t seqLen = kseq_rd->seq.l;
-        std::string seqName = kseq_rd->name.s;
-        int subtreeIdx = tree->allNodes[seqName]->grpID;
-        seqs[seqName] = std::make_pair(std::string(kseq_rd->seq.s, seqLen), subtreeIdx);
-        if (seqLen > maxLen) maxLen = seqLen;
-        totalLen += seqLen;
-    }
-    
-    seqNum = seqs.size();
-    uint32_t avgLen = totalLen/seqNum;
-    std::cout << "(Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
-
-    util->seqsMallocNStore(maxLen, seqs);
-    
-    auto seqReadEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
-    std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
-}
-
-
-void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t* partition)
-{
-    auto seqReadStart = std::chrono::high_resolution_clock::now();
-    std::string tempDir;
-    if (!vm.count("temp-dir")) {
-        tempDir =  "./temp";
-        if (mkdir(tempDir.c_str(), 0777) == -1) {
-            if( errno == EEXIST ) {
-                std::cout << tempDir << " already exists.\n";
-            }
-            else {
-                fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str());
-                exit(1);
-            }
-            
-        }
-        else {
-            std::cout << tempDir << " created\n";
-        }
-    }
-    else tempDir = vm["temp-dir"].as<std::string>();
-            
-    if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
-
-    std::string seqFileName = vm["sequences"].as<std::string>();
-    size_t maxLen = 0, totalLen = 0, seqNum = 0;
-    std::cout << "Total " <<  partition->partitionsRoot.size() << " subtrees.\n";
-    for (auto subroot: partition->partitionsRoot) {
-        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
-        Tree* subT = new Tree(subroot.second.first);
-        gzFile f_rd = gzopen(seqFileName.c_str(), "r");
-        if (!f_rd) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
-            exit(1);
-        }
-        kseq_t* kseq_rd = kseq_init(f_rd);
-        std::map<std::string, std::string> seqs;
-        while (kseq_read(kseq_rd) >= 0) {
-            size_t seqLen = kseq_rd->seq.l;
-            std::string seqName = kseq_rd->name.s;
-            if (subT->allNodes.find(seqName) != subT->allNodes.end()) {
-                seqs[seqName] = std::string(kseq_rd->seq.s, seqLen);
-                if (seqLen > maxLen) maxLen = seqLen;
-                totalLen += seqLen;
-                ++seqNum;
-            }
-        }
-        std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
-        std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
-        outputSubtree(subtreeTreeFile, subT);
-        std::string subtreeSeqFile = tempDir + '/' + subtreeFileName + ".raw.fa";
-        outputSubtreeSeqs(subtreeSeqFile, seqs);
-        seqs.clear();
-        // subtreeIdx += 1;
-        delete subT;
-        
-        kseq_destroy(kseq_rd);
-        gzclose(f_rd);
-
-    }
-
-    uint32_t avgLen = totalLen/seqNum;
-    auto seqReadEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
-    std::cout << "Seqences: (Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
-    std::cout << "Created " << partition->partitionsRoot.size() << " subtree files in " << tempDir << " in " <<  seqReadTime.count() / 1000000 << " ms\n";
-}
-
-void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, int& totalSeqs) {
-    for (auto id: tree->root->msa) {
-        // std::cout << "ID: " << id << '\n';
-        int subtree = tree->allNodes[id]->grpID;
-        std::string tempAlnFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".temp.aln";
-        gzFile f_rd = gzopen(tempAlnFile.c_str(), "r");
-        if (!f_rd) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", tempAlnFile.c_str());
-            exit(1);
-        }
-
-        kseq_t* kseq_rd = kseq_init(f_rd);
-        std::map<std::string, std::string> seqs;
-        std::vector<int8_t> aln = tree->allNodes[id]->msaAln;
-        size_t seqLen = tree->allNodes[id]->msaAln.size();
-        while (kseq_read(kseq_rd) >= 0) {
-            size_t seqLen = kseq_rd->seq.l;
-            std::string seqName = kseq_rd->name.s;
-            std::string finalAln = "";
-            std::string seq = std::string(kseq_rd->seq.s, seqLen);
-            int orgIdx = 0;
-            for (int j = 0; j < aln.size(); ++j) {
-                if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
-                    finalAln += seq[orgIdx];
-                    ++orgIdx;
-                }
-                else {
-                    finalAln += '-';
-                }
-            }
-            seqs[seqName] = finalAln;
-        }
-        std::string subtreeSeqFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".final.aln";
-        outputSubtreeSeqs(subtreeSeqFile, seqs);    
-        kseq_destroy(kseq_rd);
-        gzclose(f_rd);
-        // std::remove(tempAlnFile.c_str());
-        totalSeqs += seqs.size();
-        uint16_t** freq = new uint16_t* [6];
-        for (int i = 0; i < 6; ++i) {
-            freq[i] = new uint16_t [seqLen];
-            for (int j = 0; j < seqLen; ++j) freq[i][j] = 0;
-        }
-        for (auto sIdx = seqs.begin(); sIdx != seqs.end(); ++sIdx) {
-            for (int j = 0; j < seqLen; ++j) {
-                if      (sIdx->second[j] == 'A' || sIdx->second[j] == 'a') freq[0][j]+=1;
-                else if (sIdx->second[j] == 'C' || sIdx->second[j] == 'c') freq[1][j]+=1;
-                else if (sIdx->second[j] == 'G' || sIdx->second[j] == 'g') freq[2][j]+=1;
-                else if (sIdx->second[j] == 'T' || sIdx->second[j] == 't' ||
-                         sIdx->second[j] == 'U' || sIdx->second[j] == 'u') freq[3][j]+=1;
-                else if (sIdx->second[j] == 'N' || sIdx->second[j] == 'n') freq[4][j]+=1;
-                else                                                       freq[5][j]+=1;
-            }
-        }
-
-        std::string subtreeFreqFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".final.freq.txt";
-        std::ofstream outFile(subtreeFreqFile);
-        if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", subtreeFreqFile.c_str());
-            exit(1);
-        }
-        // Info subtreeIdx, seqNum, seqLen
-        outFile << subtree << ',' << seqs.size() << ',' << seqLen << '\n';
-        seqs.clear();
-        for (int i = 0; i < 6; ++i) {
-            for (int j = 0; j < seqLen-1; ++j) {
-                outFile << freq[i][j] << ',';
-            }
-            outFile << freq[i][seqLen-1] << '\n';
-        }
-
-        for (int i = 0; i < 6; ++i) delete [] freq[i];
-        delete [] freq;
-        outFile.close();
-    }
-    
-    tree->root->msa.clear();
-    return;
 }
 
 
@@ -288,13 +51,15 @@ int main(int argc, char** argv) {
             return 1;
     }
 
+    msa::option* option = new msa::option;
+    setOptions(vm, option);
 
+    Params* param = setParameters(vm);
 
     // Partition tree into subtrees
     Tree* T = readNewick(vm);
     // printTree(T->root, -1);
-    int maxSubtreeSize = vm["max-subtree-size"].as<int>();
-    paritionInfo_t* P = new paritionInfo_t(maxSubtreeSize, 0, 0, "centroid"); 
+    paritionInfo_t* P = new paritionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
     partitionTree(T->root, P);
     Tree* newT = reconsturctTree(T->root, P->partitionsRoot);
 
@@ -304,52 +69,15 @@ int main(int argc, char** argv) {
     //     std::cout << subtreeCount << '\t' << T->allNodes[p.first]->getNumLeaves() << '\n';
     // }
     // return;
+    
     // Define MSA utility
     msa::utility* util = new msa::utility;
 
-    // Print hardware information
-    int maxCpuThreads = tbb::this_task_arena::max_concurrency();
-    int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
-    printf("Maximum available CPU threads: %d. Using %d CPU threads.\n", maxCpuThreads, cpuNum);
-    tbb::task_scheduler_init init(cpuNum);
-    int maxGpuNum;
-    cudaGetDeviceCount(&maxGpuNum);
-    int gpuNum = (vm.count("gpu-num")) ? vm["gpu-num"].as<int>() : maxGpuNum;
-    gpuNum = (gpuNum == 0) ? maxGpuNum : gpuNum;
-    util->gpuNum = gpuNum;
-    printf("Maximum available GPUs: %d. Using %d GPUs.\n", maxGpuNum, gpuNum);
-
-
-    // Set parameters
-    paramType mat = vm["match"].as<paramType>();
-    paramType mis = vm["mismatch"].as<paramType>();
-    paramType gapOp = vm["gap-open"].as<paramType>();
-    paramType gapEx = vm["gap-extend"].as<paramType>();
-    paramType trans = vm["trans"].as<paramType>();
-    paramType xdrop = vm["xdrop"].as<paramType>();
-    float gapOp_int =  round(gapOp);
-    float gapEx_int =  round(gapEx);
-    float xdrop_int =  round(xdrop);
-    float gapOp_diff = gapOp-gapOp_int;
-    float gapEx_diff = gapEx-gapEx_int;
-    float xdrop_diff = xdrop-xdrop_int;
-    if (gapOp_diff != 0) printf("WARNING: Floating point gap open penalty is not allowed, %.0f is used intead of %f.\n", gapOp_int, gapOp);
-    if (gapEx_diff != 0) printf("WARNING: Floating point gap extend penalty is not allowed, %.0f is used intead of %f.\n", gapEx_int, gapEx);
-    if (xdrop_diff != 0) printf("WARNING: Floating point xdrop is not allowed, %.0f is used intead of %f.\n", xdrop_int, xdrop);
-    if (xdrop_int == 0) xdrop_int = round((FRONT_WAVE_LEN/3)*(-gapEx_int));
-    if (trans == 0) trans = mis + (mat-mis)/2;
-    bool userDefine = vm.count("user-define-parameters");
-    Params param(mat,mis,trans,gapOp_int,gapEx_int,xdrop_int,userDefine);
-
-
-    int maxSubSubtreeSize = vm["max-leaves"].as<int>();
-    if (maxSubSubtreeSize == 0) maxSubSubtreeSize = INT_MAX;
-    bool debug = vm.count("debug");
-    bool batches = vm.count("read-batches");
-    std::unordered_map<std::string, std::string> beforeAln, afterAln;
+    
+    std::unordered_map<std::string, std::string> beforeAln;
         
     // read sequences
-    if (!batches) {
+    if (!option->readBatches) {
         readSequences(vm, util, T);
         if (T->m_numLeaves != util->seqsIdx.size()) {
             fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %lu)\n", T->m_numLeaves, util->seqsIdx.size()); 
@@ -361,7 +89,7 @@ int main(int argc, char** argv) {
                 exit(1);
             }
         }
-        if (debug) {
+        if (!option->debug) {
             for (auto s: T->allNodes) {
                 if (s.second->is_leaf()) {
                     std::string seqName = s.first;
@@ -390,7 +118,7 @@ int main(int argc, char** argv) {
         std::cout << "Start processing subtree No. " << subtree << '\n';
         
         Tree* subT;
-        if (!batches) {
+        if (!option->readBatches) {
             subT = new Tree(subRoot.second.first);
             util->setSubtreeIdx(subtree);
         }
@@ -423,7 +151,7 @@ int main(int argc, char** argv) {
         
         auto treeBuiltStart = std::chrono::high_resolution_clock::now();
         
-        paritionInfo_t * subP = new paritionInfo_t(maxSubSubtreeSize, 0, 0, "centroid");
+        paritionInfo_t * subP = new paritionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
         partitionTree(subT->root, subP);
        
         auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
@@ -434,15 +162,15 @@ int main(int argc, char** argv) {
         auto msaStart = std::chrono::high_resolution_clock::now();
         Tree* newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
         // std::cout << newSubT->root->getNumLeaves() << '\n';
-        msaOnSubtree(subT, util, subP, param);
+        msaOnSubtree(subT, util, option, subP, *param);
         auto msaEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds msaTime = msaEnd - msaStart;
-        std::cout << "Progressive alignment in " <<  msaTime.count() / 1000000000 << " s\n";
+        std::cout << "MSA on sub-subtree in " <<  msaTime.count() / 1000000000 << " s\n";
         
         if (subP->partitionsRoot.size() > 1) {
             // Align adjacent sub-subtrees to create overlap alignment
             auto alnStart = std::chrono::high_resolution_clock::now();
-            alignSubtrees(subT, newSubT, util, param);
+            alignSubtrees(subT, newSubT, util, option, *param);
             auto alnEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnTime = alnEnd - alnStart;
             std::cout << "Aligned adjacent sub-subtrees in " <<  alnTime.count() / 1000000 << " ms\n";
@@ -460,7 +188,7 @@ int main(int argc, char** argv) {
         
         for (auto sIdx: subT->root->msaIdx) T->allNodes[subT->root->identifier]->msaIdx.push_back(sIdx);
         // for (auto node: subT->allNodes) delete node.second;
-        if (batches) {
+        if (option->readBatches) {
             std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             std::string subtreeFileName = "subtree-" + std::to_string(subtree);
@@ -477,7 +205,7 @@ int main(int argc, char** argv) {
     if (P->partitionsRoot.size() > 1) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         util->nowProcess = 2; // merge subtrees
-        if (batches) {
+        if (option->readBatches) {
             std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             readFreq(tempDir, T, P, util);
@@ -485,7 +213,7 @@ int main(int argc, char** argv) {
         else {
             getFreq(T, P, util);
         }
-        alignSubtrees(T, newT, util, param);
+        alignSubtrees(T, newT, util, option, *param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
         std::cout << "Aligned adjacent subtrees in " <<  alnTime.count() / 1000000 << " ms\n";
@@ -494,7 +222,7 @@ int main(int argc, char** argv) {
         auto mergeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
         int totalSeqs = 0;
-        if (batches) {
+        if (option->readBatches) {
             std::string tempDir = (!vm.count("temp-dir")) ? "./temp" : vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             outputFinal (tempDir, T, P, util, totalSeqs);
@@ -505,7 +233,7 @@ int main(int argc, char** argv) {
 
 
     // post-alignment debugging
-    if (debug) {
+    if (option->debug) {
         auto dbgStart = std::chrono::high_resolution_clock::now();
         int alnLen = 0;
         // for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
@@ -547,15 +275,16 @@ int main(int argc, char** argv) {
     // Calculate sum-of-pairs score
     if (vm.count("sum-of-pairs-score")) {
         auto spStart = std::chrono::high_resolution_clock::now();
-        double score = getSPScore_gpu(util, param);
+        double score = getSPScore_gpu(util, *param);
         auto spEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds spTime = spEnd - spStart;
         std::cout << "Calculated Sum-of-Pairs-Score in " << spTime.count() / 1000000 << " ms. Score = " << score << ".\n";
     }
     
     // output MSA
-    if (vm["output"].as<std::string>() != "") {
+    if (vm.count("output")) {
         std::string outFile = vm["output"].as<std::string>();
+        if (outFile == "") outFile = "output.aln";
         auto outStart = std::chrono::high_resolution_clock::now();
         std::string subtreeFreqFile = outFile + ".freq.txt";
         outputFile(outFile, util, T, -1);

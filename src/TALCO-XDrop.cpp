@@ -8,7 +8,8 @@ void Talco_xdrop::Align_freq (
     // const std::vector<std::string>& query,
     const std::vector<std::vector<int>>& freqRef,
     const std::vector<std::vector<int>>& freqQry,
-    std::vector<int8_t>& aln
+    std::vector<int8_t>& aln,
+    int16_t& errorType
     // size_t num_alignments
 ) {
         
@@ -32,7 +33,7 @@ void Talco_xdrop::Align_freq (
             while (!last_tile) {
                 std::vector<int8_t> tile_aln;
                 // Talco_xdrop::Tile(reference, query, params, reference_idx, query_idx, tile_aln, state, last_tile, tile);
-                Talco_xdrop::Tile(freqRef, freqQry, params, reference_idx, query_idx, tile_aln, state, last_tile, tile);
+                Talco_xdrop::Tile(freqRef, freqQry, params, reference_idx, query_idx, tile_aln, state, last_tile, tile, errorType);
                 // printf("Tile: %d, (r,q) = (%d,%d), tile_aln_size: %d\n",tile, reference_idx, query_idx, tile_aln.size());
                 if (tile_aln.empty()) {
                     aln.clear();
@@ -235,14 +236,14 @@ void Talco_xdrop::Tile (
     std::vector<int8_t> &aln,
     int8_t &state,
     bool &last_tile,
-    const int &tile
+    const int &tile,
+    int16_t& errorType // 1: xdrop, 2: exceed anti-doagonal limit
     ) {
         
         // Initialising variables
         int32_t inf = param.xdrop + 1;
-        int marker = 128;
-        // int32_t fLen = (1 << 10); // frontier length (assuming anti-diagonal length cannot exceed 1024)
-        int32_t fLen = (1 << 12); //4096
+        int32_t marker = param.marker;
+        int32_t fLen = param.fLen;
         bool converged = false; bool conv_logic = false;
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
@@ -315,6 +316,7 @@ void Talco_xdrop::Tile (
                 // std::cout << "No more cells to compute based on x-drop critieria tile: " << tile << " k: " << k << " L: " << L[k%3] << " U: " <<U[k%3]+1 <<  std::endl;
                 printf("No more cells to compute based on x-drop critieria, ref(%d/%d), qry(%d/%d)\n", reference_idx, reference.size(), query_idx, query.size());
                 last_tile = true;
+                errorType = 1;
                 aln.clear();
                 return;
             }
@@ -322,6 +324,7 @@ void Talco_xdrop::Tile (
             if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
                 fprintf(stderr, "ERROR: anti-diagonal larger than the max limit!\n");
                 last_tile = true;
+                errorType = 2;
                 aln.clear();
                 return;
             }

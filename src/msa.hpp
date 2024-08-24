@@ -190,13 +190,17 @@
 
 namespace msa
 {
-    // struct control
-    // {
-    //     int gpuNum;
-    //     int cpuNum;
-    //     std::vector<int> gpuID;
-    //     int nowProcess;
-    // };
+    struct option
+    {
+        int gpuNum;
+        int cpuNum;
+        int maxSubtree;
+        int maxSubSubtree;
+        std::vector<int> gpuIdx;
+        int nowProcess;
+        bool debug;
+        bool readBatches;
+    };
 
     struct utility
     {

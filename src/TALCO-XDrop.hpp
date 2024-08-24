@@ -19,7 +19,12 @@ namespace Talco_xdrop {
         paramType scoreMatrix [5][5];
         paramType gapOpen;
         paramType gapExtend;
-        int xdrop;
+        int32_t xdrop;
+        int32_t fLen;
+        int32_t marker;
+
+        void updateXDrop(int32_t new_xdrop) { this->xdrop = new_xdrop;}
+        void updateFLen(int32_t new_flen) { this->fLen = new_flen;}
 
         Params(paramType* t_param) {
             for (int i = 0; i < 5; ++i) {
@@ -29,7 +34,9 @@ namespace Talco_xdrop {
             }
             this->gapOpen = t_param[25];
             this->gapExtend = t_param[26];
-            this->xdrop = 1500;
+            this->xdrop = 1000;
+            this->fLen = (1 << 12);
+            this->marker = (1 << 9);
         }
     };
     // struct Params 
@@ -62,7 +69,8 @@ namespace Talco_xdrop {
         // const std::vector<std::string>& query,
         const std::vector<std::vector<int>>& freqRef,
         const std::vector<std::vector<int>>& freqQry,
-        std::vector<int8_t>& aln
+        std::vector<int8_t>& aln,
+        int16_t& errorType
         // size_t num_alignments
     );
 
@@ -77,7 +85,8 @@ namespace Talco_xdrop {
         std::vector<int8_t> &aln,
         int8_t &state,
         bool &last_tile,
-        const int &tile
+        const int &tile,
+        int16_t& errorType
     );
 
     int32_t Reduction_tree (
