@@ -214,7 +214,6 @@ namespace msa
         char** alnStorage[2] = {nullptr, nullptr};
         int nowProcess = 0;
         size_t subtreeIdx = 0;
-        size_t gpuNum;
         size_t memLen;
         size_t memNum;
         size_t seqLen;

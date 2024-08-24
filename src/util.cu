@@ -2893,11 +2893,15 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                 for (int f = 0; f < 6; ++f) temp.push_back(0);
                 freqQry.push_back(temp);
             }
-
+                         
             for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
                 int storage = util->seqsStorage[sIdx];
-                int maxLen = max(refLen, qryLen);
-                for (int s = 0; s < refLen; ++s) {
+                // int maxLen = max(refLen, qryLen);
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+                for (int s = r.begin(); s < r.end(); ++s) {
+           
+                // for (int s = 0; s < refLen; ++s) {
                     if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freqRef[s][0]+=1;
                     else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freqRef[s][1]+=1;
                     else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freqRef[s][2]+=1;
@@ -2906,10 +2910,16 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                     else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freqRef[s][4]+=1;
                     else                                                                                             freqRef[s][5]+=1;
                 }
+                });
+                });
             }
             for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
                 int storage = util->seqsStorage[sIdx];
-                for (int s = 0; s < qryLen; ++s) {
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
+                for (int s = r.begin(); s < r.end(); ++s) {
+           
+                // for (int s = 0; s < qryLen; ++s) {
                     if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freqQry[s][0]+=1;
                     else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freqQry[s][1]+=1;
                     else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freqQry[s][2]+=1;
@@ -2918,6 +2928,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                     else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freqQry[s][4]+=1;
                     else                                                                                             freqQry[s][5]+=1;
                 }
+                });
+                });
             }
             Talco_xdrop::Params talco_params(hostParam);
             while (aln.empty()) {
