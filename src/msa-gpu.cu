@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
                 exit(1);
             }
         }
-        if (!option->debug) {
+        if (option->debug) {
             for (auto s: T->allNodes) {
                 if (s.second->is_leaf()) {
                     std::string seqName = s.first;

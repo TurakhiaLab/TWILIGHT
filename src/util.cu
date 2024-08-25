@@ -2419,7 +2419,16 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
 
     // int ThreadsPerGPU = maxThreads / gpuNum;
     bool* cpuFallback = new bool[nodes.size()];
-    for (int i = 0; i < nodes.size(); ++i) cpuFallback[i] = false;
+    std::vector<std::vector<int8_t>> alnCpu;
+    for (int i = 0; i < nodes.size(); ++i) {
+        cpuFallback[i] = false;
+        if (util->nowProcess == 1) {
+            std::vector<int8_t> aln;
+            alnCpu.push_back(aln);
+        }
+        
+    }
+    
             
 
     // tbb::task_arena limited_arena(2);
@@ -2721,9 +2730,50 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                     int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
                     
                     
-                    // if (nIdx % 1000 == 0) {
+                    // if (nIdx % 1000 == 0 || hostAlnLen[gn][n] <= 0) {
                     if (hostAlnLen[gn][n] <= 0) {
                         cpuFallback[nIdx] = true;
+                        if (util->nowProcess == 1) {
+                            std::vector<int8_t> aln;
+                            std::vector<std::vector<int32_t>> freqRef;
+                            std::vector<std::vector<int32_t>> freqQry;
+                            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+                            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+
+                            for (int r = 0; r < refLen; r++) {
+                                std::vector<int32_t> temp;
+                                for (int f = 0; f < 6; ++f) temp.push_back(hostFreq[gn][12*seqLen*n+6*r+f]);
+                                freqRef.push_back(temp);
+                            }
+                            for (int q = 0; q < qryLen; q++) {
+                                std::vector<int32_t> temp;
+                                for (int f = 0; f < 6; ++f) temp.push_back(hostFreq[gn][12*seqLen*n+6*(seqLen+q)+f]);
+                                freqQry.push_back(temp);
+                            }
+
+                            Talco_xdrop::Params talco_params(hostParam);
+                            while (aln.empty()) {
+                                int16_t errorType = 0;
+                                Talco_xdrop::Align_freq (
+                                    talco_params,
+                                    freqRef,
+                                    freqQry,
+                                    aln,
+                                    errorType
+                                );
+                                // assert((aln.empty() && errorType != 0) || (!aln.empty() && errorType == 0));
+                                if (errorType == 1) {
+                                    std::cout << "Updated x-drop value on No. " << nIdx << '\n';
+                                    talco_params.updateXDrop(2*talco_params.xdrop);
+                                }
+                                if (errorType == 2) {
+                                    std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+                                    talco_params.updateFLen(talco_params.fLen << 1);
+                                }
+                            }
+                            alnCpu[nIdx] = aln;
+                        }
+                        
                     }
                     else {
                         for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
@@ -2867,105 +2917,104 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
     }
     else {
         std::cout << "CPU Fallback. Num of pairs: " << fallbackPairs.size() << '\n';
+        // std::vector<std::vector<int8_t>> alns;
+        // for (int i = 0; i < fallbackPairs.size(); ++i) {
+        //     std::vector<int8_t> aln;
+        //     alns.push_back(aln);
+        // }
+        // tbb::this_task_arena::isolate( [&]{
+        // tbb::parallel_for(tbb::blocked_range<int>(0, fallbackPairs.size()), [&](tbb::blocked_range<int> range) {
+        // for (int n = range.begin(); n < range.end(); ++n) {
+        //     int nIdx = fallbackPairs[n];
+        //     std::vector<int8_t> aln;
+        //     std::vector<std::vector<int32_t>> freqRef;
+        //     std::vector<std::vector<int32_t>> freqQry;
+        //     int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+        //     int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+        //     for (int r = 0; r < refLen; r++) {
+        //         std::vector<int32_t> temp;
+        //         for (int f = 0; f < 6; ++f) temp.push_back(0);
+        //         freqRef.push_back(temp);
+        //     }
+        //     for (int q = 0; q < qryLen; q++) {
+        //         std::vector<int32_t> temp;
+        //         for (int f = 0; f < 6; ++f) temp.push_back(0);
+        //         freqQry.push_back(temp);
+        //     }           
+        //     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
+        //         int storage = util->seqsStorage[sIdx];
+        //         // int maxLen = max(refLen, qryLen);
+        //         tbb::this_task_arena::isolate( [&]{
+        //         tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+        //         for (int s = r.begin(); s < r.end(); ++s) {
+        //         // for (int s = 0; s < refLen; ++s) {
+        //             if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freqRef[s][0]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freqRef[s][1]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freqRef[s][2]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
+        //                      util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') freqRef[s][3]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freqRef[s][4]+=1;
+        //             else                                                                                             freqRef[s][5]+=1;
+        //         }
+        //         });
+        //         });
+        //     }
+        //     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
+        //         int storage = util->seqsStorage[sIdx];
+        //         tbb::this_task_arena::isolate( [&]{
+        //         tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
+        //         for (int s = r.begin(); s < r.end(); ++s) {
+        //         // for (int s = 0; s < qryLen; ++s) {
+        //             if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freqQry[s][0]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freqQry[s][1]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freqQry[s][2]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
+        //                      util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') freqQry[s][3]+=1;
+        //             else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freqQry[s][4]+=1;
+        //             else                                                                                             freqQry[s][5]+=1;
+        //         }
+        //         });
+        //         });
+        //     }
+        //     Talco_xdrop::Params talco_params(hostParam);
+        //     while (aln.empty()) {
+        //         int16_t errorType = 0;
+        //         Talco_xdrop::Align_freq (
+        //             talco_params,
+        //             freqRef,
+        //             freqQry,
+        //             aln,
+        //             errorType
+        //         );
+        //         // assert((aln.empty() && errorType != 0) || (!aln.empty() && errorType == 0));
+        //         if (errorType == 1) {
+        //             std::cout << "Updated x-drop value on No. " << nIdx << '\n';
+        //             talco_params.updateXDrop(2*talco_params.xdrop);
+        //         }
+        //         if (errorType == 2) {
+        //             std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+        //             talco_params.updateFLen(talco_params.fLen << 1);
+        //         }
+        //     }
+        //     alns[n] = aln;
+        //     // if (aln.empty()) {
+        //     //     alignGrpToGrp_traditional (
+        //     //         freqRef,
+        //     //         freqQry,
+        //     //         refLen,
+        //     //         qryLen,
+        //     //         param,
+        //     //         aln
+        //     //     );
+        //     // }
+        // }
+        // });
+        // });
+
+
         std::vector<std::vector<int8_t>> alns;
-        for (int i = 0; i < fallbackPairs.size(); ++i) {
-            std::vector<int8_t> aln;
-            alns.push_back(aln);
-        }
-        tbb::this_task_arena::isolate( [&]{
-        tbb::parallel_for(tbb::blocked_range<int>(0, fallbackPairs.size()), [&](tbb::blocked_range<int> range) {
-        for (int n = range.begin(); n < range.end(); ++n) {
-            int nIdx = fallbackPairs[n];
-
-            std::vector<int8_t> aln;
-            std::vector<std::vector<int32_t>> freqRef;
-            std::vector<std::vector<int32_t>> freqQry;
-            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-
-            for (int r = 0; r < refLen; r++) {
-                std::vector<int32_t> temp;
-                for (int f = 0; f < 6; ++f) temp.push_back(0);
-                freqRef.push_back(temp);
-            }
-            for (int q = 0; q < qryLen; q++) {
-                std::vector<int32_t> temp;
-                for (int f = 0; f < 6; ++f) temp.push_back(0);
-                freqQry.push_back(temp);
-            }
-                         
-            for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
-                int storage = util->seqsStorage[sIdx];
-                // int maxLen = max(refLen, qryLen);
-                tbb::this_task_arena::isolate( [&]{
-                tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
-                for (int s = r.begin(); s < r.end(); ++s) {
-           
-                // for (int s = 0; s < refLen; ++s) {
-                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freqRef[s][0]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freqRef[s][1]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freqRef[s][2]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') freqRef[s][3]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freqRef[s][4]+=1;
-                    else                                                                                             freqRef[s][5]+=1;
-                }
-                });
-                });
-            }
-            for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
-                int storage = util->seqsStorage[sIdx];
-                tbb::this_task_arena::isolate( [&]{
-                tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
-                for (int s = r.begin(); s < r.end(); ++s) {
-           
-                // for (int s = 0; s < qryLen; ++s) {
-                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freqQry[s][0]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freqQry[s][1]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freqQry[s][2]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') freqQry[s][3]+=1;
-                    else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') freqQry[s][4]+=1;
-                    else                                                                                             freqQry[s][5]+=1;
-                }
-                });
-                });
-            }
-            Talco_xdrop::Params talco_params(hostParam);
-            while (aln.empty()) {
-                int16_t errorType = 0;
-                Talco_xdrop::Align_freq (
-                    talco_params,
-                    freqRef,
-                    freqQry,
-                    aln,
-                    errorType
-                );
-                // assert((aln.empty() && errorType != 0) || (!aln.empty() && errorType == 0));
-                if (errorType == 1) {
-                    std::cout << "Updated x-drop value on No. " << nIdx << '\n';
-                    talco_params.updateXDrop(2*talco_params.xdrop);
-                }
-                if (errorType == 2) {
-                    std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
-                    talco_params.updateFLen(talco_params.fLen << 1);
-                }
-            }
-            alns[n] = aln;
-            // if (aln.empty()) {
-            //     alignGrpToGrp_traditional (
-            //         freqRef,
-            //         freqQry,
-            //         refLen,
-            //         qryLen,
-            //         param,
-            //         aln
-            //     );
-            // }
-        }
-        });
-        });
-
+        for (int i = 0; i < fallbackPairs.size(); ++i) alns.push_back(alnCpu[fallbackPairs[i]]);
+        alnCpu.clear();
         int maxAlnLen = 0;
         for (auto aln: alns) maxAlnLen = (aln.size() > maxAlnLen) ? aln.size() : maxAlnLen;
         util->memCheck(maxAlnLen);
