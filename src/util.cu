@@ -624,18 +624,19 @@ void outputFile(std::string fileName, msa::utility* util, Tree* T, int grpID) {
     for (auto seq: util->seqsIdx) {
         seqs.push_back(seq.first);
     }
+    size_t seqLen = util->seqsLen[T->root->identifier];
     std::sort(seqs.begin(), seqs.end(), cmp);
     for (int s = 0; s < seqs.size(); ++s) {
         int sIdx = util->seqsIdx[seqs[s]];
         int storage = util->seqsStorage[sIdx];
         if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
             outFile << '>' << seqs[s] << "\n";
-            int i = 0;
-            while (util->alnStorage[storage][sIdx][i] != 0) {
-                outFile << util->alnStorage[storage][sIdx][i];
-                ++i;
-            }
-            // std::cout << seq.first << ':' << i << '\n'; 
+            outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
+            // int i = 0;
+            // while (util->alnStorage[storage][sIdx][i] != 0) {
+            //     outFile << util->alnStorage[storage][sIdx][i];
+            //     ++i;
+            // }
             outFile << '\n';
         }
         util->seqFree(sIdx);
@@ -3427,7 +3428,8 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                                 ++newIdx;
                             } 
                         }
-                        // if (alnPairs < 2) std::cout << n << ':' << refLen << '/' << hostLen[gn][2*n] << '/' << gapRef << ':' << qryLen << '/' <<  hostLen[gn][2*n+1] << '/' << gapQry << '\n';
+                        if (!gappyRef.empty()) std::cout << "No. " << n << ": Removing " << gapRef << " columns from refernce.\n";
+                        if (!gappyQry.empty()) std::cout << "No. " << n << ": Removing " << gapQry << " columns from query.\n";
                     
                         hostLen[gn][2*n+1] = newIdx;
                         assert(hostLen[gn][2*n] + gapRef == refLen);
@@ -3437,7 +3439,6 @@ void msaPostOrderTraversal_multigpu(Tree* tree, std::vector<std::pair<Node*, Nod
                         hostLen[gn][2*n] = refLen; hostLen[gn][2*n+1] = qryLen;
                     }
                     // std::cout << rawIdx << '/' << newIdx << '\n';
-                    
                     hostNum[gn][2*n] = refNum; hostNum[gn][2*n+1] = qryNum;
                     gappyColumns.push_back(std::make_pair(gappyRef, gappyQry));
                 }
