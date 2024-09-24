@@ -621,7 +621,7 @@ __global__ void alignGrpToGrp_talco(uint16_t* freq, int8_t *aln, int32_t* len, i
 }
 */
 
-__global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, int32_t* alnLen, int32_t *seqInfo, paramType* param)
+__global__ void alignGrpToGrp_talco(float* freq, int8_t *aln, int32_t* len, int32_t* num, int32_t* alnLen, int32_t *seqInfo,  float* gapOpen, float* gapExtend, float* gapClose, paramType* param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -632,18 +632,18 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
     const int tile_aln_size = 2*p_marker;
     
     // int32_t threadNum = seqInfo[3];
-    int32_t pairNum = seqInfo[2];    
+    int32_t pairNum = seqInfo[0];    
 
     __syncthreads();
     if (bx < pairNum) {
     // if (bx == 0) {
         __shared__ int8_t tile_aln[tile_aln_size];
         __shared__ int16_t S  [3*fLen];
-        __shared__ int32_t CS [3*fLen];
+        __shared__ int16_t CS [3*fLen];
         __shared__ int16_t I  [2*fLen];
-        __shared__ int32_t CI [2*fLen];
+        __shared__ int16_t CI [2*fLen];
         __shared__ int16_t D  [2*fLen];
-        __shared__ int32_t CD [2*fLen];
+        __shared__ int16_t CD [2*fLen];
         __shared__ int8_t tb  [33*p_marker]; // 2*(1+65)*64/2=66*64
         __shared__ int32_t idx [2]; 
         // [0] reference_idx
@@ -662,15 +662,18 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
         __shared__ bool converged; 
         __shared__ bool conv_logic;
         
-        int32_t seqLen = seqInfo[0];
+        int32_t seqLen = seqInfo[1];
         // int32_t scoreMode = seqInfo[4];
 
         int32_t refLen = len[2*bx];
         int32_t qryLen = len[2*bx+1];
+        int32_t refNum = num[2*bx];
+        int32_t qryNum = num[2*bx+1];
 
         paramType p_gapOpen = param[25];
         paramType p_gapExtend = param[26];
-        paramType p_xdrop = param[27];
+        paramType p_gapClose = param[27];
+        paramType p_xdrop = param[28];
 
         paramType p_scoreMat [25];
         for (int i = 0; i < 25; ++i) p_scoreMat[i] = param[i];
@@ -771,13 +774,6 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                 __syncthreads();
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                     if (tx == 0) {
-                        // float threshold = 0.9;
-                        int minLen = min(refLen, qryLen);
-                        // if (alnLen[bx] < static_cast<int32_t>(threshold*minLen)) {
-                        //     xdrop = true;
-                        //     last_tile = true;
-                        //     printf("No.%d No more cells to compute based on x-drop criteria, align length = %d, k = %d, threshold: %d\n", bx, alnLen[bx], k, static_cast<int32_t>(threshold*minLen));
-                        // }
                         last_tile = true;
                         printf("No.%d No more cells to compute based on x-drop criteria. Align length = %d, length left (r,q): (%d,%d)\n", bx, alnLen[bx], reference_length, query_length);
                     }
@@ -787,11 +783,9 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                 
                 if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
                     if (tx == 0) {
-                        printf("No.%d Anti-diagonal larger than the maximum limit (1024)! align length = %d, length left (r,q): (%d,%d)\n", bx, alnLen[bx], reference_length, query_length);
                         last_tile = true;
+                        printf("No.%d Anti-diagonal larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx,fLen, alnLen[bx], reference_length, query_length);
                     }
-                    // if (tx == 0) printf("No.%d ERROR: anti-diagonal larger than the max limit! align length = %d, k = %d\n", bx, alnLen[bx], k);
-                    // if (tx == 0) last_tile = true;
                     __syncthreads();
                     break;
                 }
@@ -832,9 +826,9 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                         int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
                         int16_t score_from_prev_tile = 0;
                         if ((k==0) || ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3]))) {
-                            if (k==0 && tile>0) {
-                                score_from_prev_tile = tile*10;
-                            }
+                            // if (k==0 && tile>0) {
+                            //     score_from_prev_tile = tile*10;
+                            // }
                             int16_t similarScore = 0;
                             float denominator = 0;
                             float numerator = 0;
@@ -844,22 +838,34 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                             int32_t qryFreqIdx = query_idx + i;
                             for (int l=0; l<6; l++) {
                                 for (int m=0; m<6; m++) {
-                                    denominator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m];
+                                    // denominator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m];
                                     if (m == 5 && l == 5)      numerator += 0;
                                     else if (m == 5 || l == 5) numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_gapExtend;
                                     else                       numerator += freq[refFreqStart+6*(refFreqIdx)+l]*freq[qryFreqStart+6*(qryFreqIdx)+m]*p_scoreMat[m*5+l];
                                 }
                             }
+                            denominator = refNum * qryNum;
                             similarScore = static_cast<int16_t>(roundf(numerator/denominator));
+                            // if (bx == 0 && tx == 0) printf("%d, %f, %f\n",similarScore, numerator, denominator);
                             if (offsetDiag < 0) match = similarScore + score_from_prev_tile;
                             else                match = S[(k+1)%3*fLen+offsetDiag] + similarScore + score_from_prev_tile;
                         }
+                        int16_t pos_gapOpen_ref = static_cast<int16_t>(roundf(gapOpen[2*bx*seqLen+reference_idx+j]));
+                        int16_t pos_gapOpen_qry = static_cast<int16_t>(roundf(gapOpen[(2*bx+1)*seqLen+query_idx+i]));
+                        // float gor = p_gapOpen*gapOpen[2*bx*seqLen+reference_idx+j];
+                        // float goq = p_gapOpen*gapOpen[(2*bx+1)*seqLen+query_idx+i];
+                        // int16_t pos_gapOpen_ref = static_cast<int16_t>(roundf(p_gapOpen*(1-gor)));
+                        // int16_t pos_gapOpen_qry = static_cast<int16_t>(roundf(p_gapOpen*(1-goq)));
+                          
+                        
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
-                            delOp =  S[(k+2)%3*fLen+offsetUp] + p_gapOpen;
+                            // delOp =  S[(k+2)%3*fLen+offsetUp] + p_gapOpen;
+                            delOp =  S[(k+2)%3*fLen+offsetUp] + pos_gapOpen_ref;
                             delExt = D[(k+1)%2*fLen+offsetUp] + p_gapExtend;
                         }
                         if ((offsetLeft >= 0) && (offsetLeft <= U[(k+2)%3]-L[(k+2)%3])) {
-                            insOp =  S[(k+2)%3*fLen+offsetLeft] + p_gapOpen;
+                            // insOp =  S[(k+2)%3*fLen+offsetLeft] + p_gapOpen;
+                            insOp =  S[(k+2)%3*fLen+offsetLeft] + pos_gapOpen_qry;
                             insExt = I[(k+1)%2*fLen+offsetLeft] + p_gapExtend;
                         }
                         int16_t tempI, tempD, tempH;
@@ -869,6 +875,24 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                         unsigned ExtOp = __vibmax_s16x2(Ext, Op, &Dptr, &Iptr);
                         tempD = (ExtOp >> 16) & 0xFFFF;
                         tempI = ExtOp & 0xFFFF;
+                        D[(k%2)*fLen+offset] = tempD; 
+                        I[(k%2)*fLen+offset] = tempI;
+                        // S[(k%3)*fLen+offset] = tempH;
+                        float gcr = gapClose[2*bx*seqLen+reference_idx+j+1], gcq = gapClose[(2*bx+1)*seqLen+query_idx+i+1];
+                        // int16_t pos_gapClose_I = (gcq == 0) ? static_cast<int16_t>(p_gapClose) : static_cast<int16_t>(roundf(p_gapClose*0.3*(1-gcq)));
+                        // int16_t pos_gapClose_D = (gcr == 0) ? static_cast<int16_t>(p_gapClose) : static_cast<int16_t>(roundf(p_gapClose*0.3*(1-gcr)));
+                        // int16_t pos_gapClose_I = (gcr == 0) ? static_cast<int16_t>(p_gapClose) : static_cast<int16_t>(roundf(p_gapClose*0.3*(gcq)));
+                        // int16_t pos_gapClose_D = (gcq == 0) ? static_cast<int16_t>(p_gapClose) : static_cast<int16_t>(roundf(p_gapClose*0.3*(gcr)));
+                        
+                        // tempI += pos_gapClose_I;
+                        // tempD += pos_gapClose_D;
+                        
+                        // tempI += static_cast<int16_t>(roundf(p_gapClose*0.3*(1-gcq)));
+                        // tempD += static_cast<int16_t>(roundf(p_gapClose*0.3*(1-gcr)));
+                        tempI += static_cast<int16_t>(roundf(p_gapClose*0.5*(gcr)));
+                        tempD += static_cast<int16_t>(roundf(p_gapClose*0.5*(gcq)));
+                        // match += static_cast<int16_t>(roundf(p_gapClose*0.3*(gcr+gcq)*0.5));
+                        
 
                         int32_t mat32 = ((match) << 16 | (0 & 0xFFFF));
                         int32_t ins32 = ((tempI) << 16 | (1 & 0xFFFF));
@@ -879,8 +903,8 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                         if (tempH < max_score-p_xdrop) {
                             tempH = -inf;
                         }
-                        D[(k%2)*fLen+offset] = tempD; 
-                        I[(k%2)*fLen+offset] = tempI;
+                        // D[(k%2)*fLen+offset] = tempD; 
+                        // I[(k%2)*fLen+offset] = tempI;
                         S[(k%3)*fLen+offset] = tempH;
                         score = tempH;
 
@@ -889,12 +913,12 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                         sub_max_score_list[tx] = score;
 
                         if (k == p_marker - 1) { // Convergence algorithm
-                            CS[(k%3)*fLen+offset] = (3 << 16) | (i & 0xFFFF); 
+                            CS[(k%3)*fLen+offset] = (3 << 8) | (i & 0xFF); 
                         } 
                         else if (k == p_marker) {
-                            CS[(k%3)*fLen+offset] = (0 << 16) | (i & 0xFFFF);  // to extract value use (CS[k%3][offset] & 0xFFFF)
-                            CI[(k%2)*fLen+offset] = (1 << 16) | (i & 0xFFFF);
-                            CD[(k%2)*fLen+offset] = (2 << 16) | (i & 0xFFFF);
+                            CS[(k%3)*fLen+offset] = (0 << 8) | (i & 0xFF);  // to extract value use (CS[k%3][offset] & 0xFFFF)
+                            CI[(k%2)*fLen+offset] = (1 << 8) | (i & 0xFF);
+                            CD[(k%2)*fLen+offset] = (2 << 8) | (i & 0xFF);
                         } 
                         else if (k >= p_marker + 1){
                             if (Iptr) {
@@ -1033,8 +1057,8 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                 int32_t tb_start_addr = 0; 
                 int32_t tb_start_ftr = 0;  
                 if (conv_logic) {       
-                    conv_query_idx = conv_value & 0xFFFF;
-                    tb_state = (conv_value >> 16) & 0xFFFF;
+                    conv_query_idx = conv_value & 0xFF;
+                    tb_state = (conv_value >> 8) & 0xFF;
                     conv_ref_idx = p_marker - conv_query_idx; 
                     conv_ref_idx -= (tb_state == 3) ? 1: 0;
                     tb_start_addr = ftr_addr - ftr_length[ftr_length_idx - 1];
@@ -1067,8 +1091,8 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
                     }
                     else {
                         // if (bx == 0 && tx == 0) printf("last_k %d\n", last_k);
-                        conv_query_idx = CS[(last_k%3)*fLen] & 0xFFFF;
-                        tb_state = (CS[(last_k%3)*fLen] >> 16) & 0xFFFF;
+                        conv_query_idx = CS[(last_k%3)*fLen] & 0xFF;
+                        tb_state = (CS[(last_k%3)*fLen] >> 8) & 0xFF;
                         conv_ref_idx = p_marker - conv_query_idx; 
                         conv_ref_idx -= (tb_state == 3) ? 1: 0;
                         tb_start_addr = ftr_addr - ftr_length[ftr_length_idx - 1];
@@ -1267,7 +1291,7 @@ __global__ void alignGrpToGrp_talco(int32_t* freq, int8_t *aln, int32_t* len, in
 }
 
 
-
+/*
 int8_t updateState(STATE& currentHState, STATE& currentIState, STATE& currentDState)
 {
     int8_t currentState = 0;
@@ -1373,7 +1397,8 @@ void tracebackGrpToGrp (int8_t state, std::vector<int8_t>& TB, std::vector<int32
 
     return;
 }
-
+*/
+/*
 void alignGrpToGrp_traditional (
     const std::vector<std::vector<int>>& reference,
     const std::vector<std::vector<int>>& query, 
@@ -1536,3 +1561,4 @@ void alignGrpToGrp_traditional (
     return;
 
 }
+*/
