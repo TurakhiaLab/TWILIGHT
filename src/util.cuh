@@ -9,6 +9,7 @@
 #include <tbb/task_scheduler_init.h>
 #include <cstdio>
 #include <sys/stat.h>
+#include <queue>
 
 
 
@@ -19,8 +20,8 @@
 #include "tree.hpp"
 #endif
 
-#ifndef MSA_HPP
-#include "msa.hpp"
+#ifndef SETTING_HPP
+#include "setting.hpp"
 #endif
 
 #ifndef ALIGN_HPP
