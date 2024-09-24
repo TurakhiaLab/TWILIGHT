@@ -78,7 +78,6 @@ int main(int argc, char** argv) {
     msa::utility* util = new msa::utility;
 
     
-    std::unordered_map<std::string, std::string> beforeAln;
         
     // read sequences
     if (!option->readBatches) {
@@ -89,7 +88,7 @@ int main(int argc, char** argv) {
         }
         for (auto it = T->allNodes.begin(); it != T->allNodes.end(); ++it) {
             if (util->seqsIdx.find(it->first) == util->seqsIdx.end() && it->second->is_leaf()) {
-                printf("Missing Sequence %s.\n", it->first.c_str());
+                fprintf(stderr, "Missing Sequence %s.\n", it->first.c_str());
                 exit(1);
             }
         }
@@ -107,7 +106,7 @@ int main(int argc, char** argv) {
                         }
                         ++j;
                     }
-                    beforeAln[seqName] = r;
+                    util->rawSeqs[seqName] = r;
                 }
             }   
         }
@@ -242,7 +241,7 @@ int main(int argc, char** argv) {
         int alnLen = 0;
         // for (int sIdx = 0; sIdx < T->m_numLeaves; sIdx++) {
         bool theFirst = true;
-        for (auto s: beforeAln) {
+        for (auto s: util->rawSeqs) {
             int sIdx = util->seqsIdx[s.first];
             int storage = util->seqsStorage[sIdx];
             std::string r = "";
@@ -271,7 +270,7 @@ int main(int argc, char** argv) {
             }
             
         }
-        beforeAln.clear();
+        util->rawSeqs.clear();
         auto dbgEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
         std::cout << "Completed checking " << T->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";

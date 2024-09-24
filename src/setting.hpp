@@ -207,6 +207,7 @@ namespace msa
 
     struct utility
     {
+        std::unordered_map<std::string, std::string> rawSeqs;
         std::map<int, std::vector<std::string>> badSequences;
         std::map<int, std::vector<int>> subtrees;
         std::unordered_map<std::string, int>  seqsIdx;
