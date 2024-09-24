@@ -16,16 +16,20 @@ void parseArguments(int argc, char** argv)
         ("max-subtree-size,m", po::value<int>()->default_value(1000000), "Maximum number of leaves per subtree")
         
         ("output,o", po::value<std::string>(), "Output file name")
-        ("match",      po::value<paramType>()->default_value(2), "Match score")
-        ("mismatch",   po::value<paramType>()->default_value(0), "Mismatch penalty")
-        ("gap-open",   po::value<paramType>()->default_value(-8), "Gap open penalty")
-        ("gap-extend", po::value<paramType>()->default_value(-1), "Gap extend penalty")
-        ("trans",      po::value<paramType>(), "Transition score")
-        ("xdrop",      po::value<paramType>(), "X-drop value")
+        ("match",      po::value<paramType>()->default_value(18), "Match score")
+        ("mismatch",   po::value<paramType>()->default_value(-8), "Mismatch penalty")
+        ("gap-open",   po::value<paramType>()->default_value(-100), "Gap open penalty")
+        ("gap-close",  po::value<paramType>()->default_value(-100), "Gap close penalty")
+        ("gap-extend", po::value<paramType>()->default_value(-5), "Gap extend penalty")
+        ("trans",      po::value<paramType>()->default_value(2), "The ratio of transitions to transversions")
+        ("pam-n",      po::value<int>()->default_value(200), "'n' in the PAM-n matrix")
+        ("xdrop",      po::value<paramType>()->default_value(600), "X-drop value")
+        ("scoring-matrix", po::value<int>()->default_value(0), "0: simple, 1: kiruma, 2: user defined")
         ("temp-dir", po::value<std::string>(), "Directory for storing temporary files")
         ("gpu-index", po::value<std::string>(), "Specify the GPU index, separated by commas. Ex. 0,2,3")
+        ("gappy-column", po::value<float>()->default_value(1), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column.")
+        ("gappy-length", po::value<float>(), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
         ("read-batches", "Read sequences in batches and create temporary files")
-        ("user-define-parameters", "Using user defined parameters. Please modify align.cuh")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment")
         ("debug", "Enable debug on the final alignment")
         ("help,h", "Print help messages");
@@ -62,7 +66,7 @@ int main(int argc, char** argv) {
     paritionInfo_t* P = new paritionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
     partitionTree(T->root, P);
     Tree* newT = reconsturctTree(T->root, P->partitionsRoot);
-
+    // exit(1);
     // int subtreeCount = 0;
     // for (auto p: P->partitionsRoot) {
     //     ++subtreeCount;
@@ -267,6 +271,7 @@ int main(int argc, char** argv) {
             }
             
         }
+        beforeAln.clear();
         auto dbgEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
         std::cout << "Completed checking " << T->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
@@ -287,323 +292,14 @@ int main(int argc, char** argv) {
         if (outFile == "") outFile = "output.aln";
         auto outStart = std::chrono::high_resolution_clock::now();
         std::string subtreeFreqFile = outFile + ".freq.txt";
-        outputFile(outFile, util, T, -1);
         outputFreq(subtreeFreqFile, util, T, -1);
+        outputFile(outFile, util, T, -1);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";
     }
-    // release memory
-    util->seqsFree();
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
     std::cout << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
     return;
 }
-
-    // paritionInfo_t * partition = new paritionInfo_t(maxSubtreeSize, 0, 0, "centroid");
-    
-    // partitionTree(T->root, partition);
-    
-   
-    
-    // // int totalLeaves = 0;
-    // // for (auto p: partition->partitionsRoot) {
-    // //     printf("%s, leaves: %d, grpID: %d\n", p.first.c_str(), p.second.second, p.second.first->grpID);
-    // //     totalLeaves += p.second.second;
-    // // }
-    // // std::cout << "Total Leaves: " << totalLeaves << '\n';
-
-    // Tree* newT = reconsturctTree(T->root, partition->partitionsRoot);    
-    
-    // // Start MSA on subtrees
-    // auto msaStart = std::chrono::high_resolution_clock::now();
-    // std::vector<std::vector<std::pair<Node*, Node*>>> hier;
-    // for (auto &p: partition->partitionsRoot) {
-    //     std::stack<Node*> msaStack;
-    //     getPostOrderList(p.second.first, msaStack);
-        
-    //     std::vector<std::pair<std::pair<Node*, Node*>, int>> subhier;
-    //     int grpID = p.second.first->grpID;
-    //     getMsaHierachy(subhier, msaStack, grpID, 0);
-    //     for (auto h: subhier) {
-    //         while (hier.size() < h.second+1) {
-    //             std::vector<std::pair<Node*, Node*>> temp;
-    //             hier.push_back(temp);
-    //         }
-    //         hier[h.second].push_back(h.first);
-    //     }
-    // }
-    // int level = 0;
-    
-    // for (auto m: hier) {
-    //     // std::cout << "Aln level: " << level << '\n';
-    //     auto alnStart = std::chrono::high_resolution_clock::now();
-    //     msaPostOrderTraversal_multigpu(T, m, util, param);
-    //     auto alnEnd = std::chrono::high_resolution_clock::now();
-    //     std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-    //     if (m.size() > 1) std::cout << "Level "<< level << ", " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
-    //     else              std::cout << "Level "<< level << ", " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
-    //     ++level;
-    // }
-    // auto msaEnd = std::chrono::high_resolution_clock::now();
-    // std::chrono::nanoseconds msaTime = msaEnd - msaStart;
-    // std::cout << "MSA in " <<  msaTime.count() / 1000000000 << " s\n";
-
-    // // Push MSA to partition roots
-    // for (auto p: partition->partitionsRoot) {
-    //     std::stack<Node*> msaStack;
-    //     getPostOrderList(p.second.first, msaStack);
-    //     std::vector<Node*> msaArray;
-    //     while (!msaStack.empty()) {
-    //         msaArray.push_back(msaStack.top());
-    //         msaStack.pop();
-    //     }
-    //     if (msaArray.back()->msaIdx.size() == 0 && msaArray.size() > 1) {
-    //         if (msaArray.size() == 2) {
-    //             T->allNodes[msaArray.back()->identifier]->msaIdx = msaArray[0]->msaIdx;
-    //             util->seqsLen[msaArray.back()->identifier] = util->seqsLen[msaArray[0]->identifier];
-    //             break;
-    //         }
-    //         for (int m = msaArray.size()-2; m >=0; --m) {
-    //             if (msaArray[m]->msaIdx.size()>0) {
-    //                 T->allNodes[msaArray.back()->identifier]->msaIdx = msaArray[m]->msaIdx;
-    //                 util->seqsLen[msaArray.back()->identifier] = util->seqsLen[msaArray[m]->identifier];
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
-    
-
-    // // type 1 alignment
-    // // int totalLeaves = 0;
-    // // for (auto n: newT->allNodes) {
-    // //     std::cout << n.first << ':' << T->allNodes[n.first]->msaIdx.size() << '\n';
-    // //     totalLeaves += T->allNodes[n.first]->msaIdx.size();
-    // //     // std::cout << '\n';
-    // // }
-    // // std::cout << "totalLeaves: " << totalLeaves << '\n';
-    
-    // // int totalLeaves = 0;
-    // // for (auto p: partition->partitionsRoot) {
-    // //     // std::cout << p.first << ':' << T->allNodes[p.first]->msaIdx.size() << '\n';
-    // //     // printf("%s, leaves: %d, grpID: %d\n", p.first.c_str(), p.second.second, p.second.first->grpID);
-    // //     if (T->allNodes[p.first]->msaIdx.size() != p.second.second) {
-    // //         std::cout << p.first << ':' << T->allNodes[p.first]->msaIdx.size() << '\t';
-    // //         printf("%s, leaves: %d, grpID: %d\n", p.first.c_str(), p.second.second, p.second.first->grpID);
-    // //     }
-    // //     totalLeaves += T->allNodes[p.first]->msaIdx.size();
-    // // }
-    // // std::cout << "Total Leaves: " << totalLeaves << '\n';
-    
-
-    // // Create overlapped alignment (MSA between parent and children)
-    // if (partition->partitionsRoot.size() > 1) {
-    //     auto alnStart = std::chrono::high_resolution_clock::now();
-    //     std::vector<std::pair<Node*, Node*>> type1Aln;
-    //     // Copy from util->seqBuf to Node->msa
-    //     for (auto n: newT->allNodes) {
-    //         for (auto m: n.second->children) {
-    //             if (newT->allNodes[m->identifier]->grpID == newT->allNodes[n.second->identifier]->grpID) {
-    //                 type1Aln.push_back(std::make_pair(T->allNodes[m->identifier], T->allNodes[n.second->identifier]));
-    //             }
-    //         }
-    //         T->allNodes[n.second->identifier]->msa.clear();
-    //         for (int sIdx: T->allNodes[n.second->identifier]->msaIdx) {
-    //             std::string r = "";
-    //             int storage = util->seqsStorage[sIdx];
-    //             int offset = 0;
-    //             while (util->seqBuf[storage][sIdx][offset] != 0) {
-    //                 r += util->seqBuf[storage][sIdx][offset];
-    //                 ++offset;
-    //             }
-    //             T->allNodes[n.second->identifier]->msa.push_back(r);
-    //         }
-            
-    //     }
-    //     // for (auto n: type1Aln) {
-    //     //     std::cout << n.first->identifier << '(' << T->allNodes[n.first->identifier]->msa.size() << ')'
-    //     //               << n.second->identifier << '(' << T->allNodes[n.second->identifier]->msa.size() << ")\n";
-    //     // }
-    //     createOverlapMSA(T, type1Aln, util, param);
-    //     auto alnEnd = std::chrono::high_resolution_clock::now();
-    //     std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-    //     if (type1Aln.size() > 1) std::cout << "Create type 2 alignment "<<  type1Aln.size() <<" pairs in " <<  alnTime.count() / 1000000 << " ms\n";
-    //     else                     std::cout << "Create type 2 alignment "<<  type1Aln.size() <<" pair in "  <<  alnTime.count() / 1000000 << " ms\n";
-    //     hier.clear();
-
-    //     // Create a new tree with all roots of subtrees
-    //     auto mergeStart = std::chrono::high_resolution_clock::now();
-    //     paritionInfo_t * newPartition = new paritionInfo_t(std::numeric_limits<size_t>::max(), 0, 0, "centroid");
-    //     partitionTree(newT->root, newPartition); 
-    //     // printTree(newT->root);
-    //     // newPartition->partitionsRoot[midNode->identifier] = std::make_pair(newT->allNodes[midNode->identifier], newT->allNodes[midNode->identifier]->getNumNodes());
-    //     // newPartition->partitionsRoot[newT->root->identifier] = std::make_pair(newT->root, newT->root->getNumNodes());
-    //     std::vector<std::pair<Node*, Node*>> mergePairs;
-    //     std::vector<std::pair<std::pair<Node*, Node*>, float>> sortedMergePairs;
-    //     for (auto n: newT->allNodes) {
-    //         if (n.second->children.size() > 1) {
-    //             mergePairs.push_back(std::make_pair(n.second, n.second->children[0]));
-    //             for (int i = 1; i < n.second->children.size(); ++i) {
-    //                 mergePairs.push_back(std::make_pair(n.second->children[0], n.second->children[i]));
-    //             }
-    //         }
-    //         else if (n.second->children.size() == 1) {
-    //             mergePairs.push_back(std::make_pair(n.second, n.second->children[0]));
-    //         }
-    //     }
-        
-    //     std::vector<std::pair<Node*, Node*>> singleLevel;
-    //     std::map<std::string, char> addedNodes;
-    //     // std::cout << "\nDEBUG:MERGE PAIRS\n";
-    //     // for (auto n: mergePairs) {
-    //     //     std::cout << n.first->identifier << ',' << n.second->identifier << ':' << n.second->branchLength << '\n';
-    //     // }
-    //     while (true) {
-    //         auto roundStart = std::chrono::high_resolution_clock::now();
-    //         addedNodes.clear();
-    //         singleLevel.clear();
-    //         for (auto it = mergePairs.begin(); it != mergePairs.end();) {
-    //             Node* a = it->first;
-    //             Node* b = it->second;
-    //             if ((a->parent != nullptr && b->parent != nullptr) &&  
-    //                 (addedNodes.find(a->identifier) == addedNodes.end() && addedNodes.find(b->identifier) == addedNodes.end())) {
-    //                 singleLevel.push_back(std::make_pair(a, b));
-    //                 for (auto id: T->allNodes[a->identifier]->msa) addedNodes[id] = 0;
-    //                 for (auto id: T->allNodes[b->identifier]->msa) addedNodes[id] = 0;
-    //                 mergePairs.erase(it);
-    //             }
-    //             else {
-    //                 ++it;
-    //             }
-    //         }
-    //         bool breakLoop = false;
-    //         if (singleLevel.empty()) {
-    //             for (auto mp: mergePairs) {
-    //                 singleLevel.push_back(mp);
-    //                 // std::cout << mp.first->identifier << ':' << mp.second->identifier << '\n';
-    //             }
-    //             breakLoop = true;
-    //         }
-    //         transitivityMerge_cpu_mod(T, newT, singleLevel, util);
-    //         // mergeLevels.push_back(singleLevel);
-    //         auto roundEnd = std::chrono::high_resolution_clock::now();
-    //         std::chrono::nanoseconds roundTime = roundEnd - roundStart;
-    //         std::cout << "Merge "<< singleLevel.size() << " edges in " << roundTime.count() / 1000000 << " ms\n";
-    //         if (breakLoop) break;
-    //     }
-    //     // transitivityMerge_cpu(T, mergePairs, util);
-    //     // transitivityMerge_cpu_mod(T, newT, mergePairs, util);
-    //     auto mergeEnd = std::chrono::high_resolution_clock::now();
-    //     std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
-    //     int totalSeqs = 0;
-    //     for (auto &p: newPartition->partitionsRoot) totalSeqs += T->allNodes[p.first]->msaIdx.size();
-    //     // std::cout << "Merge "<< newT->allNodes.size() << " subtrees (total " << T->root->msaIdx.size() << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
-    //     std::cout << "Merge "<< newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
-
-    //     T->root->msa.clear();
-    //     for (int sIdx: T->root->msaIdx) {
-    //         std::string r = "";
-    //         int storage = util->seqsStorage[sIdx];
-    //         int offset = 0;
-    //         while (util->seqBuf[storage][sIdx][offset] != 0) {
-    //             r += util->seqBuf[storage][sIdx][offset];
-    //             ++offset;
-    //         }
-    //         T->root->msa.push_back(r);
-    //     }
-    // }
-    // else {
-    //     for (int sIdx: T->root->msaIdx) {
-    //         std::string r = "";
-    //         int storage = util->seqsStorage[sIdx];
-    //         int offset = 0;
-    //         while (util->seqBuf[storage][sIdx][offset] != 0) {
-    //             r += util->seqBuf[storage][sIdx][offset];
-    //             ++offset;
-    //         }
-    //         T->root->msa.push_back(r);
-    //     }
-    // }   
-
-    // }
-    
-    // bool regressive = false;
-    // if (regressive) {
-    //     int clusterSize = vm["max-leaves"].as<int>();
-    //     if (clusterSize == 0) clusterSize = 1000;
-    //     std::cout << "Cluster Size: " << clusterSize << '\n';
-    //     getLongestDescendent(T, util);
-    //     std::cout << "Finish longest descendent\n";
-    //     std::map<int, std::vector<std::vector<Node*>>> subMSAs;
-    //     getSubMSAs(subMSAs, T, clusterSize);
-    //     std::cout << "Finish subMSAs, subMSA size: " << subMSAs.size() << "\n";
-    //     for (auto level = subMSAs.begin(); level != subMSAs.end(); ++level) {
-    //         std::cout << "Level: " << level->first << " Size: " << level->second.size() << '\n';
-    //         std::vector<std::vector<std::pair<Node*, Node*>>> alnPairs;
-    //         getAlnPairs(alnPairs, level->second);
-    //         for (auto pairs: alnPairs) {
-    //             msaPostOrderTraversal_multigpu_regressive(T, pairs, util, param);
-    //         }
-    //         std::vector<Node*> nodes;
-    //         for (auto msa: level->second) {
-    //             nodes.push_back(msa[0]);
-    //         }
-    //         storeMSA(T, nodes, util, level->first);
-    //         resetSeqMem(nodes, util);
-    //         for (auto n: T->allNodes) {
-    //             n.second->msaIdx.clear();
-    //             n.second->msa.clear();
-    //         }
-    //     }
-    //     std::cout << "Finish MSA\n";
-    //     transitivityMerge_regressive(T, subMSAs, util);
-    //     std::cout << "Finish Merger\n";
-    //     T->root->msa.clear();
-    //     for (int sIdx = 0; sIdx < util->memNum; ++sIdx) {
-    //         std::string r = "";
-    //         int storage = util->seqsStorage[sIdx];
-    //         int offset = 0;
-    //         while (util->seqBuf[storage][sIdx][offset] != 0) {
-    //             r += util->seqBuf[storage][sIdx][offset];
-    //             ++offset;
-    //         }
-    //         T->root->msa.push_back(r);
-    //     }
-    // }
-
-    
-
-
-    // Calculate Sum-of-pairs score
-    
-    // auto spStart = std::chrono::high_resolution_clock::now();
-    // double score;
-    // if (calSP == "True" || calSP == "TRUE" || calSP == "true" || calSP == "T" || calSP == "t") {
-    //     score = getSPScore_gpu(T->root->msa, util, param);
-    //     // getSPScore_cpu(T->root->msa, param);
-    //     auto spEnd = std::chrono::high_resolution_clock::now();
-    //     std::chrono::nanoseconds spTime = spEnd - spStart;
-    //     std::cout << "SP-score: " << score << ". Runtime " << spTime.count() / 1000000 << " ms\n";
-    // }
-
-
-    // // output file
-    // std::string outFile = vm["output"].as<std::string>();
-    // // if (outFile == "") outFile = "output.aln"; // default output ifle name
-    // if (outFile != "") {
-    //     auto outStart = std::chrono::high_resolution_clock::now();
-    //     outputFile(outFile, util, T, -1);
-    //     auto outEnd = std::chrono::high_resolution_clock::now();
-    //     std::chrono::nanoseconds outTime = outEnd - outStart;
-    //     std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";
-    // }
-    
-    
-    // util->seqFree();
-    // auto mainEnd = std::chrono::high_resolution_clock::now();
-    // std::chrono::nanoseconds mainTime = mainEnd - mainStart;
-    // std::cout << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
-    // return 0;
-// }
