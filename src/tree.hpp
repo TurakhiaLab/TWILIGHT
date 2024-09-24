@@ -34,6 +34,7 @@ public:
     std::vector<std::vector<uint16_t>> msaFreq;
     // std::map<int, std::string> msaSeq;
     size_t numLeaves = {0};
+    float weight = {0};
 
     /*Partition*/
     int grpID;
@@ -52,6 +53,8 @@ public:
 
     Node* root;
     std::unordered_map< std::string, Node* > allNodes;
+    void calLeafNum();
+    void calSeqWeight();
     Tree(std::string newick);
     Tree(Node* node);
     Tree() {root = nullptr;}

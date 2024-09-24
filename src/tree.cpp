@@ -108,7 +108,8 @@ Tree::Tree(std::string newickString) {
             } else if (c == ')') {
                 stop = true;
                 nc++;
-                float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
+                // float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
+                float len = (branch.size() > 0) ? std::stof(branch) : 1.0;
                 branchLen[level].push(len);
                 level--;
                 branchStart = false;
@@ -126,7 +127,8 @@ Tree::Tree(std::string newickString) {
         leaves.push_back(std::move(leaf));
         numOpen.push_back(no);
         numClose.push_back(nc);
-        float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
+        // float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
+        float len = (branch.size() > 0) ? std::stof(branch) : 1.0;
         branchLen[level].push(len);
 
         // Adjusting max and mean depths
@@ -186,6 +188,9 @@ Tree::Tree(std::string newickString) {
 
     treeRoot->branchLength = -1;
     root = treeRoot;
+
+    this->calLeafNum();
+    this->calSeqWeight();
 }
 
 
@@ -204,6 +209,7 @@ Tree::Tree(Node* node) {
         if (current->identifier != this->root->identifier) {
             Node* copyNode = new Node(current->identifier, this->allNodes[current->parent->identifier], current->branchLength);
             copyNode->grpID = -1; copyNode->level = current->level - node->level;
+            copyNode->weight = current->weight; copyNode->numLeaves = current->numLeaves;
             this->allNodes[current->identifier] = copyNode;
         }
         if (current->is_leaf()) this->m_numLeaves += 1;
@@ -221,3 +227,59 @@ Tree::~Tree() {
     }
     this->allNodes.clear();
 }
+
+
+void Tree::calLeafNum() {
+    
+    // postorder traversal
+    std::stack<Node*> s;
+    std::stack<Node*> postorder;
+    s.push(this->root); 
+    Node* current; 
+    while (!s.empty()) { 
+        current = s.top(); 
+        postorder.push(current);
+        s.pop(); 
+        for (auto ch: current->children) {
+            if (ch->grpID == current->grpID) {
+                s.push(ch);
+            }      
+        }
+    }
+    // get numbers of leaves
+    while (!postorder.empty()) {
+        current = postorder.top(); 
+        postorder.pop();
+        if (current->is_leaf()) this->allNodes[current->identifier]->numLeaves = 1;
+        else {
+            int leaves = 0;
+            for (auto ch: current->children) leaves += ch->numLeaves;
+            this->allNodes[current->identifier]->numLeaves = leaves;
+        }
+    }
+    return;
+};
+
+void Tree::calSeqWeight() {
+    float maxWeight = 0;
+    for (auto node: this->allNodes) {
+        if (!node.second->is_leaf()) continue;
+        float w = 0;
+        Node* current = node.second;
+        while (true) {
+            w += current->branchLength / current->numLeaves;
+            current = current->parent;
+            if (current == nullptr) break; 
+        }
+        this->allNodes[node.second->identifier]->weight = w;
+        if (w > maxWeight) maxWeight = w;
+    }
+    float normFactor = maxWeight / 1.0;
+    for (auto node: this->allNodes) {
+        if (!node.second->is_leaf()) continue;
+        this->allNodes[node.second->identifier]->weight /= normFactor;
+    }
+    
+    
+    return;
+};
