@@ -18,6 +18,7 @@ namespace Talco_xdrop {
     struct Params {
         paramType scoreMatrix [5][5];
         paramType gapOpen;
+        paramType gapClose;
         paramType gapExtend;
         int32_t xdrop;
         int32_t fLen;
@@ -34,9 +35,10 @@ namespace Talco_xdrop {
             }
             this->gapOpen = t_param[25];
             this->gapExtend = t_param[26];
+            this->gapClose = t_param[27];
             this->xdrop = 1000;
             this->fLen = (1 << 12);
-            this->marker = (1 << 9);
+            this->marker = (1 << 11); //reduce this value to save memory
         }
     };
     // struct Params 
@@ -67,8 +69,11 @@ namespace Talco_xdrop {
         Params params,
         // const std::vector<std::string>& reference,
         // const std::vector<std::string>& query,
-        const std::vector<std::vector<int>>& freqRef,
-        const std::vector<std::vector<int>>& freqQry,
+        const std::vector<std::vector<float>>& freqRef,
+        const std::vector<std::vector<float>>& freqQry,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::vector<std::vector<float>>& gapCl,
         std::vector<int8_t>& aln,
         int16_t& errorType
         // size_t num_alignments
@@ -77,8 +82,11 @@ namespace Talco_xdrop {
     void Tile (
         // const std::vector<std::string>& reference,
         // const std::vector<std::string>& query,
-        const std::vector<std::vector<int>>& reference, 
-        const std::vector<std::vector<int>>& query, 
+        const std::vector<std::vector<float>>& reference, 
+        const std::vector<std::vector<float>>& query, 
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::vector<std::vector<float>>& gapCl,
         Params params,
         int32_t &reference_idx,
         int32_t &query_idx,
