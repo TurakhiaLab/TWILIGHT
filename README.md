@@ -15,16 +15,19 @@ make msa-gpu
 ```
 ./msa-gpu -h
 ```
-### Run
+### You can create an output directory for the following example commands
 ```
-mkdir output
+mkdir ../output
+```
+### Run with default settings
+```
 ./msa-gpu -t ../dataset/sars_2000.nwk -i ../dataset/sars_2000.fa -o ../output/sars_2000.aln
 ```
 ### Run with transitivity merger
 ```
-mkdir output
-./msa-gpu -t ../dataset/16384-taxon-trial-1.nwk -i ../dataset/16384-taxon-trial-1.fa -o ../output/16384-taxon-trial-1_merge_mod.aln  -s t -l 50
+./msa-gpu -t ../dataset/16384-taxon-trial-1.nwk -i ../dataset/16384-taxon-trial-1.fa -o ../output/16384-taxon-trial-1_merge_mod.aln -l 50
 ```
-
-
-
+### Run with the removing-gappy-colum feature
+```
+./msa-gpu -t ../dataset/RNASim_50000.tre -i ../dataset/RNASim_50000.fa -o ../output/RNASim_50000.aln --gappy-vertical 0.9 --gappy-horizon 1
+```
