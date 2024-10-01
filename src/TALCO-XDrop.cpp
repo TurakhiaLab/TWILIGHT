@@ -4,8 +4,6 @@
 
 void Talco_xdrop::Align_freq (
     Params params,
-    // const std::vector<std::string>& reference,
-    // const std::vector<std::string>& query,
     const std::vector<std::vector<float>>& freqRef,
     const std::vector<std::vector<float>>& freqQry,
     const std::vector<std::vector<float>>& gapOp,
@@ -398,17 +396,22 @@ void Talco_xdrop::Tile (
 
                 int32_t pos_gapOpen_ref = static_cast<int32_t>(gapOp[0][reference_idx+j]);
                 int32_t pos_gapOpen_qry = static_cast<int32_t>(gapOp[1][query_idx+i]);
+                int32_t pos_gapExtend_ref = static_cast<int32_t>(gapExtend*(1-gapEx[0][reference_idx+j]));
+                int32_t pos_gapExtend_qry = static_cast<int32_t>(gapExtend*(1-gapEx[1][query_idx+i]));
+                
 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                     // delOp = S[(k+2)%3][offsetUp] + gapOpen;
                     delOp = S[(k+2)%3][offsetUp] + pos_gapOpen_ref;
-                    delExt = D[(k+1)%2][offsetUp] + gapExtend;
+                    // delExt = D[(k+1)%2][offsetUp] + gapExtend;
+                    delExt = D[(k+1)%2][offsetUp] + pos_gapExtend_ref;
                 }
 
                 if ((offsetLeft >= 0) && (offsetLeft <= U[(k+2)%3]-L[(k+2)%3])) {
                     // insOp = S[(k+2)%3][offsetLeft] + gapOpen;
                     insOp = S[(k+2)%3][offsetLeft] + pos_gapOpen_qry;
-                    insExt = I[(k+1)%2][offsetLeft] + gapExtend;
+                    // insExt = I[(k+1)%2][offsetLeft] + gapExtend;
+                    insExt = I[(k+1)%2][offsetLeft] + pos_gapExtend_qry;
                 }
 
 
