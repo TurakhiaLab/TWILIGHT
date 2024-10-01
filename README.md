@@ -15,7 +15,7 @@ make msa-gpu
 ```
 ./msa-gpu -h
 ```
-### You can create an output directory for the following example commands
+### Create an output directory for the following example commands
 ```
 mkdir ../output
 ```
