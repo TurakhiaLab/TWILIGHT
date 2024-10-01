@@ -25,9 +25,9 @@ mkdir ../output
 ```
 ### Run with transitivity merger
 ```
-./msa-gpu -t ../dataset/16384-taxon-trial-1.nwk -i ../dataset/16384-taxon-trial-1.fa -o ../output/16384-taxon-trial-1_merge_mod.aln -l 50
+./msa-gpu -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o ../output/RNASim_10000_merge.aln -l 500
 ```
 ### Run with the removing-gappy-colum feature
 ```
-./msa-gpu -t ../dataset/RNASim_50000.tre -i ../dataset/RNASim_50000.fa -o ../output/RNASim_50000.aln --gappy-vertical 0.9 --gappy-horizon 1
+./msa-gpu -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o ../output/RNASim_10000.aln --gappy-vertical 0.9 --gappy-horizon 1
 ```
