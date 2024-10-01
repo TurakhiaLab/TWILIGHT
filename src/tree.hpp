@@ -31,8 +31,7 @@ public:
     std::vector<std::string> msa; //use this to store identifier
     std::vector<int> msaIdx;
     std::vector<int8_t> msaAln;
-    std::vector<std::vector<uint16_t>> msaFreq;
-    // std::map<int, std::string> msaSeq;
+    std::vector<std::vector<float>> msaFreq;
     size_t numLeaves = {0};
     float weight = {0};
 
