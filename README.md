@@ -27,7 +27,7 @@ mkdir ../output
 ```
 ./msa-gpu -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o ../output/RNASim_10000_merge.aln -l 500
 ```
-### Run with the removing-gappy-colum feature
+### Run with the removing-gappy-column feature
 ```
 ./msa-gpu -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o ../output/RNASim_10000.aln --gappy-vertical 0.9 --gappy-horizon 1
 ```
