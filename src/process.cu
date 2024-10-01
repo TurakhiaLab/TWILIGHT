@@ -32,10 +32,10 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
     int level = 0;
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
-        if (option->cpuOnly || m.size() < 1000) msaCpu(T, m, util, option, param);
-        else                                    msaGpu(T, m, util, option, param);
-        // if (option->cpuOnly) msaCpu(T, m, util, option, param);
-        // else                 msaGpu(T, m, util, option, param);
+        // if (option->cpuOnly || m.size() < 1000) msaCpu(T, m, util, option, param);
+        // else                                    msaGpu(T, m, util, option, param);
+        if (option->cpuOnly) msaCpu(T, m, util, option, param);
+        else                 msaGpu(T, m, util, option, param);
         
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
