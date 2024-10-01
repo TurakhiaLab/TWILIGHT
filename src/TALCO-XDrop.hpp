@@ -2,7 +2,6 @@
 #define TALCO_HPP
 
 #include <stdint.h>
-#include "timer.hpp"
 #include <vector>
 #include <string>
 #include <iostream>
