@@ -37,7 +37,7 @@ namespace Talco_xdrop {
             this->gapClose = t_param[27];
             this->xdrop = 1000;
             this->fLen = (1 << 12);
-            this->marker = (1 << 11); //reduce this value to save memory
+            this->marker = (1 << 10); //reduce this value to save memory
         }
     };
     // struct Params 
