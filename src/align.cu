@@ -229,7 +229,7 @@ __global__ void alignGrpToGrp_talco(float* freq, int8_t *aln, int32_t* len, int3
                             }
                             denominator = refNum * qryNum;
                             similarScore = static_cast<int16_t>(roundf(numerator/denominator));
-                            // if (bx == 0 && tx == 0) printf("%d, %f, %f\n",similarScore, numerator, denominator);
+                            // if (bx == 0 && i == 0) printf("%d, %f, %f\n",similarScore, numerator, denominator);
                             if (offsetDiag < 0) match = similarScore + score_from_prev_tile;
                             else                match = S[(k+1)%3*fLen+offsetDiag] + similarScore + score_from_prev_tile;
                         }
@@ -238,7 +238,8 @@ __global__ void alignGrpToGrp_talco(float* freq, int8_t *aln, int32_t* len, int3
                         // int16_t pos_gapOpen_qry = static_cast<int16_t>(roundf(gapOpen[(2*bx+1)*seqLen+query_idx+i]));
                         
                         // float gor = gapOpen[2*bx*seqLen+reference_idx+j], goq = gapOpen[(2*bx+1)*seqLen+query_idx+i];
-                        float ger = freq[6*(2*bx)*seqLen+6*(reference_idx + j)+5] / refNum, geq = freq[6*(2*bx+1)*seqLen+6*(query_idx+i)+5];
+                        float ger = freq[6*(2*bx)*seqLen+6*(reference_idx + j)+5] / refNum, geq = freq[6*(2*bx+1)*seqLen+6*(query_idx+i)+5] / qryNum;
+                        // float ger = gapExtend[2*bx*seqLen+reference_idx+j], geq = gapExtend[(2*bx+1)*seqLen+query_idx+i];
                         
 
                         int16_t pos_gapOpen_ref = static_cast<int16_t>(roundf(gapOpen[2*bx*seqLen+reference_idx+j]));
