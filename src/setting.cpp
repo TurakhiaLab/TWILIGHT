@@ -109,13 +109,14 @@ void msa::utility::memCheck(int seqLen) {
 }
 
 void msa::utility::clearAll() {
-    rawSeqs.clear();
-    badSequences.clear();
-    subtrees.clear();
-    seqsIdx.clear();
-    seqsName.clear();
-    seqsLen.clear();
-    seqsStorage.clear();
+    this->rawSeqs.clear();
+    this->alnSeqs.clear();
+    this->badSequences.clear();
+    this->subtrees.clear();
+    this->seqsIdx.clear();
+    this->seqsName.clear();
+    this->seqsLen.clear();
+    this->seqsStorage.clear();
 }
 
 void msa::utility::debug() {

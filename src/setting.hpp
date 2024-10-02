@@ -20,6 +20,8 @@ namespace msa
         int nowProcess;
         bool debug;
         bool cpuOnly;
+        bool psgop;
+        std::string outType;
         std::string tempDir;
     };
 
