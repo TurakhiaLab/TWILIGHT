@@ -588,7 +588,7 @@ void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tr
         for (auto seq: util->alnSeqs)
             seqs.push_back(seq.first);
     size_t seqLen = util->seqsLen[T->root->identifier];
-    std::cout << "seqLen: " << seqLen << '\n';
+    std::cout << "seqLen: " << seqLen << '\t' << util->alnSeqs.empty() << '\n';
     std::sort(seqs.begin(), seqs.end(), cmp);
     if (util->alnSeqs.empty()) {
         for (int s = 0; s < seqs.size(); ++s) {
@@ -621,6 +621,7 @@ void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tr
             outFile << ('>' + seqs[s] + '\n');
             outFile << (util->alnSeqs[seqs[s]] + '\n');
         }
+        util->seqsFree();
     }
     outFile.close();
     

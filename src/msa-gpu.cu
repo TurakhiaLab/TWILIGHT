@@ -202,15 +202,16 @@ int main(int argc, char** argv) {
     
     // output MSA
     if (vm.count("output")) {
-        std::string outFile = vm["output"].as<std::string>();
-        if (outFile == "") outFile = "output.aln";
-        auto outStart = std::chrono::high_resolution_clock::now();
-        // std::string subtreeFreqFile = outFile + ".freq.txt";
-        // outputFreq(subtreeFreqFile, util, T, -1);
-        outputAln(outFile, util, option, T, -1);
-        auto outEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds outTime = outEnd - outStart;
-        std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";
+        if (vm.count("max-subtree-size")) std::cout << "Output files are already in " << option->tempDir << ".\n";
+        else {
+            std::string outFile = vm["output"].as<std::string>();
+            if (outFile == "") outFile = "output.aln";
+            auto outStart = std::chrono::high_resolution_clock::now();
+            outputAln(outFile, util, option, T, -1);
+            auto outEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds outTime = outEnd - outStart;
+            std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";
+        }
     }
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
