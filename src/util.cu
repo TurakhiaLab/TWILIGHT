@@ -14,7 +14,7 @@ Params* setParameters(po::variables_map& vm) {
     param->userDefine = userDefine;
     // Kimura
     paramType gapOp = vm["gap-open"].as<paramType>();
-    paramType gapCl = vm["gap-close"].as<paramType>();
+    paramType gapCl = gapOp;
     paramType gapEx = vm["gap-extend"].as<paramType>();
     paramType mat = vm["match"].as<paramType>();
     paramType mis = vm["mismatch"].as<paramType>();
