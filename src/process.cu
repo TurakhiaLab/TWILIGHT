@@ -32,10 +32,10 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
     int level = 0;
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
-        // if (option->cpuOnly || m.size() < 1000) msaCpu(T, m, util, option, param);
-        // else                                    msaGpu(T, m, util, option, param);
-        if (option->cpuOnly) msaCpu(T, m, util, option, param);
-        else                 msaGpu(T, m, util, option, param);
+        if (option->cpuOnly || m.size() < 1000) msaCpu(T, m, util, option, param);
+        else                                    msaGpu(T, m, util, option, param);
+        // if (option->cpuOnly) msaCpu(T, m, util, option, param);
+        // else                 msaGpu(T, m, util, option, param);
         
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
@@ -178,9 +178,8 @@ void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
     // for (auto n: type1Aln) std::cout << n.first->identifier << ':' << util->seqsLen[n.first->identifier] << 
     //                              ',' << n.second->identifier << ':' << util->seqsLen[n.second->identifier] <<'\n';
     std::cout << "Align sub-subtrees, total " << type1Aln.size() << " pairs.\n"; 
-    if (!option->cpuOnly) createOverlapAlnGpu(T, type1Aln, util, option, param);
-    else                  createOverlapAlnCpu(T, type1Aln, util, option, param);
-    
+    if (option->cpuOnly || type1Aln.size() < 1000) createOverlapAlnCpu(T, type1Aln, util, option, param);
+    else                                           createOverlapAlnGpu(T, type1Aln, util, option, param);
     return;
 }
 
@@ -293,7 +292,6 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     else {
         for (auto pf: util->profileFreq) if (pf.second[0].size() > seqLen) seqLen = pf.second[0].size();
     }
-    std::cout << seqLen << '\n';
     int roundGPU = nodes.size() / numBlocks + 1;
     if (nodes.size()%numBlocks == 0) roundGPU -= 1;
     if (roundGPU < gpuNum) gpuNum = roundGPU;
@@ -627,6 +625,9 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
                         std::vector<std::vector<float>> gapOp, gapEx, gapCl;
                         int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
                         int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+                        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
+                        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
+                    
             
                         for (int r = 0; r < refLen; r++) {
                             std::vector<float> temp;
@@ -654,6 +655,7 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
                         }
                         // for (int s = 0; s < refLen; ++s) for (int j = 0; j < 6; ++j) freqRef[s][j] = hostFreq[gn][12*seqLen*n+6*s+j];
                         // for (int s = 0; s < qryLen; ++s) for (int j = 0; j < 6; ++j) freqQry[s][j] = hostFreq[gn][12*seqLen*n+6*(seqLen+s)+j];
+                        std::pair<int32_t, int32_t> num = std::make_pair(refNum, qryNum);
                         Talco_xdrop::Params talco_params(hostParam);
                         while (aln.empty()) {
                             int16_t errorType = 0;
@@ -664,6 +666,7 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
                                 gapOp,
                                 gapEx,
                                 gapCl,
+                                num,
                                 aln_old,
                                 errorType
                             );
@@ -834,11 +837,10 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
 
 void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
-
     int32_t seqLen = 0;
     if (util->nowProcess < 2) seqLen = util->memLen;
     else {
-        for (auto pf: util->profileFreq) if (pf.second[0].size() > seqLen) seqLen = pf.second[0].size();
+        for (auto pf: util->profileFreq) if (pf.second.size() > seqLen) seqLen = pf.second.size();
     }
     paramType* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
@@ -847,10 +849,9 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     hostParam[27] = param.gapClose;
     hostParam[28] = param.xdrop;
   
-    std::atomic<int> nowRound;
-    nowRound.store(0);
-    tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
-    for (int nIdx = range.begin(); nIdx < range.end(); ++nIdx) {
+    // tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
+    // for (int nIdx = range.begin(); nIdx < range.end(); ++nIdx) {
+    for (int nIdx = 0; nIdx < nodes.size(); ++nIdx) {
         float* hostFreq  = (float*)malloc(12 * seqLen * sizeof(float));
         float* hostGapOp = (float*)malloc(2 * seqLen * sizeof(float));
         float* hostGapEx = (float*)malloc(2 * seqLen * sizeof(float));
@@ -860,194 +861,97 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
         for (int n = 0; n <  2*seqLen; ++n) hostGapEx[n] = 0;
         for (int n = 0; n <  2*seqLen; ++n) hostGapCl[n] = 0;
         std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>> gappyColumns;
-        
         int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
         int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
-        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
         int32_t newRef = refLen, newQry = qryLen;
-        float refWeight = 0.0; float qryWeight = 0.0;
-        for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight; 
+        float refNum = 0, qryNum = 0;
         if (util->nowProcess < 2) {
-            if (tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
-                for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) { 
-                    int storage = util->seqsStorage[sIdx];
-                    std::string name = util->seqsName[sIdx];
-                    float w = tree->allNodes[name]->weight / refWeight * refNum;
-                    tbb::this_task_arena::isolate( [&]{
-                    tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
-                    for (int s = r.begin(); s < r.end(); ++s) {
-                        if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*s+0]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*s+1]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*s+2]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                                 util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*s+3]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*s+4]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*s+5]+=1.0*w;
-                    }
-                    });
-                    });
-                }
-            }
-            else {
-                for (int s = 0; s < tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.size(); ++s) {
-                    for (int t = 0; t < 6; ++t) hostFreq[6*s+t] = tree->allNodes[nodes[nIdx].first->identifier]->msaFreq[s][t] / refWeight * refNum;
-                }
-            }
-            if (tree->allNodes[nodes[nIdx].second->identifier]->msaFreq.empty()) { 
-                for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) { 
-                    int storage = util->seqsStorage[sIdx];
-                    std::string name = util->seqsName[sIdx];
-                    float w = tree->allNodes[name]->weight / qryWeight * qryNum;
-                    tbb::this_task_arena::isolate( [&]{
-                    tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
-                    for (int s = r.begin(); s < r.end(); ++s) {
-                        if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*(seqLen+s)+0]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*(seqLen+s)+1]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*(seqLen+s)+2]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                                 util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*(seqLen+s)+3]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*(seqLen+s)+4]+=1.0*w;
-                        else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*(seqLen+s)+5]+=1.0*w;
-                    }
-                    });
-                    });
-                }
-            }
-            else {
-                for (int s = 0; s < tree->allNodes[nodes[nIdx].second->identifier]->msaFreq.size(); ++s) {
-                    for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = tree->allNodes[nodes[nIdx].second->identifier]->msaFreq[s][t] / qryWeight * qryNum;
-                }
-            }
-            for (int s = 0; s < refLen; ++s) { hostGapOp[s] /= refNum; hostGapEx[s] /= refNum; hostGapCl[s] /= refNum;} 
-            for (int s = 0; s < qryLen; ++s) { hostGapOp[seqLen+s] /= qryNum; hostGapEx[seqLen+s] /= qryNum; hostGapCl[seqLen+s] /= qryNum;}
+            calculateProfileFreq(hostFreq, hostGapOp, tree, nodes[nIdx], util, seqLen, param);
+            refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
+            qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
+        
         }
         else {
             int subtreeRef = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
-            for (int i = 0; i < 6; ++i) {
-                for (int s = 0; s < refLen; ++s) {
-                    hostFreq[6*s+i] = util->profileFreq[subtreeRef][i][s]; 
-                }
-            }
-            for (int s = 0; s < refLen; ++s) hostGapEx[s] = util->profileFreq[subtreeRef][5][s]; 
+            for (int t = 0; t < 6; ++t) refNum += util->profileFreq[subtreeRef][0][t]; 
+            for (int s = 0; s < refLen; ++s) for (int t = 0; t < 6; ++t) hostFreq[6*s+t] = util->profileFreq[subtreeRef][s][t]; 
+            for (int s = 0; s < refLen; ++s) hostGapEx[s] = util->profileFreq[subtreeRef][s][5] / refNum; 
             int subtreeQry = tree->allNodes[nodes[nIdx].second->identifier]->grpID;
-            for (int i = 0; i < 6; ++i) {
-                for (int s = 0; s < qryLen; ++s) {
-                    hostFreq[6*(seqLen+s)+i] = util->profileFreq[subtreeQry][i][s]; 
+            for (int t = 0; t < 6; ++t) qryNum += util->profileFreq[subtreeQry][0][t]; 
+            for (int s = 0; s < qryLen; ++s) for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = util->profileFreq[subtreeQry][s][t]; 
+            for (int s = 0; s < qryLen; ++s) hostGapEx[seqLen+s] = util->profileFreq[subtreeQry][s][5] / qryNum; 
+            // Clustalw's method
+            for (int s = 0; s < refLen; ++s) {
+                if (hostFreq[6*s+5] > 0) {
+                    hostGapOp[s] = param.gapOpen * 0.3 * ((refNum-hostFreq[6*s+5])*1.0 / refNum);
                 }
-            }
-            for (int s = 0; s < refLen; ++s) hostGapEx[seqLen+s] = util->profileFreq[subtreeQry][5][s]; 
-        }
-        // Clustalw's method
-        for (int s = 0; s < refLen; ++s) {
-            if (hostFreq[6*s+5] > 0) {
-                hostGapOp[s] = param.gapOpen * 0.3 * ((refNum-hostFreq[6*s+5])*1.0 / refNum);
-            }
-            else {
-                int backSites = 8;
-                int distance_from_gap = 0;
-                int increPenalty = false;
-                for (int d = s-1; d > max(s-backSites, 0); --d) {
-                    ++distance_from_gap;
-                    if (hostFreq[6*d+5] > 0) {
-                        increPenalty = true;
-                        break;
+                else {
+                    int backSites = 8;
+                    int distance_from_gap = 0;
+                    int increPenalty = false;
+                    for (int d = s-1; d > max(s-backSites, 0); --d) {
+                        ++distance_from_gap;
+                        if (hostFreq[6*d+5] > 0) {
+                            increPenalty = true;
+                            break;
+                        }
                     }
+                    hostGapOp[s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
                 }
-                hostGapOp[s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
-        }
-        for (int s = 0; s < qryLen; ++s) {
-            if (hostFreq[6*(seqLen+s)+5] > 0) {
-                hostGapOp[seqLen+s] = param.gapOpen * 0.3 * ((qryNum-hostFreq[6*(seqLen+s)+5]) * 1.0 / qryNum);
-            }
-            else {
-                int backSites = 8;
-                int distance_from_gap = 0;
-                int increPenalty = false;
-                for (int d = s-1; d > max(s-backSites, 0); --d) {
-                    ++distance_from_gap;
-                    if (hostFreq[6*(seqLen+d)+5] > 0) {
-                        increPenalty = true;
-                        break;
+            for (int s = 0; s < qryLen; ++s) {
+                if (hostFreq[6*(seqLen+s)+5] > 0) {
+                    hostGapOp[seqLen+s] = param.gapOpen * 0.3 * ((qryNum-hostFreq[6*(seqLen+s)+5]) * 1.0 / qryNum);
+                }
+                else {
+                    int backSites = 8;
+                    int distance_from_gap = 0;
+                    int increPenalty = false;
+                    for (int d = s-1; d > max(s-backSites, 0); --d) {
+                        ++distance_from_gap;
+                        if (hostFreq[6*(seqLen+d)+5] > 0) {
+                            increPenalty = true;
+                            break;
+                        }
                     }
+                    hostGapOp[seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
                 }
-                hostGapOp[seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
         }
-        if (option->gappyHorizon > 0) {
-            float gappyVertical = option->gappyVertical;
-            int gappyHorizon = option->gappyHorizon, gappyLength;
-            int rawIdx = 0, newIdx = 0;
-            int gapRef = 0, gapQry = 0;
-            while (true) {
-                if (rawIdx >= refLen) {
-                    for (int i = newIdx; i < refLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*i+j] = 0;
-                    break;
-                }
-                for (gappyLength = rawIdx; gappyLength < refLen; ++gappyLength) if (hostFreq[6*gappyLength+5]/refNum <= gappyVertical) break;
-                if (gappyLength - rawIdx >= gappyHorizon) {
-                    gappyColumns.first.push(std::make_pair(rawIdx, gappyLength-rawIdx)); 
-                    gapRef += gappyLength-rawIdx;
-                    rawIdx += gappyLength-rawIdx;
-                }
-                for (rawIdx = rawIdx; rawIdx < min(gappyLength+1, refLen); ++rawIdx) {
-                    for (int t = 0; t < 6; ++t) hostFreq[6*newIdx+t] = hostFreq[6*rawIdx+t];
-                    hostGapOp[newIdx] = hostGapOp[rawIdx]; 
-                    hostGapEx[newIdx] = hostGapEx[rawIdx]; 
-                    hostGapCl[newIdx] = hostGapCl[rawIdx];
-                    ++newIdx;
-                } 
-            }
-            newRef = newIdx; 
-            rawIdx = 0; newIdx = 0;
-            while (true) {
-                if (rawIdx >= qryLen) {
-                    for (int i = newIdx; i < qryLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*(seqLen+i)+j] = 0;
-                    break;
-                }
-                for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) if (hostFreq[6*(seqLen+gappyLength)+5]/qryNum <= gappyVertical) break;
-                if (gappyLength - rawIdx >= gappyHorizon) {
-                    gappyColumns.second.push(std::make_pair(rawIdx, gappyLength-rawIdx)); 
-                    // if (alnPairs < 2) std::cout << "PUSHQ: " << rawIdx << '-' << gappyLength-rawIdx << '\n';
-                    gapQry += gappyLength-rawIdx;
-                    rawIdx += gappyLength-rawIdx;
-                }
-                // if (n == 0 && alnPairs == 3) std::cout << newIdx << ':' << newIdx + gapQry << ':' << rawIdx << ':' << qryLen << ':' << seqLen << '\n';
-                for (rawIdx = rawIdx; rawIdx < min(gappyLength+1, qryLen); ++rawIdx) {
-                    for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+newIdx)+t] = hostFreq[6*(seqLen+rawIdx)+t];
-                    hostGapOp[newIdx] = hostGapOp[rawIdx]; 
-                    hostGapEx[newIdx] = hostGapEx[rawIdx]; 
-                    hostGapCl[newIdx] = hostGapCl[rawIdx];
-                    ++newIdx;
-                } 
-            }
-            newQry = newIdx;
-            if (newRef + gapRef != refLen) std::cout << "REF:" << newRef << '+' << gapRef << " != " << refLen << '\n';
-            if (newQry + gapQry != qryLen) std::cout << "QRY:" << newQry << '+' << gapQry << " != " << qryLen << '\n';
-            
-            assert(newRef + gapRef == refLen);
-            assert(newQry + gapQry == qryLen);
-        }
-
-        std::vector<int8_t> aln, aln_old;
+        if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
+        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+0] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+1] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+2] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+3] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+5] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostGapEx[seqLen+i] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostGapOp[seqLen+i] << ',';
+        // std::cout << '\n';
+        // exit(1);
+        std::vector<int8_t> aln_old, aln;
         std::vector<std::vector<float>> freqRef (newRef, std::vector<float>(6, 0.0));
-        std::vector<std::vector<float>> freqQry (newQry, std::vector<float>(6, 0.0));;
-        std::vector<std::vector<float>> gapOp (2), gapEx (2), gapCl (2);
+        std::vector<std::vector<float>> freqQry (newQry, std::vector<float>(6, 0.0));
+        std::vector<std::vector<float>> gapOp (2), gapEx (2), gapCl (2);    
         for (int s = 0; s < newRef; s++) for (int t = 0; t < 6; ++t) freqRef[s][t] = hostFreq[6*s+t];
-        for (int s = 0; s < newQry; s++) for (int t = 0; t < 6; ++t) freqQry[s][t] = hostFreq[6*(seqLen+s)+t];
+        for (int s = 0; s < newQry; s++) for (int t = 0; t < 6; ++t) freqQry[s][t] = hostFreq[6*(seqLen+s)+t];     
         for (int r = 0; r < newRef; ++r) {
             gapOp[0].push_back(hostGapOp[r]);
-            gapEx[0].push_back(hostGapEx[r]);
+            gapEx[0].push_back(freqRef[r][5] / refNum);
             gapCl[0].push_back(hostGapCl[r]);
         }
         for (int q = 0; q < newQry; ++q) {
             gapOp[1].push_back(hostGapOp[seqLen+q]);
-            gapEx[1].push_back(hostGapEx[seqLen+q]);
+            gapEx[1].push_back(freqQry[q][5] / qryNum);
             gapCl[1].push_back(hostGapCl[seqLen+q]);
         }
         Talco_xdrop::Params talco_params(hostParam);
+        std::pair<int32_t, int32_t> num = std::make_pair(static_cast<int32_t>(refNum), static_cast<int32_t>(qryNum));
         while (aln_old.empty()) {
             int16_t errorType = 0;
             Talco_xdrop::Align_freq (
@@ -1057,6 +961,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
                 gapOp,
                 gapEx,
                 gapCl,
+                num,
                 aln_old,
                 errorType
             );
@@ -1077,9 +982,9 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
         free(hostFreq);
         free(hostGapCl);
         free(hostGapEx);
-        free(hostGapOp);
+        free(hostGapOp);        
     }
-    });
+    // });
     
     free(hostParam);
     return;
@@ -2246,7 +2151,8 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
                     int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
                     int32_t numThreshold = 1000;
-
+                    // if (nIdx == 0) std::cout << refLen << ':' << qryLen << ':' << refNum << ':' << qryNum << '\n';
+                
                     float refWeight = 0.0, qryWeight = 0.0;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
@@ -2418,11 +2324,11 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 }
                 });
                 });
-                // for (int i = 0; i < 50; ++i) std::cout << hostFreq[gn][6*i+0] << ',';
+                // for (int i = 0; i < 50; ++i) std::cout << hostFreq[gn][6*(seqLen+i)+0] << ',';
                 // std::cout << '\n';
-                // for (int i = 0; i < 50; ++i) std::cout << hostGapEx[gn][6*i+1] << ',';
+                // for (int i = 0; i < 50; ++i) std::cout << hostGapEx[gn][seqLen+i] << ',';
                 // std::cout << '\n';
-                // for (int i = 0; i < 50; ++i) std::cout << hostGapCl[gn][6*i+5] << ',';
+                // for (int i = 0; i < 50; ++i) std::cout << hostGapOp[gn][seqLen+i] << ',';
                 // std::cout << '\n';
                 
                 hostSeqInfo[gn][0] = alnPairs;
@@ -2512,7 +2418,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                                 gapEx[1].push_back(hostGapEx[gn][2*n*seqLen+seqLen+q]);
                                 gapCl[1].push_back(hostGapCl[gn][2*n*seqLen+seqLen+q]);
                             }
-                            
+                            std::pair<int32_t, int32_t> num = std::make_pair(refNum, qryNum);
                             Talco_xdrop::Params talco_params(hostParam);
                             while (aln_old.empty()) {
                                 int16_t errorType = 0;
@@ -2523,6 +2429,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                                     gapOp,
                                     gapEx,
                                     gapCl,
+                                    num,
                                     aln_old,
                                     errorType
                                 );
@@ -2661,7 +2568,6 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     return;
 }
 
-
 void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
     updateNode(tree, nodes, util);
@@ -2701,6 +2607,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         
         calculateProfileFreq(hostFreq, hostGapOp, tree, nodes[nIdx], util, seqLen, param);
         if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
+        
         // Start alignment
         std::vector<int8_t> aln_old, aln;
         std::vector<std::vector<float>> freqRef (newRef, std::vector<float>(6, 0.0));
@@ -2710,14 +2617,15 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         for (int s = 0; s < newQry; s++) for (int t = 0; t < 6; ++t) freqQry[s][t] = hostFreq[6*(seqLen+s)+t];     
         for (int r = 0; r < newRef; ++r) {
             gapOp[0].push_back(hostGapOp[r]);
-            gapEx[0].push_back(hostGapEx[r]);
+            gapEx[0].push_back(freqRef[r][5] / refNum);
             gapCl[0].push_back(hostGapCl[r]);
         }
         for (int q = 0; q < newQry; ++q) {
             gapOp[1].push_back(hostGapOp[seqLen+q]);
-            gapEx[1].push_back(hostGapEx[seqLen+q]);
+            gapEx[1].push_back(freqQry[q][5] / qryNum);
             gapCl[1].push_back(hostGapCl[seqLen+q]);
         }                 
+        std::pair<int32_t, int32_t> num = std::make_pair(refNum, qryNum);
         Talco_xdrop::Params talco_params(hostParam);
         while (aln_old.empty()) {
             int16_t errorType = 0;
@@ -2728,6 +2636,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 gapOp,
                 gapEx,
                 gapCl,
+                num,
                 aln_old,
                 errorType
             );
@@ -2765,8 +2674,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     free(hostParam);
     return;
 }
-
-
 
 void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util) {
     for (auto n_pair: nodes) {
@@ -2817,7 +2724,7 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
     int32_t qryLen = util->seqsLen[nodes.second->identifier];
     int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
     int32_t qryNum = tree->allNodes[nodes.second->identifier]->msaIdx.size();
-    int32_t numThreshold = 100;
+    int32_t numThreshold = 1000;
     float refWeight = 0.0, qryWeight = 0.0;
     for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
     for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
@@ -2928,8 +2835,11 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
     int gapRef = 0, gapQry = 0;
     int32_t refLen = util->seqsLen[nodes.first->identifier];
     int32_t qryLen = util->seqsLen[nodes.second->identifier];
-    int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
-    int32_t qryNum = tree->allNodes[nodes.second->identifier]->msaIdx.size();
+    float refNum_f = 0, qryNum_f = 0;
+    for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
+    for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
+    int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes.first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
+    int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes.second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
     
     while (true) {
         if (rawIdx >= refLen) {

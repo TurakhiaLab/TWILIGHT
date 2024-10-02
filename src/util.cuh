@@ -48,7 +48,7 @@ Params* setParameters(po::variables_map& vm);
 void setOptions(po::variables_map& vm, msa::option* option);
 
 void readSequences(po::variables_map& vm, msa::utility* util, msa::option* option, Tree* tree);
-void readSequences(std::string seqFileName, msa::utility* util, Tree* tree);
+void readSequences(std::string seqFileName, msa::utility* util, msa::option* option, Tree* tree);
 void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option);
 Tree* readNewick(po::variables_map& vm);
 Tree* readNewick(std::string treeFileName);
@@ -57,7 +57,7 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
 void printTree(Node* node, int grpID);
 void printLeaves(Node* node);
 
-void outputAln(std::string fileName, msa::utility* util, Tree* T, int grpID);
+void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tree* T, int grpID);
 void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID);
 void outputSubtree(std::string fileName, Tree* T);
 void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);

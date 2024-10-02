@@ -178,13 +178,13 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     float gappyVertical = vm["gappy-vertical"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
-        std::cerr << "ERROR: the value of gappy-column should be (0,1]\n";
+        std::cerr << "ERROR: the value of gappy-vertical should be (0,1]\n";
         exit(1);
     }
     if (vm.count("gappy-horizon")) {
         gappyHorizon = vm["gappy-horizon"].as<float>();
         if (gappyHorizon - round(gappyHorizon) != 0 || gappyHorizon < 1) {
-            std::cerr << "ERROR: the value of gappy-length should be an positive integer\n";
+            std::cerr << "ERROR: the value of gappy-horizon should be an positive integer\n";
             exit(1);
         }
     }
@@ -195,6 +195,12 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     if (!vm.count("temp-dir")) tempDir =  "./temp";
     else tempDir = vm["temp-dir"].as<std::string>();
     if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
+
+    std::string outType = vm["output-type"].as<std::string>();
+    if (outType != "FASTA" && outType != "CIGAR") {
+        std::cerr << "ERROR: Unrecognized output type \"" << outType <<"\"\n";
+        exit(1);
+    }
     
     option->cpuNum = cpuNum; 
     option->gpuNum = gpuNum;
@@ -206,6 +212,7 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     option->gappyVertical = gappyVertical;
     option->tempDir = tempDir;
     option->cpuOnly = vm.count("cpu-only");
+    option->outType = outType;
 }
 
 // print
@@ -300,7 +307,7 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
 
-void readSequences(std::string seqFileName, msa::utility* util, Tree* tree)
+void readSequences(std::string seqFileName, msa::utility* util, msa::option* option, Tree* tree)
 {
     auto seqReadStart = std::chrono::high_resolution_clock::now();
 
@@ -321,7 +328,9 @@ void readSequences(std::string seqFileName, msa::utility* util, Tree* tree)
         size_t seqLen = kseq_rd->seq.l;
         std::string seqName = kseq_rd->name.s;
         int subtreeIdx = tree->allNodes[seqName]->grpID;
-        seqs[seqName] = std::make_pair(std::string(kseq_rd->seq.s, seqLen), subtreeIdx);
+        std::string seq = std::string(kseq_rd->seq.s, seqLen);
+        seqs[seqName] = std::make_pair(seq, subtreeIdx);
+        if (option->debug) util->rawSeqs[seqName] = seq;
         if (seqLen > maxLen) maxLen = seqLen;
         totalLen += seqLen;
     }
@@ -434,8 +443,6 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
         std::string freqFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".freq.txt";
         std::ifstream inputStream(freqFile);
         if (!inputStream) { fprintf(stderr, "Error: Can't open file: %s\n", freqFile.c_str()); exit(1); }
-        std::vector<std::vector<float>> freq;
-        util->profileFreq[subtree] = freq;
         std::string rawInput;
         int idx, seqNum, seqLen; 
         getline(inputStream, rawInput);
@@ -458,28 +465,28 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
         assert(idx == subtree);
         numbers.clear();
         util->seqsLen[subroot.first] = seqLen;
-        for (int i = 0; i < 6; ++i) {
-            std::vector<float> charFreq;
-            util->profileFreq[subtree].push_back(charFreq);
+        if (seqLen > util->seqLen) util->seqLen = seqLen;
+        util->profileFreq[subtree] = std::vector<std::vector<float>> (seqLen, std::vector<float> (6, 0.0));
+        for (int t = 0; t < 6; ++t) {
+            int s = 0;
             getline(inputStream, rawInput);
             for (int j = 0; j < rawInput.size(); ++j) {
                 if (rawInput[j] == ',') {
-                    util->profileFreq[subtree][i].push_back(std::atof(num.c_str()));
+                    util->profileFreq[subtree][s][t] = std::atof(num.c_str());
                     num = "";
+                    ++s;
                 }
                 else if (j == rawInput.size()-1) {
                     num += rawInput[j];
-                    util->profileFreq[subtree][i].push_back(std::atof(num.c_str()));
+                    util->profileFreq[subtree][s][t] = std::atof(num.c_str());
                     num = "";
+                    ++s;
                 }
                 else num += rawInput[j];
             }
-            if (util->profileFreq[subtree][i].size() > util->seqLen) util->seqLen = util->profileFreq[subtree][i].size();
+            assert(s == seqLen);
         }
         inputStream.close();
-        // if (subtree == 1) for(int i = 0; i < 100; ++i) std::cout << util->profileFreq[subtree][0][i] << ',';
-        // std::cout << '\n';
-        // std::remove(freqFile.c_str());
     }
     return;
 }
@@ -567,7 +574,7 @@ void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, ms
     return;
 }
 
-void outputAln(std::string fileName, msa::utility* util, Tree* T, int grpID) {
+void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tree* T, int grpID) {
     std::ofstream outFile(fileName);
     if (!outFile) {
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
@@ -589,12 +596,20 @@ void outputAln(std::string fileName, msa::utility* util, Tree* T, int grpID) {
             int storage = util->seqsStorage[sIdx];
             if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
                 outFile << '>' << seqs[s] << "\n";
-                outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
-                // int i = 0;
-                // while (util->alnStorage[storage][sIdx][i] != 0) {
-                //     outFile << util->alnStorage[storage][sIdx][i];
-                //     ++i;
-                // }
+                if (option->outType == "FASTA") {
+                    outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
+                    outFile << '\n';
+                }
+                else if (option->outType == "CIGAR") {
+                    std::string cigar = "";
+                    char type = 0;
+                    int num = 0;
+                    int i = 0;
+                    while (util->alnStorage[storage][sIdx][i] != 0) {
+                        outFile << util->alnStorage[storage][sIdx][i];
+                        ++i;
+                    }
+                }
                 outFile << '\n';
             }
             util->seqFree(sIdx);

@@ -28,6 +28,7 @@ void parseArguments(int argc, char** argv)
         ("pam-n",      po::value<int>()->default_value(200), "'n' in the PAM-n matrix")
         ("xdrop",      po::value<paramType>()->default_value(600), "X-drop value")
         ("scoring-matrix", po::value<int>()->default_value(0), "0: simple, 1: kiruma, 2: user defined")
+        ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR")
         ("temp-dir", po::value<std::string>(), "Directory for storing temporary files")
         ("gpu-index", po::value<std::string>(), "Specify the GPU index, separated by commas. Ex. 0,2,3")
         ("gappy-vertical", po::value<float>()->default_value(1), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column.")
@@ -95,7 +96,7 @@ int main(int argc, char** argv) {
             // printTree(subT->root, -1);
             delete tempP;
             util->clearAll();
-            readSequences(subtreeSeqFile, util, subT);
+            readSequences(subtreeSeqFile, util, option, subT);
             util->setSubtreeIdx(subtree);
             if (subT->root->numLeaves != util->seqsIdx.size()) {
                 fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %lu)\n", subT->m_numLeaves, util->seqsIdx.size()); 
@@ -130,7 +131,7 @@ int main(int argc, char** argv) {
         msaOnSubtree(subT, util, option, subP, *param);
         auto msaEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds msaTime = msaEnd - msaStart;
-        std::cout << "MSA on sub-subtree in " <<  msaTime.count() / 1000000000 << " s\n";
+        std::cout << "MSA on sub-subtree " << subtree << " in " <<  msaTime.count() / 1000000000 << " s\n";
         
         if (subP->partitionsRoot.size() > 1) {
             // Align adjacent sub-subtrees to create overlap alignment
@@ -138,7 +139,7 @@ int main(int argc, char** argv) {
             alignSubtrees(subT, newSubT, util, option, *param);
             auto alnEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-            std::cout << "Aligned adjacent sub-subtrees in " <<  alnTime.count() / 1000000 << " ms\n";
+            std::cout << "Aligned adjacent sub-subtree in " <<  alnTime.count() / 1000000 << " ms\n";
 
             auto mergeStart = std::chrono::high_resolution_clock::now();
             mergeSubtrees (subT, newSubT, util);
@@ -152,6 +153,22 @@ int main(int argc, char** argv) {
         }
         
         for (auto sIdx: subT->root->msaIdx) T->allNodes[subT->root->identifier]->msaIdx.push_back(sIdx);
+        // post-alignment debugging
+        if (option->debug) {
+            auto dbgStart = std::chrono::high_resolution_clock::now();
+            util->debug();
+            auto dbgEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
+            std::cout << "Completed checking " << subT->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
+        }
+        // Calculate sum-of-pairs score
+        if (vm.count("sum-of-pairs-score")) {
+            auto spStart = std::chrono::high_resolution_clock::now();
+            double score = getSPScore_gpu(util, *param);
+            auto spEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds spTime = spEnd - spStart;
+            std::cout << "Calculated Sum-of-Pairs-Score in " << spTime.count() / 1000000 << " ms. Score = " << score << ".\n";
+        }
         // for (auto node: subT->allNodes) delete node.second;
         if (P->partitionsRoot.size() > 1) {
             std::string tempDir = option->tempDir; 
@@ -159,7 +176,7 @@ int main(int argc, char** argv) {
             std::string subtreeAlnFile = tempDir + '/' + subtreeFileName + ".temp.aln";
             std::string subtreeFreqFile = tempDir + '/' + subtreeFileName + ".freq.txt";
             outputFreq(subtreeFreqFile, util, subT, subtree);
-            outputAln(subtreeAlnFile, util, subT, subtree);
+            outputAln(subtreeAlnFile, util, option, subT, subtree);
         }
         delete subT;
         delete subP;
@@ -182,25 +199,7 @@ int main(int argc, char** argv) {
         outputFinal (option->tempDir, T, P, util, option, totalSeqs);
         std::cout << "Merge " << newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
     }
-
-
-    // post-alignment debugging
-    if (option->debug) {
-        auto dbgStart = std::chrono::high_resolution_clock::now();
-        util->debug();
-        auto dbgEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
-        std::cout << "Completed checking " << T->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
-    }
     
-    // Calculate sum-of-pairs score
-    if (vm.count("sum-of-pairs-score")) {
-        auto spStart = std::chrono::high_resolution_clock::now();
-        double score = getSPScore_gpu(util, *param);
-        auto spEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds spTime = spEnd - spStart;
-        std::cout << "Calculated Sum-of-Pairs-Score in " << spTime.count() / 1000000 << " ms. Score = " << score << ".\n";
-    }
     
     // output MSA
     if (vm.count("output")) {
@@ -209,7 +208,7 @@ int main(int argc, char** argv) {
         auto outStart = std::chrono::high_resolution_clock::now();
         // std::string subtreeFreqFile = outFile + ".freq.txt";
         // outputFreq(subtreeFreqFile, util, T, -1);
-        outputAln(outFile, util, T, -1);
+        outputAln(outFile, util, option, T, -1);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";
