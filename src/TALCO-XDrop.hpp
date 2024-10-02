@@ -73,6 +73,7 @@ namespace Talco_xdrop {
         const std::vector<std::vector<float>>& gapOp,
         const std::vector<std::vector<float>>& gapEx,
         const std::vector<std::vector<float>>& gapCl,
+        const std::pair<int32_t, int32_t>& num,
         std::vector<int8_t>& aln,
         int16_t& errorType
         // size_t num_alignments
@@ -86,6 +87,7 @@ namespace Talco_xdrop {
         const std::vector<std::vector<float>>& gapOp,
         const std::vector<std::vector<float>>& gapEx,
         const std::vector<std::vector<float>>& gapCl,
+        const std::pair<int32_t, int32_t>& num,
         Params params,
         int32_t &reference_idx,
         int32_t &query_idx,

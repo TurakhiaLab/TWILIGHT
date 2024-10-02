@@ -9,6 +9,7 @@ void Talco_xdrop::Align_freq (
     const std::vector<std::vector<float>>& gapOp,
     const std::vector<std::vector<float>>& gapEx,
     const std::vector<std::vector<float>>& gapCl,
+    const std::pair<int32_t, int32_t>& num,
     std::vector<int8_t>& aln,
     int16_t& errorType
     // size_t num_alignments
@@ -40,6 +41,7 @@ void Talco_xdrop::Align_freq (
                     gapOp,
                     gapEx,
                     gapCl,
+                    num,
                     params, 
                     reference_idx, 
                     query_idx, 
@@ -248,6 +250,7 @@ void Talco_xdrop::Tile (
     const std::vector<std::vector<float>>& gapOp,
     const std::vector<std::vector<float>>& gapEx,
     const std::vector<std::vector<float>>& gapCl,   
+    const std::pair<int32_t, int32_t>& num,
     Params param,
     int32_t &reference_idx,
     int32_t &query_idx,
@@ -263,6 +266,7 @@ void Talco_xdrop::Tile (
         int32_t marker = param.marker;
         int32_t fLen = param.fLen;
         bool converged = false; bool conv_logic = false;
+        int32_t refNum = num.first, qryNum = num.second; 
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
         int32_t score = 0; int32_t max_score = 0; int32_t max_score_prime = -inf; // int32_t max_score_ref_idx = 0; int32_t max_score_query_idx = 0;
@@ -292,7 +296,6 @@ void Talco_xdrop::Tile (
         paramType gapOpen = param.gapOpen;
         paramType gapExtend = param.gapExtend;
         for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) scoreMat[i*5+j] = param.scoreMatrix[i][j];
-        
         for (size_t sIndx=0; sIndx<3; sIndx++) { // Allocate memory for S, I, D, and CS array
             S[sIndx] = (int32_t*) std::malloc(fLen*sizeof(int32_t));
             CS[sIndx] = (int32_t*) std::malloc(fLen*sizeof(int32_t));
@@ -372,23 +375,27 @@ void Talco_xdrop::Tile (
                 
                 int score_from_prev_tile = 0;
                 if ((k==0) || ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3]))) {
-                    if (k==0 && tile>0)
-                    {
-                        score_from_prev_tile = tile*10;
-                    }
-                    
+                    // if (k==0 && tile>0)
+                    // {
+                    //     score_from_prev_tile = tile*10;
+                    // }
                     int32_t similarScore = 0;
                     float denominator = 0;
                     float numerator = 0;
                     for (int l = 0; l < 6; ++l) {
                         for (int m = 0; m < 6; ++m) {
-                            denominator += reference[reference_idx+j][l]*query[query_idx+i][m];
+                            // denominator += reference[reference_idx+j][l]*query[query_idx+i][m];
                             if (m == 5 && l == 5)      numerator += 0;
                             else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
                             else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[m*5+l];
                         }
                     }
+                            
+                    denominator = refNum * qryNum;
+                    
                     similarScore = static_cast<int32_t>(std::round(numerator/denominator));
+                    // if (i == 0) printf("%d, %f, %f\n",similarScore, numerator, denominator);
+                    
                     if (offsetDiag < 0) match = similarScore + score_from_prev_tile;
                     else                match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;
                     // match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;
@@ -396,8 +403,8 @@ void Talco_xdrop::Tile (
 
                 int32_t pos_gapOpen_ref = static_cast<int32_t>(gapOp[0][reference_idx+j]);
                 int32_t pos_gapOpen_qry = static_cast<int32_t>(gapOp[1][query_idx+i]);
-                int32_t pos_gapExtend_ref = static_cast<int32_t>(gapExtend*(1-gapEx[0][reference_idx+j]));
-                int32_t pos_gapExtend_qry = static_cast<int32_t>(gapExtend*(1-gapEx[1][query_idx+i]));
+                int32_t pos_gapExtend_ref = static_cast<int32_t>(gapExtend*(1.0-reference[reference_idx+j][5] / (refNum * 1.0)));
+                int32_t pos_gapExtend_qry = static_cast<int32_t>(gapExtend*(1.0-query[query_idx+i][5] / (qryNum * 1.0)));
                 
 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
