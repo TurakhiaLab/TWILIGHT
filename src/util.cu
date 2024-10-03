@@ -354,7 +354,7 @@ void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t*
     else tempDir = vm["temp-dir"].as<std::string>();
     if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
     if (mkdir(tempDir.c_str(), 0777) == -1) {
-        if( errno == EEXIST ) std::cout << tempDir << " already exists.\n";
+        if( errno == EEXIST ) std::cout << tempDir << " already exists, some files may be overwritten\n";
         else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
     }
     else std::cout << tempDir << " created\n";
@@ -575,6 +575,11 @@ void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, ms
 }
 
 void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tree* T, int grpID) {
+    if (util->nowProcess == 2) {
+        std::string command = "cat " + option->tempDir + "/*.final.aln > " + fileName;
+        system(command.c_str());
+        return;
+    }
     std::ofstream outFile(fileName);
     if (!outFile) {
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
@@ -636,7 +641,6 @@ void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID) {
     }
     // Info subtreeIdx, seqNum, seqLen
     outFile << grpID << ',' << T->root->msaIdx.size() << ',' << util->seqsLen[T->root->identifier] << '\n';
-
     size_t seqLen = util->seqsLen[T->root->identifier];
     // std::cout << "seqLen: " << seqLen << '\n';
     float** freq = new float* [6];
