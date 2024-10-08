@@ -276,6 +276,7 @@ void Tree::calSeqWeight() {
             current = current->parent;
             if (current == nullptr) break; 
         }
+        // w = 1.0;
         this->allNodes[node.second->identifier]->weight = w;
         if (w > maxWeight) maxWeight = w;
     }
