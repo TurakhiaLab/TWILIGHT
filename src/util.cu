@@ -197,7 +197,7 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
     if (mkdir(tempDir.c_str(), 0777) == -1) {
         if( errno == EEXIST ) {
-            std::cout << tempDir << " already exists. In order to ensure the correctness of the program, please delete this folder or use another folder name.\n";
+            std::cout << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
             exit(1);
         }
         else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
