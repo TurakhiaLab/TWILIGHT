@@ -195,6 +195,11 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     if (!vm.count("temp-dir")) tempDir =  "./temp";
     else tempDir = vm["temp-dir"].as<std::string>();
     if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
+    if (mkdir(tempDir.c_str(), 0777) == -1) {
+        if( errno == EEXIST ) std::cout << tempDir << " already exists, some files may be overwritten\n";
+        else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
+    }
+    else std::cout << tempDir << " created\n";
 
     std::string outType = vm["output-type"].as<std::string>();
     if (outType != "FASTA" && outType != "CIGAR") {
@@ -274,21 +279,20 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
     while (kseq_read(kseq_rd) >= 0) {
         size_t seqLen = kseq_rd->seq.l;
         std::string seqName = kseq_rd->name.s;
-        if (tree->allNodes.find(seqName) == tree->allNodes.end()) {
-            fprintf(stderr, "Sequence %s is not presented in the tree file.\n", seqName.c_str());
-            exit(1);
+        // std::cout << seqName << '\n';
+        if (tree->allNodes.find(seqName) != tree->allNodes.end()) {
+            if (seqs.find(seqName) != seqs.end()) {
+                fprintf(stderr, "Sequence %s already exists.\n", seqName.c_str());
+                exit(1);
+            }
+            int subtreeIdx = tree->allNodes[seqName]->grpID;
+            std::string seq = std::string(kseq_rd->seq.s, seqLen);
+            seqs[seqName] = std::make_pair(seq, subtreeIdx);
+            if (option->debug) util->rawSeqs[seqName] = seq;
+            if (seqLen > maxLen) maxLen = seqLen;
+            if (seqLen < minLen) minLen = seqLen;
+            totalLen += seqLen;
         }
-        if (seqs.find(seqName) != seqs.end()) {
-            fprintf(stderr, "Sequence %s already exists.\n", seqName.c_str());
-            exit(1);
-        }
-        int subtreeIdx = tree->allNodes[seqName]->grpID;
-        std::string seq = std::string(kseq_rd->seq.s, seqLen);
-        seqs[seqName] = std::make_pair(seq, subtreeIdx);
-        if (option->debug) util->rawSeqs[seqName] = seq;
-        if (seqLen > maxLen) maxLen = seqLen;
-        if (seqLen < minLen) minLen = seqLen;
-        totalLen += seqLen;
     }
     
     seqNum = seqs.size();
@@ -346,6 +350,44 @@ void readSequences(std::string seqFileName, msa::utility* util, msa::option* opt
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
 
+void outputSubtrees(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option)
+{
+    auto outStart = std::chrono::high_resolution_clock::now();
+    std::string tempDir;
+    if (!vm.count("temp-dir")) tempDir =  "./temp";
+    else tempDir = vm["temp-dir"].as<std::string>();
+    if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
+    if (mkdir(tempDir.c_str(), 0777) == -1) {
+        if( errno == EEXIST ) std::cout << tempDir << " already exists, some files may be overwritten\n";
+        else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
+    }
+    else std::cout << tempDir << " created\n";
+    for (auto subroot: partition->partitionsRoot) {
+        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
+        Tree* subT = new Tree(subroot.second.first);
+        std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
+        std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
+        std::string out_str = "";
+	    getSubtreeNewick(subT->root, out_str);
+	    out_str += ";\n";
+	    std::ofstream outFile(subtreeFileName);
+        if (!outFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", subtreeFileName.c_str());
+            exit(1);
+        }
+	    outFile << out_str;
+	    outFile.close();
+        delete subT;
+    }
+
+    auto outEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds seqReadTime = outEnd - outStart;
+    std::cout << "Created " << partition->partitionsRoot.size() << " subtree files in " << tempDir << " in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    return;
+}
+
+
+
 void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option)
 {
     auto seqReadStart = std::chrono::high_resolution_clock::now();
@@ -382,8 +424,8 @@ void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t*
             }
         }
         std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
-        std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
-        outputSubtree(subtreeTreeFile, subT);
+        // std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
+        // outputSubtree(subtreeTreeFile, subT);
         std::string subtreeSeqFile = tempDir + '/' + subtreeFileName + ".raw.fa";
         outputSubtreeSeqs(subtreeSeqFile, seqs);
         seqs.clear();
@@ -495,7 +537,6 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
 
 void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
     util->seqsIdx.clear();
-    util->alnSeqs.clear();
     for (auto id: tree->root->msa) {
         int subtree = tree->allNodes[id]->grpID;
         std::string tempAlnFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".temp.aln";
@@ -525,11 +566,10 @@ void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, ms
                 }
             }
             seqs[seqName] = finalAln;
-            // std::cout << util->alnSeqs.size() << ':' << seqName << '\n' << finalAln << '\n';
-            util->alnSeqs[seqName] = finalAln;
         }
         std::string subtreeSeqFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".final.aln";
-        outputSubtreeSeqs(subtreeSeqFile, seqs);    
+        if (option->outType == "FASTA") outputSubtreeSeqs(subtreeSeqFile, seqs);   
+        else if (option->outType == "CIGAR") outputSubtreeCIGAR(subtreeSeqFile, seqs);   
         kseq_destroy(kseq_rd);
         gzclose(f_rd);
         // std::remove(tempAlnFile.c_str());
@@ -586,50 +626,50 @@ void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tr
         exit(1);
     }
     std::vector<std::string> seqs;
-    if (util->alnSeqs.empty())
-        for (auto seq: util->seqsIdx)
-            seqs.push_back(seq.first);
-    else
-        for (auto seq: util->alnSeqs)
-            seqs.push_back(seq.first);
+    for (auto seq: util->seqsIdx)
+        seqs.push_back(seq.first);
     size_t seqLen = util->seqsLen[T->root->identifier];
-    std::cout << "seqLen: " << seqLen << '\t' << util->alnSeqs.empty() << '\n';
+    std::cout << "seqLen: " << seqLen << '\n';
     std::sort(seqs.begin(), seqs.end(), cmp);
-    if (util->alnSeqs.empty()) {
-        for (int s = 0; s < seqs.size(); ++s) {
-            int sIdx = util->seqsIdx[seqs[s]];
-            int storage = util->seqsStorage[sIdx];
-            if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
-                outFile << '>' << seqs[s] << "\n";
-                if (option->outType == "FASTA") {
-                    outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
-                    outFile << '\n';
-                }
-                else if (option->outType == "CIGAR") {
-                    std::string cigar = "";
-                    char type = 0;
-                    int num = 0;
-                    int i = 0;
-                    while (util->alnStorage[storage][sIdx][i] != 0) {
-                        outFile << util->alnStorage[storage][sIdx][i];
-                        ++i;
-                    }
-                }
-                outFile << '\n';
+    for (int s = 0; s < seqs.size(); ++s) {
+        int sIdx = util->seqsIdx[seqs[s]];
+        int storage = util->seqsStorage[sIdx];
+        if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+            outFile << '>' << seqs[s] << "\n";
+            if (option->outType == "FASTA") {
+                outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
             }
-            util->seqFree(sIdx);
+            else if (option->outType == "CIGAR") {
+                std::string cigar = "";
+                char type = (util->alnStorage[storage][sIdx][0] == '-') ? 'D' : 'M';
+                int num = 0;
+                int i = 0;
+                while (util->alnStorage[storage][sIdx][i] != 0) {
+                    if (util->alnStorage[storage][sIdx][i] == '-') {
+                        if (type == 'M') {
+                            cigar += (std::to_string(num) + type);
+                            type = 'D'; num = 1;
+                        }
+                        else if (type == 'D') ++num;
+                    }
+                    else {
+                        if (type == 'M') ++num;
+                        else {
+                            cigar += (std::to_string(num) + type);
+                            type = 'M'; num = 1;
+                        }
+                    }
+                    ++i;
+                }
+                cigar += (std::to_string(num) + type);
+                outFile << cigar;
+            }
+            outFile << '\n';
         }
-        util->seqsFree();
+        util->seqFree(sIdx);
     }
-    else {
-        for (int s = 0; s < seqs.size(); ++s) {
-            outFile << ('>' + seqs[s] + '\n');
-            outFile << (util->alnSeqs[seqs[s]] + '\n');
-        }
-        util->seqsFree();
-    }
+    util->seqsFree();
     outFile.close();
-    
     return;
 }
 
@@ -687,24 +727,47 @@ void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string> 
     }
     
     for (auto it = seqs.begin(); it != seqs.end(); ++it) {
-        outFile << '>' << it->first << '\n';
-        outFile << it->second << '\n';
+        outFile << ('>' + it->first + '\n');
+        outFile << (it->second + '\n');
     }
 
     outFile.close();
 }
 
-void outputSubtree(std::string fileName, Tree* T) {
-	std::string out_str = "";
-	getSubtreeNewick(T->root, out_str);
-	out_str += ";\n";
-	std::ofstream outFile(fileName);
+void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string> seqs) {
+    std::ofstream outFile(fileName);
     if (!outFile) {
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
         exit(1);
     }
-	outFile << out_str;
-	outFile.close();
+    for (auto it = seqs.begin(); it != seqs.end(); ++it) {
+        outFile << ('>' + it->first + '\n');
+        std::string cigar = "";
+        char type = (it->second[0] == '-') ? 'D' : 'M';
+        int num = 0;
+        int i = 0;
+        while (i < it->second.size()) {
+            if (it->second[i] == '-') {
+                if (type == 'M') {
+                    cigar += (std::to_string(num) + type);
+                    type = 'D'; num = 1;
+                }
+                else if (type == 'D') ++num;
+            }
+            else {
+                if (type == 'M') ++num;
+                else {
+                    cigar += (std::to_string(num) + type);
+                    type = 'M'; num = 1;
+                }
+            }
+            ++i;
+        }
+        cigar += (std::to_string(num) + type + '\n');
+        outFile << cigar;
+    }
+
+    outFile.close();
 }
 
 // auxiliary

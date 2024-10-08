@@ -110,7 +110,6 @@ void msa::utility::memCheck(int seqLen) {
 
 void msa::utility::clearAll() {
     this->rawSeqs.clear();
-    this->alnSeqs.clear();
     this->badSequences.clear();
     this->subtrees.clear();
     this->seqsIdx.clear();
@@ -124,20 +123,14 @@ void msa::utility::debug() {
     bool theFirst = true;
     for (auto s: this->rawSeqs) {
         std::string r = "";
-        if (this->alnSeqs.empty()) {
-            int sIdx = this->seqsIdx[s.first];
-            int storage = this->seqsStorage[sIdx];
-            offset = 0;
-            while (this->alnStorage[storage][sIdx][offset] != 0) {
-                if (this->alnStorage[storage][sIdx][offset] != '-') {
-                    r += this->alnStorage[storage][sIdx][offset];
-                }
-                ++offset;
+        int sIdx = this->seqsIdx[s.first];
+        int storage = this->seqsStorage[sIdx];
+        offset = 0;
+        while (this->alnStorage[storage][sIdx][offset] != 0) {
+            if (this->alnStorage[storage][sIdx][offset] != '-') {
+                r += this->alnStorage[storage][sIdx][offset];
             }
-        }
-        else {
-            offset = this->alnSeqs[s.first].size();
-            for (auto c: this->alnSeqs[s.first]) if (c != '-') r += c;
+            ++offset;
         }
         if (theFirst) {alnLen = offset; theFirst = false;}
         else {

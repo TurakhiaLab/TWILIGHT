@@ -160,6 +160,8 @@ Tree::Tree(std::string newickString) {
                 treeRoot = newNode;
             } else {
                 newNode = new Node(nid, parentStack.top(), branchLen[level].front());
+                // if (branchLen[level].front() < 0.001) std::cout << nid << '\t' << branchLen[level].front() << '\n';
+        
             }
             branchLen[level].pop();
             level++;
@@ -171,6 +173,7 @@ Tree::Tree(std::string newickString) {
             parentStack.push(newNode);
         }
         Node* leafNode = new Node(leaf, parentStack.top(), branchLen[level].front());
+        // if (branchLen[level].front() < 0.001) std::cout << leaf << '\t' << branchLen[level].front() << '\n';
         /* Group Id */
         leafNode->grpID = -1;
         allNodes[leaf] = leafNode;
@@ -209,7 +212,7 @@ Tree::Tree(Node* node) {
         if (current->identifier != this->root->identifier) {
             Node* copyNode = new Node(current->identifier, this->allNodes[current->parent->identifier], current->branchLength);
             copyNode->grpID = -1; copyNode->level = current->level - node->level;
-            copyNode->weight = current->weight; copyNode->numLeaves = current->numLeaves;
+            // copyNode->weight = current->weight; copyNode->numLeaves = current->numLeaves;
             this->allNodes[current->identifier] = copyNode;
         }
         if (current->is_leaf()) this->m_numLeaves += 1;
@@ -218,7 +221,8 @@ Tree::Tree(Node* node) {
             if (ch->grpID == grp) s1.push(ch);      
         }
     } 
-    
+    this->calLeafNum();
+    this->calSeqWeight();
 }
 
 Tree::~Tree() {
@@ -268,6 +272,7 @@ void Tree::calSeqWeight() {
         Node* current = node.second;
         while (true) {
             w += current->branchLength / current->numLeaves;
+            // w += 1.0 / current->numLeaves;
             current = current->parent;
             if (current == nullptr) break; 
         }

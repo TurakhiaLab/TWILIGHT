@@ -3077,17 +3077,10 @@ double getSPScore_gpu(msa::utility* util, Params& param) {
     int blockSize = 512;
     size_t seqNum = 0;
     size_t seqLen = 0;
-    if (!util->alnSeqs.empty()) {
-        seqLen = util->alnSeqs.begin()->second.size();
-        seqNum = util->alnSeqs.size();
-        
+    while (util->alnStorage[util->seqsStorage[0]][0][seqLen] != 0) {
+        ++seqLen;
     }
-    else {
-        while (util->alnStorage[util->seqsStorage[0]][0][seqLen] != 0) {
-            ++seqLen;
-        }
-        seqNum = util->memNum;
-    }
+    seqNum = util->memNum;
     char*    hostSeqs = (char*)malloc(seqLen * seqNum * sizeof(char));
     int32_t* hostSeqInfo = (int32_t*)malloc(7 * sizeof(int32_t));
     int64_t* hostResult = (int64_t*)malloc(numBlocks * sizeof(int64_t));
@@ -3096,26 +3089,11 @@ double getSPScore_gpu(msa::utility* util, Params& param) {
     
     
     // int seqCount = 0;
-    if (util->alnSeqs.empty()) {
-        printf("(Num, Len) - (%lu, %lu)\n", seqNum, seqLen);
-        for (int i = 0; i < seqNum; ++i) {
-            int storage = util->seqsStorage[i];
-            for (int j = 0; j < seqLen; ++j) {
-                hostSeqs[i*seqLen+j] = util->alnStorage[storage][i][j];
-            }
-        }
-    }
-    else {
-        seqLen = util->alnSeqs.begin()->second.size();
-        printf("(Num, Len) - (%lu, %lu)\n", seqNum, seqLen);
-        int i = 0;
-        for (auto s: util->alnSeqs) {
-            // std::cout << i << ':' << s.first << '\n';
-            // std::cout << s.second << '\n'; 
-            for (int j = 0; j < seqLen; ++j) {
-                hostSeqs[i*seqLen+j] = s.second[j];
-            }
-            ++i;
+    printf("(Num, Len) - (%lu, %lu)\n", seqNum, seqLen);
+    for (int i = 0; i < seqNum; ++i) {
+        int storage = util->seqsStorage[i];
+        for (int j = 0; j < seqLen; ++j) {
+            hostSeqs[i*seqLen+j] = util->alnStorage[storage][i][j];
         }
     }
     // for (int j = 0; j < seqLen*seqNum; ++j) { 
