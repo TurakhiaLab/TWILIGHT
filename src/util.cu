@@ -206,6 +206,14 @@ void setOptions(po::variables_map& vm, msa::option* option) {
         std::cerr << "ERROR: Unrecognized output type \"" << outType <<"\"\n";
         exit(1);
     }
+
+    std::string merger = vm["merge-subtrees"].as<std::string>();
+    if (merger == "T" || merger == "t") merger = "transitivity";
+    else if (merger == "P" || merger == "p") merger = "progressive";
+    else {
+        std::cerr << "ERROR: Unrecognized method to merge subtrees \"" << merger <<"\"\n";
+        exit(1);
+    }
     
     option->cpuNum = cpuNum; 
     option->gpuNum = gpuNum;
@@ -218,6 +226,8 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     option->tempDir = tempDir;
     option->cpuOnly = vm.count("cpu-only");
     option->outType = outType;
+    option->merger = merger;
+
 }
 
 // print
@@ -276,10 +286,10 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
     
     std::map<std::string, std::pair<std::string, int>> seqs;
     
+    int othSeq = 0;
     while (kseq_read(kseq_rd) >= 0) {
         size_t seqLen = kseq_rd->seq.l;
         std::string seqName = kseq_rd->name.s;
-        // std::cout << seqName << '\n';
         if (tree->allNodes.find(seqName) != tree->allNodes.end()) {
             if (seqs.find(seqName) != seqs.end()) {
                 fprintf(stderr, "Sequence %s already exists.\n", seqName.c_str());
@@ -294,6 +304,9 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
             totalLen += seqLen;
         }
     }
+    kseq_destroy(kseq_rd);
+    gzclose(f_rd);
+        
     
     seqNum = seqs.size();
     uint32_t avgLen = totalLen/seqNum;
@@ -304,8 +317,11 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
     std::cout << "Avg. Length: " << avgLen << '\n';
     std::cout << "============================\n";
 
+    if (tree->m_numLeaves != seqNum) {
+        fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %lu)\n", tree->m_numLeaves, seqNum); 
+        exit(1);
+    }
     util->seqsMallocNStore(maxLen, seqs);
-    
     auto seqReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
@@ -349,44 +365,6 @@ void readSequences(std::string seqFileName, msa::utility* util, msa::option* opt
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
-
-void outputSubtrees(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option)
-{
-    auto outStart = std::chrono::high_resolution_clock::now();
-    std::string tempDir;
-    if (!vm.count("temp-dir")) tempDir =  "./temp";
-    else tempDir = vm["temp-dir"].as<std::string>();
-    if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
-    if (mkdir(tempDir.c_str(), 0777) == -1) {
-        if( errno == EEXIST ) std::cout << tempDir << " already exists, some files may be overwritten\n";
-        else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
-    }
-    else std::cout << tempDir << " created\n";
-    for (auto subroot: partition->partitionsRoot) {
-        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
-        Tree* subT = new Tree(subroot.second.first);
-        std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
-        std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
-        std::string out_str = "";
-	    getSubtreeNewick(subT->root, out_str);
-	    out_str += ";\n";
-	    std::ofstream outFile(subtreeFileName);
-        if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", subtreeFileName.c_str());
-            exit(1);
-        }
-	    outFile << out_str;
-	    outFile.close();
-        delete subT;
-    }
-
-    auto outEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds seqReadTime = outEnd - outStart;
-    std::cout << "Created " << partition->partitionsRoot.size() << " subtree files in " << tempDir << " in " <<  seqReadTime.count() / 1000000 << " ms\n";
-    return;
-}
-
-
 
 void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option)
 {
@@ -535,6 +513,7 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
 
 // write (output)
 
+/*
 void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
     util->seqsIdx.clear();
     for (auto id: tree->root->msa) {
@@ -610,6 +589,88 @@ void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, ms
         // outFile.close();
     }
     
+    tree->root->msa.clear();
+    return;
+}
+*/
+
+void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
+    util->seqsIdx.clear();
+    std::string seqFileName = vm["sequences"].as<std::string>();
+    std::cout << "alnLen: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
+    std::map<std::string, std::string> seqs;
+    std::map<int, std::pair<std::string, std::string>> rawSeqs;
+
+    int proceeded = 0;    
+    for (auto subroot: partition->partitionsRoot) {
+        gzFile f_rd = gzopen(seqFileName.c_str(), "r");
+        if (!f_rd) { fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str()); exit(1);}
+        kseq_t* kseq_rd = kseq_init(f_rd);
+        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
+        ++proceeded;
+        std::cout << "Start writing alignment of subtree No. " << subtreeIdx << ". (" << proceeded << '/' << partition->partitionsRoot.size() << ")\n";
+        Tree* subT = new Tree(subroot.second.first);
+        int s = 0;
+        while (kseq_read(kseq_rd) >= 0) {
+            std::string seqName = kseq_rd->name.s;
+            if (subT->allNodes.find(seqName) != subT->allNodes.end()) {
+                size_t seqLen = kseq_rd->seq.l;
+                rawSeqs[s] = std::make_pair(seqName, std::string(kseq_rd->seq.s, seqLen));
+                ++s;
+            }
+        }
+        kseq_destroy(kseq_rd);
+        gzclose(f_rd);
+        assert(subT->m_numLeaves == rawSeqs.size());
+        tbb::mutex writeMutex;
+        tbb::parallel_for(tbb::blocked_range<int>(0, rawSeqs.size()), [&](tbb::blocked_range<int> range){ 
+        for (int n = range.begin(); n < range.end(); ++n) {
+            std::string seqName = rawSeqs[n].first;
+            std::string rawSeq = rawSeqs[n].second;
+            std::string updatedSeq = "", alnSeq = "";
+            int r = 0;
+            std::string num_s = "";
+            for (int i = 0; i < util->seqsCIGAR[seqName].size(); ++i) {
+                if (util->seqsCIGAR[seqName][i] == 'M') {
+                    int num = std::stoi(num_s.c_str());
+                    num_s = "";
+                    for (int k = 0; k < num; ++k) {updatedSeq += rawSeq[r]; ++r;}
+                }
+                else if (util->seqsCIGAR[seqName][i] == 'D') {
+                    int num = std::stoi(num_s.c_str());
+                    num_s = "";
+                    for (int k = 0; k < num; ++k) updatedSeq += '-';
+                }
+                else {
+                    num_s += util->seqsCIGAR[seqName][i];
+                }
+            }
+            assert(r == rawSeq.size());            
+            r = 0;
+            for (int j = 0; j < tree->allNodes[subroot.first]->msaAln.size(); ++j) {
+                if ((tree->allNodes[subroot.first]->msaAln[j] & 0xFFFF) == 0 || (tree->allNodes[subroot.first]->msaAln[j] & 0xFFFF) == 2) {
+                    alnSeq += updatedSeq[r];
+                    ++r;
+                }
+                else {
+                    alnSeq += '-';
+                }
+            }
+            {
+                tbb::mutex::scoped_lock lock(writeMutex);
+                seqs[seqName] = alnSeq;
+            }
+        }
+        });
+        tree->allNodes[subroot.first]->msaAln.clear();
+        totalSeqs += seqs.size();
+        std::string subtreeSeqFile = option->tempDir + '/' + "subtree-" + std::to_string(subtreeIdx) + ".final.aln";
+        if (option->outType == "FASTA") outputSubtreeSeqs(subtreeSeqFile, seqs);   
+        else if (option->outType == "CIGAR") outputSubtreeCIGAR(subtreeSeqFile, seqs);   
+        delete subT;
+        seqs.clear();
+        rawSeqs.clear();
+    }
     tree->root->msa.clear();
     return;
 }
@@ -719,22 +780,37 @@ void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID) {
     delete [] freq;
 }
 
-void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string> seqs) {
+void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx)
+{
+    std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
+    std::string subtreeTreeFile = option->tempDir + '/' + subtreeFileName + ".nwk";
+    std::string out_str = "";
+	getSubtreeNewick(tree->root, out_str);
+	out_str += ";\n";
+	std::ofstream outFile(subtreeFileName);
+    if (!outFile) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", subtreeFileName.c_str());
+        exit(1);
+    }
+	outFile << out_str;
+	outFile.close();
+    return;
+}
+
+void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string>& seqs) {
     std::ofstream outFile(fileName);
     if (!outFile) {
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
         exit(1);
     }
-    
     for (auto it = seqs.begin(); it != seqs.end(); ++it) {
         outFile << ('>' + it->first + '\n');
         outFile << (it->second + '\n');
     }
-
     outFile.close();
 }
 
-void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string> seqs) {
+void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string>& seqs) {
     std::ofstream outFile(fileName);
     if (!outFile) {
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
@@ -867,7 +943,6 @@ void getPostOrderList(Node* node, std::stack<Node*>& postStack) {
 
 
 // Regressive Method (not maintained)
-
 /*
 void getLongestDescendent(Tree* tree, msa::utility* util) {
     std::stack<Node*> postOrder;

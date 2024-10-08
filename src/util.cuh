@@ -59,10 +59,11 @@ void printLeaves(Node* node);
 
 void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tree* T, int grpID);
 void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID);
-void outputSubtrees(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option);
-void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
-void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string> seqs);
-void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string> seqs);
+void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx);
+// void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
+void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
+void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string>& seqs);
+void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string>& seqs);
 
 // auxiliary
 bool cmp(std::string a, std::string b);
