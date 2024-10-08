@@ -96,7 +96,7 @@ void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pa
         this->seqsStorage[s] = 0;
         ++s;
     }
-    printf("Allocate memory for sequence storage, size = %lu x %lu\n", this->memNum, this->memLen);
+    // printf("Allocate memory for sequence storage, size = %lu x %lu\n", this->memNum, this->memLen);
     return;
 }
 
@@ -104,6 +104,38 @@ void msa::utility::memCheck(int seqLen) {
     if (seqLen > this->memLen) {
         printf("Reallocate Memory. SeqLen (%d) > MemLen (%ld)\n", seqLen, this->memLen);
         seqMalloc(this->memNum, seqLen);
+    }
+    return;
+}
+
+void msa::utility::storeCIGAR() {
+    for (auto seq: this->seqsIdx) {
+        std::string seqName = seq.first;
+        int sIdx = seq.second;
+        int storage = this->seqsStorage[sIdx];
+        std::string cigar = "";
+        char type = (this->alnStorage[storage][sIdx][0] == '-') ? 'D' : 'M';
+        int num = 0;
+        int i = 0;
+        while (this->alnStorage[storage][sIdx][i] != 0) {
+            if (this->alnStorage[storage][sIdx][i] == '-') {
+                if (type == 'M') {
+                    cigar += (std::to_string(num) + type);
+                    type = 'D'; num = 1;
+                }
+                else if (type == 'D') ++num;
+            }
+            else {
+                if (type == 'M') ++num;
+                else {
+                    cigar += (std::to_string(num) + type);
+                    type = 'M'; num = 1;
+                }
+            }
+            ++i;
+        }
+        cigar += (std::to_string(num) + type);
+        this->seqsCIGAR[seqName] = cigar;
     }
     return;
 }

@@ -23,6 +23,7 @@ namespace msa
         bool psgop;
         std::string outType;
         std::string tempDir;
+        std::string merger;
     };
 
     struct utility
@@ -35,6 +36,7 @@ namespace msa
         std::unordered_map<std::string, int>  seqsLen;
         std::unordered_map<int, bool> seqsStorage;
         std::map<int, std::vector<std::vector<float>>> profileFreq;
+        std::unordered_map<std::string, std::string> seqsCIGAR;
         
         char** alnStorage[2] = {nullptr, nullptr};
         int nowProcess = 0;
@@ -51,6 +53,7 @@ namespace msa
         void seqFree(int i);
         void seqMalloc(int seqNum, int seqLen);
         void seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap);
+        void storeCIGAR();
         void memCheck(int seqLen);
         void clearAll();
         void debug();
