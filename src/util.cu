@@ -196,7 +196,10 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     else tempDir = vm["temp-dir"].as<std::string>();
     if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
     if (mkdir(tempDir.c_str(), 0777) == -1) {
-        if( errno == EEXIST ) std::cout << tempDir << " already exists, some files may be overwritten\n";
+        if( errno == EEXIST ) {
+            std::cout << tempDir << " already exists. In order to ensure the correctness of the program, please delete this folder or use another folder name.\n";
+            exit(1);
+        }
         else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
     }
     else std::cout << tempDir << " created\n";
@@ -657,6 +660,7 @@ void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, 
                 }
             }
             {
+                assert(alnSeq.size() == tree->allNodes[subroot.first]->msaAln.size());
                 tbb::mutex::scoped_lock lock(writeMutex);
                 seqs[seqName] = alnSeq;
             }
@@ -803,7 +807,9 @@ void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string>&
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
         exit(1);
     }
+    int alnLen = seqs.begin()->second.size();
     for (auto it = seqs.begin(); it != seqs.end(); ++it) {
+        assert(it->second.size() == alnLen);
         outFile << ('>' + it->first + '\n');
         outFile << (it->second + '\n');
     }
