@@ -106,15 +106,15 @@ Params* setParameters(po::variables_map& vm) {
         param->gapOpen = param->userGapClose;
         param->xdrop = (param->gapExtend == 0) ? xdrop : -1*xdrop*param->gapExtend;
     }
-    for (int i = 0; i < 5; ++i) {
-        for (int j = 0; j < 5; ++j) {
-            std::cout << std::setw(5) << param->scoringMatrix[i][j];
+    if (vm.count("print-detail")) {
+        for (int i = 0; i < 5; ++i) {
+            for (int j = 0; j < 5; ++j) {
+                std::cout << std::setw(5) << param->scoringMatrix[i][j];
+            }
+            std::cout << '\n';
         }
-        std::cout << '\n';
+        std::cout << "GapOpen: " << param->gapOpen << " / GapExtend: " << param->gapExtend << " / GapClose: " << param->gapClose << " / Xdrop: " << param->xdrop << '\n';
     }
-    
-    std::cout << "GapOpen: " << param->gapOpen << " / GapExtend: " << param->gapExtend << " / GapClose: " << param->gapClose << " / Xdrop: " << param->xdrop << '\n';
-    // exit(1);
     return param;
 }
 
@@ -232,6 +232,7 @@ void setOptions(po::variables_map& vm, msa::option* option) {
     option->cpuOnly = vm.count("cpu-only");
     option->outType = outType;
     option->merger = merger;
+    option->printDetail = vm.count("print-detail");
 
 }
 
@@ -315,18 +316,20 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
     
     seqNum = seqs.size();
     uint32_t avgLen = totalLen/seqNum;
-    std::cout << "=== Sequence information ===\n";
-    std::cout << "Number : " << seqNum << '\n';
-    std::cout << "Max. Length: " << maxLen << '\n';
-    std::cout << "Min. Length: " << minLen << '\n';
-    std::cout << "Avg. Length: " << avgLen << '\n';
-    std::cout << "============================\n";
+    if (option->printDetail) {
+        std::cout << "=== Sequence information ===\n";
+        std::cout << "Number : " << seqNum << '\n';
+        std::cout << "Max. Length: " << maxLen << '\n';
+        std::cout << "Min. Length: " << minLen << '\n';
+        std::cout << "Avg. Length: " << avgLen << '\n';
+        std::cout << "============================\n";
+    }
 
     if (tree->m_numLeaves != seqNum) {
         fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %lu)\n", tree->m_numLeaves, seqNum); 
         exit(1);
     }
-    util->seqsMallocNStore(maxLen, seqs);
+    util->seqsMallocNStore(maxLen, seqs, option);
     auto seqReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
@@ -364,7 +367,7 @@ void readSequences(std::string seqFileName, msa::utility* util, msa::option* opt
     uint32_t avgLen = totalLen/seqNum;
     std::cout << "(Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
 
-    util->seqsMallocNStore(maxLen, seqs);
+    util->seqsMallocNStore(maxLen, seqs, option);
     
     auto seqReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;

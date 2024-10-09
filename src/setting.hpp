@@ -24,6 +24,7 @@ namespace msa
         std::string outType;
         std::string tempDir;
         std::string merger;
+        bool printDetail;
     };
 
     struct utility
@@ -51,10 +52,10 @@ namespace msa
         void setSubtreeIdx(int idx); 
         void seqsFree();
         void seqFree(int i);
-        void seqMalloc(int seqNum, int seqLen);
-        void seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap);
+        void seqMalloc(int seqNum, int seqLen, option* option);
+        void seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap, option* option);
         void storeCIGAR();
-        void memCheck(int seqLen);
+        void memCheck(int seqLen, option* option);
         void clearAll();
         void debug();
     };

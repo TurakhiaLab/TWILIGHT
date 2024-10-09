@@ -35,8 +35,10 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
         
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-        if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
-        else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
+        if (option->printDetail) {
+            if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
+            else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
+        }
         ++level;
     }
     // Push msa results to roots of sub-subtrees
@@ -141,8 +143,10 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
                 else                  msaCpu(T, m, util, option, param);
                 auto alnEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-                if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
-                else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
+                if (option->printDetail) {
+                    if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
+                    else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
+                }
                 ++level;
             }
         }
@@ -230,7 +234,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
             breakLoop = true;
         }
         if (option->merger == "transitivity" || util->nowProcess < 2) {
-            transitivityMerge(T, newT, singleLevel, util);
+            transitivityMerge(T, newT, singleLevel, util, option);
             for (auto n: singleLevel) {
                 if (util->nowProcess == 2 && n.first->parent == nullptr) T->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
                 std::vector<std::string> temp = T->allNodes[n.first->identifier]->msa;
@@ -252,15 +256,17 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
        
         auto roundEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds roundTime = roundEnd - roundStart;
-        if (singleLevel.size() > 1) {
-            std::cout << "Merged "<< singleLevel.size() << " edges in " << roundTime.count() / 1000000 << " ms\n";
-        }
-        else {
-            std::cout << "Merged "<< singleLevel.size() << " edge in " << roundTime.count() / 1000000 << " ms\n";
+        if (option->printDetail) {
+            if (singleLevel.size() > 1) {
+                std::cout << "Merged "<< singleLevel.size() << " edges in " << roundTime.count() / 1000000 << " ms\n";
+            }
+            else {
+                std::cout << "Merged "<< singleLevel.size() << " edge in " << roundTime.count() / 1000000 << " ms\n";
+            }
         }
         totalEdges += singleLevel.size();
         if (breakLoop) break;
-        if (totalLevels % 100 == 0) std::cout << "=============" << totalLevels << "=================\n";
+        // if (totalLevels % 100 == 0) std::cout << "=============" << totalLevels << "=================\n";
     }
     std::cout << "Total Edges/Levels: " << totalEdges << '/' << totalLevels << '\n';
     return;
@@ -977,7 +983,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     return;
 }
 
-void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util) {
+void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option) {
     
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range) {
     for (int s = range.begin(); s < range.end(); ++s) {
@@ -996,7 +1002,7 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
             int seqLen = tree->allNodes[n.first->identifier]->msaAln.size();
             util->seqsLen[n.first->identifier] = seqLen;
             if (util->nowProcess < 2) {
-                util->memCheck(seqLen);
+                util->memCheck(seqLen, option);
                 for (auto id: tree->allNodes[n.first->identifier]->msa) {
                     // auto id = tree->root->msa[k];
                     std::vector<int8_t> aln = tree->allNodes[id]->msaAln;
@@ -2444,7 +2450,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     if (!aln.empty()) {
                         {
                             tbb::mutex::scoped_lock lock(memMutex);
-                            util->memCheck(aln.size());
+                            util->memCheck(aln.size(), option);
                         }
                         updateAlignment(tree, nodes[nIdx], util, aln);
                         if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
@@ -2659,7 +2665,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
         if (util->nowProcess < 2) {{
             tbb::mutex::scoped_lock lock(memMutex);
-            util->memCheck(aln.size());
+            util->memCheck(aln.size(), option);
         }}
         {
             tbb::mutex::scoped_lock lock(memMutex);

@@ -33,7 +33,7 @@ void msa::utility::seqFree(int i) {
     return;
 }
 
-void msa::utility::seqMalloc(int seqNum, int seqLen){
+void msa::utility::seqMalloc(int seqNum, int seqLen, option* option){
     if (this->alnStorage[0] != nullptr && this->alnStorage[1] != nullptr) {
         char** temp[2] = {nullptr, nullptr};
         int adjustLen = static_cast<int>(seqLen * this->timesBigger);
@@ -76,12 +76,12 @@ void msa::utility::seqMalloc(int seqNum, int seqLen){
         this->memNum = seqNum;
         this->memLen = adjustLen;
     }    
-    printf("Allocate memory... Size = %lu x %lu\n", memNum, memLen);
+    if (option->printDetail) printf("Allocate memory... Size = %lu x %lu\n", memNum, memLen);
     return;
 }
 
-void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap){
-    this->seqMalloc(seqsMap.size(), seqLen);
+void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap, option* option){
+    this->seqMalloc(seqsMap.size(), seqLen, option);
     int s = 0;
     for (auto seq: seqsMap) {
         for (int i = 0; i < this->memLen; ++i) {
@@ -100,10 +100,10 @@ void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pa
     return;
 }
 
-void msa::utility::memCheck(int seqLen) {
+void msa::utility::memCheck(int seqLen, option* option) {
     if (seqLen > this->memLen) {
-        printf("Reallocate Memory. SeqLen (%d) > MemLen (%ld)\n", seqLen, this->memLen);
-        seqMalloc(this->memNum, seqLen);
+        if (option->printDetail) printf("Reallocate Memory. SeqLen (%d) > MemLen (%ld)\n", seqLen, this->memLen);
+        seqMalloc(this->memNum, seqLen, option);
     }
     return;
 }
