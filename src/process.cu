@@ -177,7 +177,7 @@ void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
     }
     // for (auto n: type1Aln) std::cout << n.first->identifier << ':' << util->seqsLen[n.first->identifier] << 
     //                              ',' << n.second->identifier << ':' << util->seqsLen[n.second->identifier] <<'\n';
-    std::cout << "Align sub-subtrees, total " << type1Aln.size() << " pairs.\n"; 
+    if (option->printDetail) std::cout << "Align sub-subtrees, total " << type1Aln.size() << " pairs.\n"; 
     if (option->cpuOnly || type1Aln.size() < 1000) createOverlapAlnCpu(T, type1Aln, util, option, param);
     else                                           createOverlapAlnGpu(T, type1Aln, util, option, param);
     return;
@@ -268,7 +268,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         if (breakLoop) break;
         // if (totalLevels % 100 == 0) std::cout << "=============" << totalLevels << "=================\n";
     }
-    std::cout << "Total Edges/Levels: " << totalEdges << '/' << totalLevels << '\n';
+    if (option->printDetail) std::cout << "Total Edges/Levels: " << totalEdges << '/' << totalLevels << '\n';
     return;
 }
 

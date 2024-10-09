@@ -608,7 +608,7 @@ void outputFinal (std::string tempDir, Tree* tree, paritionInfo_t* partition, ms
 void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
     util->seqsIdx.clear();
     std::string seqFileName = vm["sequences"].as<std::string>();
-    std::cout << "alnLen: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
+    std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
     std::map<std::string, std::string> seqs;
     std::map<int, std::pair<std::string, std::string>> rawSeqs;
 
