@@ -29,7 +29,7 @@ void parseArguments(int argc, char** argv)
         ("scoring-matrix", po::value<int>()->default_value(0), "0: simple, 1: kiruma, 2: user defined")
         ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR")
         ("temp-dir", po::value<std::string>(), "Directory for storing temporary files")
-        ("merge-subtrees", po::value<std::string>()->default_value("t"), "t: transitivity merger, p: progressive alignment")
+        ("merge-subtrees", po::value<std::string>()->default_value("p"), "t: transitivity merger, p: progressive alignment")
         ("gpu-index", po::value<std::string>(), "Specify the GPU index, separated by commas. Ex. 0,2,3")
         ("gappy-vertical", po::value<float>()->default_value(1), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column.")
         ("gappy-horizon", po::value<float>(), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
@@ -119,7 +119,7 @@ int main(int argc, char** argv) {
             std::cout << "Aligned adjacent sub-subtree in " <<  alnTime.count() / 1000000 << " ms\n";
 
             auto mergeStart = std::chrono::high_resolution_clock::now();
-            mergeSubtrees (subT, newSubT, util);
+            mergeSubtrees (subT, newSubT, util, option, *param);
             auto mergeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
             int totalSeqs = subT->root->msaIdx.size();
@@ -175,20 +175,29 @@ int main(int argc, char** argv) {
         if (option->merger == "transitivity") {
             auto alnStart = std::chrono::high_resolution_clock::now();
             alignSubtrees(T, newT, util, option, *param);
-            mergeSubtrees (T, newT, util);
+            mergeSubtrees (T, newT, util, option, *param);
             auto alnEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnTime = alnEnd - alnStart;
             std::cout << "Merge " << newT->allNodes.size() << " subtrees in " << alnTime.count() / 1000000 << " ms\n";
-            int totalSeqs = 0;
-            auto outStart = std::chrono::high_resolution_clock::now();
-            outputFinal (vm, T, P, util, option, totalSeqs);
-            auto outEnd = std::chrono::high_resolution_clock::now();
-            std::chrono::nanoseconds outTime = outEnd - outStart;
-            std::cout << "Output " << newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
+            // auto outStart = std::chrono::high_resolution_clock::now();
+            // outputFinal (vm, T, P, util, option, totalSeqs);
+            // auto outEnd = std::chrono::high_resolution_clock::now();
+            // std::chrono::nanoseconds outTime = outEnd - outStart;
+            // std::cout << "Output " << newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
         }
         else if (option->merger == "progressive") {
-
+            auto alnStart = std::chrono::high_resolution_clock::now();
+            mergeSubtrees (T, newT, util, option, *param);
+            auto alnEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+            std::cout << "Progressive alignment on " << newT->allNodes.size() << " subtrees in " << alnTime.count() / 1000000 << " ms\n";
         }
+        int totalSeqs = 0;
+        auto outStart = std::chrono::high_resolution_clock::now();
+        outputFinal (vm, T, P, util, option, totalSeqs);
+        auto outEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds outTime = outEnd - outStart;
+        std::cout << "Output " << newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
     }
     
     
@@ -205,5 +214,5 @@ int main(int argc, char** argv) {
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
     std::cout << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
-    return;
+    return 0;
 }

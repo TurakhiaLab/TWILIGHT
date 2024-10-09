@@ -16,7 +16,6 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
         std::vector<std::pair<std::pair<Node*, Node*>, int>> subhier;
         int grpID = p.second.first->grpID;
         getMsaHierachy(subhier, msaStack, grpID);
-        
         for (auto h: subhier) {
             while (hier.size() < h.second+1) {
                 std::vector<std::pair<Node*, Node*>> temp;
@@ -25,15 +24,12 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
             hier[h.second].push_back(h.first);
         }
     }
-
     std::unordered_map<std::string, std::string> beforeAln;
-    
-    
     int level = 0;
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
-        if (option->cpuOnly || m.size() < 1000) msaCpu(T, m, util, option, param);
-        else                                    msaGpu(T, m, util, option, param);
+        if (option->cpuOnly || m.size() < 1000 || util->nowProcess == 2) msaCpu(T, m, util, option, param);
+        else                                                             msaGpu(T, m, util, option, param);
         // if (option->cpuOnly) msaCpu(T, m, util, option, param);
         // else                 msaGpu(T, m, util, option, param);
         
@@ -183,7 +179,7 @@ void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
     return;
 }
 
-void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util) {
+void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option, Params& param) {
     for (auto n: newT->allNodes) {
         T->allNodes[n.first]->msa.clear();
         T->allNodes[n.first]->msa.push_back(n.first);
@@ -233,36 +229,27 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util) {
             }
             breakLoop = true;
         }
-        transitivityMerge(T, newT, singleLevel, util);
-        for (auto n: singleLevel) {
-            // std::cout << T->allNodes[n.first->identifier]->msa.size() << '/' << T->allNodes[n.second->identifier]->msa.size() << '\n';
-            // std::cout << n.first->identifier << '\n';
-            // for (auto s: T->allNodes[n.first->identifier]->msa) std::cout << s << ',';
-            // std::cout << '\n';
-            // std::cout << n.second->identifier << '\n';
-            // for (auto s: T->allNodes[n.second->identifier]->msa) std::cout << s << ',';
-            // std::cout << '\n';
-            if (util->nowProcess == 2 && n.first->parent == nullptr) T->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
-            std::vector<std::string> temp = T->allNodes[n.first->identifier]->msa;
-            
-            for (int r = 1; r < T->allNodes[n.first->identifier]->msa.size(); ++r) {
-                std::string grpNode = T->allNodes[n.first->identifier]->msa[r];
-                for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[grpNode]->msa.push_back(id);
+        if (option->merger == "transitivity" || util->nowProcess < 2) {
+            transitivityMerge(T, newT, singleLevel, util);
+            for (auto n: singleLevel) {
+                if (util->nowProcess == 2 && n.first->parent == nullptr) T->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
+                std::vector<std::string> temp = T->allNodes[n.first->identifier]->msa;
+                for (int r = 1; r < T->allNodes[n.first->identifier]->msa.size(); ++r) {
+                    std::string grpNode = T->allNodes[n.first->identifier]->msa[r];
+                    for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[grpNode]->msa.push_back(id);
+                }
+                for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[n.first->identifier]->msa.push_back(id);
+                for (int r = 1; r < T->allNodes[n.second->identifier]->msa.size(); ++r) {
+                    std::string grpNode = T->allNodes[n.second->identifier]->msa[r];
+                    for (auto id: temp) T->allNodes[grpNode]->msa.push_back(id);
+                }
+                for (auto id: temp) T->allNodes[n.second->identifier]->msa.push_back(id);
             }
-            for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[n.first->identifier]->msa.push_back(id);
-            for (int r = 1; r < T->allNodes[n.second->identifier]->msa.size(); ++r) {
-                std::string grpNode = T->allNodes[n.second->identifier]->msa[r];
-                for (auto id: temp) T->allNodes[grpNode]->msa.push_back(id);
-            }
-            for (auto id: temp) T->allNodes[n.second->identifier]->msa.push_back(id);
-            // std::cout << T->allNodes[n.first->identifier]->msa.size() << '/' << T->allNodes[n.second->identifier]->msa.size() << '\n';
-            // std::cout << n.first->identifier << '\n';
-            // for (auto s: T->allNodes[n.first->identifier]->msa) std::cout << s << ',';
-            // std::cout << '\n';
-            // std::cout << n.second->identifier << '\n';
-            // for (auto s: T->allNodes[n.second->identifier]->msa) std::cout << s << ',';
-            // std::cout << '\n';
         }
+        else if (option->merger == "progressive" && util->nowProcess == 2) {
+            msaCpu(T, singleLevel, util, option, param);
+        }
+       
         auto roundEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds roundTime = roundEnd - roundStart;
         if (singleLevel.size() > 1) {
@@ -2570,8 +2557,16 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
 
 void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
-    updateNode(tree, nodes, util);
-    int32_t seqLen = util->memLen;
+    if (util->nowProcess < 2) updateNode(tree, nodes, util);
+    int32_t seqLen = 0;
+    if (util->nowProcess < 2) seqLen = util->memLen;
+    else {
+        for (auto n: nodes) {
+            if (tree->allNodes[n.first->identifier]->msaAln.size() > seqLen)  seqLen = tree->allNodes[n.first->identifier]->msaAln.size();
+            if (tree->allNodes[n.second->identifier]->msaAln.size() > seqLen) seqLen = tree->allNodes[n.second->identifier]->msaAln.size();
+        }
+    }
+    
     paramType* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
     hostParam[25] = param.gapOpen;
@@ -2580,7 +2575,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     hostParam[28] = param.xdrop;
 
     tbb::mutex memMutex;
-    
     tbb::this_task_arena::isolate( [&]{
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
     for (int nIdx = range.begin(); nIdx < range.end(); ++nIdx) {
@@ -2598,15 +2592,26 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         
         int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
         int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
-        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
         int32_t newRef = refLen, newQry = qryLen;
         float refWeight = 0.0, qryWeight = 0.0;
-        for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        
+        if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+        if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
         calculateProfileFreq(hostFreq, hostGapOp, tree, nodes[nIdx], util, seqLen, param);
+        float refNum_f = 0, qryNum_f = 0;
+        for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
+        for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
+        int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
+        int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
+        
         if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
+        // if (util->nowProcess) {
+        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+0] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostGapEx[seqLen+i] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostGapOp[seqLen+i] << ',';
+        // std::cout << '\n';
+        // }
         
         // Start alignment
         std::vector<int8_t> aln_old, aln;
@@ -2652,17 +2657,20 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         std::pair<int, int> debugIdx;
         addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
         assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-        {
+        if (util->nowProcess < 2) {{
             tbb::mutex::scoped_lock lock(memMutex);
             util->memCheck(aln.size());
-        }
+        }}
         {
             tbb::mutex::scoped_lock lock(memMutex);
-            updateAlignment(tree, nodes[nIdx], util, aln);
+            updateAlignment(tree, nodes[nIdx], util, aln); 
         }
         if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
             updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
-        }   
+        }
+         
+        
+         
         assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
         free(hostFreq);
         free(hostGapOp);
@@ -2721,77 +2729,103 @@ void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::ut
 
 void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t seqLen, Params& param) {
     int32_t refLen = util->seqsLen[nodes.first->identifier];
-    int32_t qryLen = util->seqsLen[nodes.second->identifier];
+    int32_t qryLen = util->seqsLen[nodes.second->identifier];    
     int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
     int32_t qryNum = tree->allNodes[nodes.second->identifier]->msaIdx.size();
-    int32_t numThreshold = 1000;
-    float refWeight = 0.0, qryWeight = 0.0;
-    for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-    for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-    if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
-        for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx) { 
-            int storage = util->seqsStorage[sIdx];
-            std::string name = util->seqsName[sIdx];
-            float w = tree->allNodes[name]->weight / refWeight * refNum;
-            tbb::this_task_arena::isolate( [&]{
-            tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
-            for (int s = r.begin(); s < r.end(); ++s) {
-                if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*s+0]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*s+1]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*s+2]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                         util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*s+3]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*s+4]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*s+5]+=1.0*w;
+        
+    if (util->nowProcess < 2) {
+        int32_t numThreshold = 1000;
+        float refWeight = 0.0, qryWeight = 0.0;
+        for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+        for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+        if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
+            for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx) { 
+                int storage = util->seqsStorage[sIdx];
+                std::string name = util->seqsName[sIdx];
+                float w = tree->allNodes[name]->weight / refWeight * refNum;
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+                for (int s = r.begin(); s < r.end(); ++s) {
+                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*s+0]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*s+1]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*s+2]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
+                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*s+3]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*s+4]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*s+5]+=1.0*w;
+                }
+                });
+                });
             }
-            });
-            });
+            if (refNum >= numThreshold || qryNum > numThreshold) {
+                std::vector<std::vector<float>> freq (refLen, std::vector<float>(6,0.0));
+                tree->allNodes[nodes.first->identifier]->msaFreq = freq;
+                for (int s = 0; s < refLen; ++s) for (int t = 0; t < 6; ++t) tree->allNodes[nodes.first->identifier]->msaFreq[s][t] = hostFreq[6*s+t] / refNum * refWeight;
+            }
         }
-        if (refNum >= numThreshold || qryNum > numThreshold) {
-            std::vector<std::vector<float>> freq (refLen, std::vector<float>(6,0.0));
-            tree->allNodes[nodes.first->identifier]->msaFreq = freq;
-            for (int s = 0; s < refLen; ++s) for (int t = 0; t < 6; ++t) tree->allNodes[nodes.first->identifier]->msaFreq[s][t] = hostFreq[6*s+t] / refNum * refWeight;
+        else {
+            for (int s = 0; s < tree->allNodes[nodes.first->identifier]->msaFreq.size(); ++s) {
+                for (int t = 0; t < 6; ++t) hostFreq[6*s+t] = tree->allNodes[nodes.first->identifier]->msaFreq[s][t] / refWeight * refNum;
+            }
         }
+        if (tree->allNodes[nodes.second->identifier]->msaFreq.empty()) { 
+            for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) { 
+                int storage = util->seqsStorage[sIdx];
+                std::string name = util->seqsName[sIdx];
+                float w = tree->allNodes[name]->weight / qryWeight * qryNum;
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
+                for (int s = r.begin(); s < r.end(); ++s) {
+                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*(seqLen+s)+0]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*(seqLen+s)+1]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*(seqLen+s)+2]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
+                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*(seqLen+s)+3]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*(seqLen+s)+4]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*(seqLen+s)+5]+=1.0*w;
+                }
+                });
+                });
+            }
+            if (qryNum >= numThreshold || refNum >= numThreshold) {
+                std::vector<std::vector<float>> freq (qryLen, std::vector<float>(6,0.0));
+                tree->allNodes[nodes.second->identifier]->msaFreq = freq;
+                for (int i = 0; i < qryLen; ++i) for (int j = 0; j < 6; ++j) tree->allNodes[nodes.second->identifier]->msaFreq[i][j] = hostFreq[6*(seqLen+i)+j] / qryNum * qryWeight;
+            }
+        }
+        else {
+            for (int s = 0; s < tree->allNodes[nodes.second->identifier]->msaFreq.size(); ++s) {
+                for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = tree->allNodes[nodes.second->identifier]->msaFreq[s][t] / qryWeight * qryNum;
+            }
+        } 
     }
     else {
+        float refNum_f = 0, qryNum_f = 0;
+        int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
+        int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
+            tree->allNodes[nodes.first->identifier]->msaFreq = util->profileFreq[subtreeRef];
+        }
+        if (tree->allNodes[nodes.second->identifier]->msaFreq.empty()) {
+            tree->allNodes[nodes.second->identifier]->msaFreq = util->profileFreq[subtreeQry];
+        }
+        for (int t = 0; t < 6; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
+        for (int t = 0; t < 6; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
+        refNum = static_cast<int32_t>(round(refNum_f));
+        qryNum = static_cast<int32_t>(round(qryNum_f));
+        
         for (int s = 0; s < tree->allNodes[nodes.first->identifier]->msaFreq.size(); ++s) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*s+t] = tree->allNodes[nodes.first->identifier]->msaFreq[s][t] / refWeight * refNum;
+            for (int t = 0; t < 6; ++t) hostFreq[6*s+t] = tree->allNodes[nodes.first->identifier]->msaFreq[s][t];
         }
-    }
-    if (tree->allNodes[nodes.second->identifier]->msaFreq.empty()) { 
-        for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) { 
-            int storage = util->seqsStorage[sIdx];
-            std::string name = util->seqsName[sIdx];
-            float w = tree->allNodes[name]->weight / qryWeight * qryNum;
-            tbb::this_task_arena::isolate( [&]{
-            tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
-            for (int s = r.begin(); s < r.end(); ++s) {
-                if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*(seqLen+s)+0]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*(seqLen+s)+1]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*(seqLen+s)+2]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                         util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*(seqLen+s)+3]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*(seqLen+s)+4]+=1.0*w;
-                else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*(seqLen+s)+5]+=1.0*w;
-            }
-            });
-            });
-        }
-        if (qryNum >= numThreshold || refNum >= numThreshold) {
-            std::vector<std::vector<float>> freq (qryLen, std::vector<float>(6,0.0));
-            tree->allNodes[nodes.second->identifier]->msaFreq = freq;
-            for (int i = 0; i < qryLen; ++i) for (int j = 0; j < 6; ++j) tree->allNodes[nodes.second->identifier]->msaFreq[i][j] = hostFreq[6*(seqLen+i)+j] / qryNum * qryWeight;
-        }
-    }
-    else {
         for (int s = 0; s < tree->allNodes[nodes.second->identifier]->msaFreq.size(); ++s) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = tree->allNodes[nodes.second->identifier]->msaFreq[s][t] / qryWeight * qryNum;
-        }
-    } 
-    // calculate gap-opne penalty (Clustalw's method)
+            for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = tree->allNodes[nodes.second->identifier]->msaFreq[s][t];
+        }  
+             
+    }
+    // Clustalw's method
     for (int s = 0; s < refLen; ++s) {
         if (hostFreq[6*s+5] > 0) {
-            hostGapOp[s] = param.gapOpen * 0.3 * ((refNum-hostFreq[6*s+5]) * 1.0 / refNum);
+            hostGapOp[s] = param.gapOpen * 0.3 * ((refNum-hostFreq[6*s+5])*1.0 / refNum);
         }
         else {
             int backSites = 8;
@@ -2824,7 +2858,7 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
             }
             hostGapOp[seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
         }
-    }
+    }   
     return;
 }
 
@@ -2840,7 +2874,6 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
     for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
     int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes.first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
     int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes.second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
-    
     while (true) {
         if (rawIdx >= refLen) {
             for (int i = newIdx; i < refLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*i+j] = 0;
@@ -2932,89 +2965,170 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
 }
 
 void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, std::vector<int8_t>& aln) {
-    tbb::this_task_arena::isolate( [&]{
-    tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodes.first->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
-    for (int idx = range.begin(); idx < range.end(); ++idx) {
-        int sIdx = tree->allNodes[nodes.first->identifier]->msaIdx[idx];  
-    // for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
-        int orgIdx = 0;
-        int storeFrom = util->seqsStorage[sIdx];
-        int storeTo = 1 - storeFrom;
-        for (int k = 0; k < aln.size(); ++k) {
-            if (aln[k] == 0 || aln[k] == 2) {
-                util->alnStorage[storeTo][sIdx][k] = util->alnStorage[storeFrom][sIdx][orgIdx];
-                orgIdx++;
+    if (util->nowProcess < 2) {
+        tbb::this_task_arena::isolate( [&]{
+        tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodes.first->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
+        for (int idx = range.begin(); idx < range.end(); ++idx) {
+            int sIdx = tree->allNodes[nodes.first->identifier]->msaIdx[idx];  
+        // for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
+            int orgIdx = 0;
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - storeFrom;
+            for (int k = 0; k < aln.size(); ++k) {
+                if (aln[k] == 0 || aln[k] == 2) {
+                    util->alnStorage[storeTo][sIdx][k] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                    orgIdx++;
+                }
+                else {
+                    util->alnStorage[storeTo][sIdx][k] = '-';
+                }
             }
-            else {
-                util->alnStorage[storeTo][sIdx][k] = '-';
-            }
+            util->changeStorage(sIdx);
         }
+        });
+        });
+        tbb::this_task_arena::isolate( [&]{
+        tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodes.second->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
+        for (int idx = range.begin(); idx < range.end(); ++idx) {
+           int sIdx = tree->allNodes[nodes.second->identifier]->msaIdx[idx];
+        // for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - util->seqsStorage[sIdx];
+            int orgIdx = 0;
+            for (int k = 0; k < aln.size(); ++k) {
+                // if ((hostAln[gn][n*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[gn][n*2*seqLen+j] & 0xFFFF) == 1) {
+                if ((aln[k] & 0xFFFF) == 0 || (aln[k] & 0xFFFF) == 1) {
+                    util->alnStorage[storeTo][sIdx][k] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                    orgIdx++;
+                }
+                else {
+                    util->alnStorage[storeTo][sIdx][k] = '-';
+                }
+            }
+            // util->seqsLen[nodes[nIdx].second->identifier] = hostAlnLen[gn][n];
+            util->changeStorage(sIdx);
+        }
+        });
+        });
         util->seqsLen[nodes.first->identifier] = aln.size();
-        util->changeStorage(sIdx);
-    }
-    });
-    });
-    tbb::this_task_arena::isolate( [&]{
-    tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodes.second->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
-    for (int idx = range.begin(); idx < range.end(); ++idx) {
-       int sIdx = tree->allNodes[nodes.second->identifier]->msaIdx[idx];
-    // for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
-        int storeFrom = util->seqsStorage[sIdx];
-        int storeTo = 1 - util->seqsStorage[sIdx];
-        int orgIdx = 0;
-        for (int k = 0; k < aln.size(); ++k) {
-            // if ((hostAln[gn][n*2*seqLen+j] & 0xFFFF) == 0 || (hostAln[gn][n*2*seqLen+j] & 0xFFFF) == 1) {
-            if ((aln[k] & 0xFFFF) == 0 || (aln[k] & 0xFFFF) == 1) {
-                util->alnStorage[storeTo][sIdx][k] = util->alnStorage[storeFrom][sIdx][orgIdx];
-                orgIdx++;
-            }
-            else {
-                util->alnStorage[storeTo][sIdx][k] = '-';
-            }
-        }
-        // util->seqsLen[nodes[nIdx].second->identifier] = hostAlnLen[gn][n];
         util->seqsLen[nodes.second->identifier] = aln.size();  
-        util->changeStorage(sIdx);
+        for (auto q: tree->allNodes[nodes.second->identifier]->msaIdx) {
+            tree->allNodes[nodes.first->identifier]->msaIdx.push_back(q);
+        }
+        tree->allNodes[nodes.second->identifier]->msaIdx.clear();
     }
-    });
-    });
-    for (auto q: tree->allNodes[nodes.second->identifier]->msaIdx) {
-        tree->allNodes[nodes.first->identifier]->msaIdx.push_back(q);
+    else {
+        int seqLenR = util->seqsLen[nodes.first->identifier];
+        int seqLenQ = util->seqsLen[nodes.second->identifier];
+        if (tree->allNodes[nodes.first->identifier]->msa.empty())  tree->allNodes[nodes.first->identifier]->msa.push_back(nodes.first->identifier);
+        if (tree->allNodes[nodes.second->identifier]->msa.empty()) tree->allNodes[nodes.second->identifier]->msa.push_back(nodes.second->identifier);
+        for (auto seqName: tree->allNodes[nodes.first->identifier]->msa) {
+            std::vector<int8_t> seqAln;
+            int orgIdx = 0;
+            for (int k = 0; k < aln.size(); ++k) {
+                if (aln[k] == 0 || aln[k] == 2) {
+                    seqAln.push_back(tree->allNodes[seqName]->msaAln[orgIdx]);
+                    orgIdx++;
+                }
+                else {
+                    seqAln.push_back(3);
+                }
+            }
+            assert(orgIdx == tree->allNodes[seqName]->msaAln.size());
+            tree->allNodes[seqName]->msaAln = seqAln;
+            util->seqsLen[seqName] = aln.size();
+        }
+        for (auto seqName: tree->allNodes[nodes.second->identifier]->msa) {
+            std::vector<int8_t> seqAln;
+            int orgIdx = 0;
+            for (int k = 0; k < aln.size(); ++k) {
+                if (aln[k] == 0 || aln[k] == 1) {
+                    seqAln.push_back(tree->allNodes[seqName]->msaAln[orgIdx]);
+                    orgIdx++;
+                }
+                else {
+                    seqAln.push_back(3);
+                }
+            }
+            assert(orgIdx == tree->allNodes[seqName]->msaAln.size());
+            tree->allNodes[seqName]->msaAln = seqAln;
+            util->seqsLen[seqName] = aln.size();
+        }
+        for (auto q: tree->allNodes[nodes.second->identifier]->msa) {
+            tree->allNodes[nodes.first->identifier]->msa.push_back(q);
+        }
+        for (auto q: tree->allNodes[nodes.first->identifier]->msa) {
+            if (q != nodes.first->identifier) tree->allNodes[q]->msa = tree->allNodes[nodes.first->identifier]->msa;
+        }
     }
-    tree->allNodes[nodes.second->identifier]->msaIdx.clear();
     return;
 }
 
 void updateFrequency(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, std::vector<int8_t>& aln, float refWeight, float qryWeight, std::pair<int, int>& debugIdx) {
     int rIdx = 0, qIdx = 0;
     std::vector<std::vector<float>> mergeFreq(aln.size(), std::vector<float>(6,0.0));
-    for (int j = 0; j < aln.size(); ++j) {
-        if (aln[j] == 0) {
-            for (int k = 0; k < 6; ++k) mergeFreq[j][k] = 
-            (tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][k] + 
-            tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][k]);
-            ++rIdx; ++qIdx;
+    if (util->nowProcess < 2) {
+        for (int j = 0; j < aln.size(); ++j) {
+            if (aln[j] == 0) {
+                for (int k = 0; k < 6; ++k) mergeFreq[j][k] = 
+                (tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][k] + 
+                tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][k]);
+                ++rIdx; ++qIdx;
+            }
+            else if (aln[j] == 1) {
+                for (int k = 0; k < 5; ++k) mergeFreq[j][k] = 
+                tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][k];
+                mergeFreq[j][5] = (tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][5] + 1.0 * refWeight);
+                ++qIdx;
+            }
+            else if (aln[j] == 2) {
+                for (int k = 0; k < 5; ++k) mergeFreq[j][k] = 
+                tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][k]; 
+                mergeFreq[j][5] = (tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][5] + 1.0 * qryWeight);
+                ++rIdx;
+            }
+        }  
+        debugIdx.first = rIdx; debugIdx.second = qIdx;
+        tree->allNodes[nodes.first->identifier]->msaFreq.clear();
+        tree->allNodes[nodes.second->identifier]->msaFreq.clear();
+        tree->allNodes[nodes.first->identifier]->msaFreq = mergeFreq;
+    }
+    else {
+        float refNum_f = 0, qryNum_f = 0;
+        int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
+        int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        for (int t = 0; t < 6; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
+        for (int t = 0; t < 6; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
+        int32_t refNum = static_cast<int32_t>(round(refNum_f));
+        int32_t qryNum = static_cast<int32_t>(round(qryNum_f));
+        for (int j = 0; j < aln.size(); ++j) {
+            if (aln[j] == 0) {
+                for (int k = 0; k < 6; ++k) mergeFreq[j][k] = 
+                (tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][k] + 
+                tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][k]);
+                ++rIdx; ++qIdx;
+            }
+            else if (aln[j] == 1) {
+                for (int k = 0; k < 5; ++k) mergeFreq[j][k] = 
+                tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][k];
+                mergeFreq[j][5] = (tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][5] + 1.0 * refNum);
+                ++qIdx;
+            }
+            else if (aln[j] == 2) {
+                for (int k = 0; k < 5; ++k) mergeFreq[j][k] = 
+                tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][k]; 
+                mergeFreq[j][5] = (tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][5] + 1.0 * qryNum);
+                ++rIdx;
+            }
+        }  
+        debugIdx.first = rIdx; debugIdx.second = qIdx;
+        for (auto node: tree->allNodes[nodes.first->identifier]->msa) {
+            tree->allNodes[node]->msaFreq = mergeFreq;
+            assert(tree->allNodes[node]->msaFreq.size() == tree->allNodes[node]->msaAln.size());
         }
-        else if (aln[j] == 1) {
-            for (int k = 0; k < 5; ++k) mergeFreq[j][k] = 
-            tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][k];
-            mergeFreq[j][5] = (tree->allNodes[nodes.second->identifier]->msaFreq[qIdx][5] + 1.0 * refWeight);
-            ++qIdx;
-        }
-        else if (aln[j] == 2) {
-            for (int k = 0; k < 5; ++k) mergeFreq[j][k] = 
-            tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][k]; 
-            mergeFreq[j][5] = (tree->allNodes[nodes.first->identifier]->msaFreq[rIdx][5] + 1.0 * qryWeight);
-            ++rIdx;
-        }
-    }  
-    debugIdx.first = rIdx; debugIdx.second = qIdx;
-    tree->allNodes[nodes.first->identifier]->msaFreq.clear();
-    tree->allNodes[nodes.second->identifier]->msaFreq.clear();
-    tree->allNodes[nodes.first->identifier]->msaFreq = mergeFreq;
+    }
     return;
 }
-
 
 __global__ void calSPScore(char* seqs, int32_t* seqInfo, int64_t* result) {
     int32_t seqNum     = seqInfo[0]; 

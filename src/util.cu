@@ -192,17 +192,19 @@ void setOptions(po::variables_map& vm, msa::option* option) {
         gappyHorizon = 0;
     }
     std::string tempDir;
-    if (!vm.count("temp-dir")) tempDir =  "./temp";
-    else tempDir = vm["temp-dir"].as<std::string>();
-    if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
-    if (mkdir(tempDir.c_str(), 0777) == -1) {
-        if( errno == EEXIST ) {
-            std::cout << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
-            exit(1);
+    if (vm.count("max-subtree-size")) {
+        if (!vm.count("temp-dir")) tempDir =  "./temp";
+        else tempDir = vm["temp-dir"].as<std::string>();
+        if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
+        if (mkdir(tempDir.c_str(), 0777) == -1) {
+            if( errno == EEXIST ) {
+                std::cout << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
+                exit(1);
+            }
+            else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
         }
-        else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
+        else std::cout << tempDir << " created\n";
     }
-    else std::cout << tempDir << " created\n";
 
     std::string outType = vm["output-type"].as<std::string>();
     if (outType != "FASTA" && outType != "CIGAR") {
@@ -488,6 +490,9 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
         assert(idx == subtree);
         numbers.clear();
         util->seqsLen[subroot.first] = seqLen;
+        util->seqsIdx[subroot.first] = subtree;
+        util->seqsName[subtree] = subroot.first;
+        tree->allNodes[subroot.first]->msaAln = std::vector<int8_t> (seqLen, 0);
         if (seqLen > util->seqLen) util->seqLen = seqLen;
         util->profileFreq[subtree] = std::vector<std::vector<float>> (seqLen, std::vector<float> (6, 0.0));
         for (int t = 0; t < 6; ++t) {
@@ -946,7 +951,6 @@ void getPostOrderList(Node* node, std::stack<Node*>& postStack) {
     } 
     return;
 }
-
 
 // Regressive Method (not maintained)
 /*

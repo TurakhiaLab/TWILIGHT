@@ -43,7 +43,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
 void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
 void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInfo_t* partition, Params& param);
 void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option, Params& param);
-void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util);
+void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option, Params& param);
 
 void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
 void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t seqLen, Params& param);
