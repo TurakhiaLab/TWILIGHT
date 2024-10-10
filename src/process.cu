@@ -2376,7 +2376,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     exit(1);
                 }
 
-                if (rn % 10 == 0 && rn > 0) std::cout << rn*numBlocks << " pairs have been processed.\n";
+                if (rn % 10 == 0 && rn > 0 && option->printDetail) std::cout << rn*numBlocks << " pairs have been processed.\n";
                 
                 // tbb::this_task_arena::isolate( [&]{
                 // tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {

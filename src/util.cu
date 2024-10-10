@@ -292,7 +292,6 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
     
     std::map<std::string, std::pair<std::string, int>> seqs;
     
-    int othSeq = 0;
     while (kseq_read(kseq_rd) >= 0) {
         size_t seqLen = kseq_rd->seq.l;
         std::string seqName = kseq_rd->name.s;
@@ -799,9 +798,9 @@ void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx)
     std::string out_str = "";
 	getSubtreeNewick(tree->root, out_str);
 	out_str += ";\n";
-	std::ofstream outFile(subtreeFileName);
+	std::ofstream outFile(subtreeTreeFile);
     if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", subtreeFileName.c_str());
+        fprintf(stderr, "ERROR: cant open file: %s\n", subtreeTreeFile.c_str());
         exit(1);
     }
 	outFile << out_str;

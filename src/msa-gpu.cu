@@ -91,7 +91,7 @@ int main(int argc, char** argv) {
         int subtree = T->allNodes[subRoot.first]->grpID;
         if (P->partitionsRoot.size() > 1) std::cout << "Start processing subtree No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
         Tree* subT = new Tree(subRoot.second.first);
-        outputSubtree(subT, option, subtree);
+        if (P->partitionsRoot.size() > 1) outputSubtree(subT, option, subtree);
         util->setSubtreeIdx(subtree);
         readSequences(vm, util, option, subT);
         // std::cout << "Subtree No." << subtree << " contains "<< subT->m_numLeaves << " sequences.\n";
