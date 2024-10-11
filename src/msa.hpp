@@ -17,11 +17,7 @@
 #endif
 
 #ifndef SETTING_HPP
-#include "setting.cuh"
-#endif
-
-#ifndef ALIGN_HPP
-#include "align.cuh"
+#include "setting.hpp"
 #endif
 
 #ifndef TALCO_HPP
@@ -33,9 +29,7 @@
 #endif
 
 
-void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param);
 void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param);
-void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param);
 void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param);
 void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option);
 void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInfo_t* partition, Params& param);
@@ -49,6 +43,7 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
 void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, std::vector<int8_t>& aln);
 void updateFrequency(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, std::vector<int8_t>& aln, float refWeight, float qryWeight, std::pair<int, int>& debugIdx);
 
+double getSPScore_cpu(std::vector<std::string>& alignment, Params& param);
 void getPostOrderList(Node* node, std::stack<Node*>& postStack);
 void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrder, std::stack<Node*> postOrder, int grpID);
 

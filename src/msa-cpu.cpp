@@ -3,7 +3,7 @@
 #endif
 
 #ifndef PROCESS_HPP
-#include "msa.cuh"
+#include "msa.hpp"
 #endif
 
 po::options_description mainDesc("MSA Command Line Arguments");
@@ -15,7 +15,6 @@ void parseArguments(int argc, char** argv)
         ("tree,t", po::value<std::string>()->required(), "Initial Tree - Newick format (required)")
         ("sequences,i", po::value<std::string>()->required(), "Input tip sequences - Fasta format (required)")
         ("cpu-num,c",  po::value<int>(), "Number of CPU threads")
-        ("gpu-num,g",  po::value<int>(), "Number of GPUs")
         ("max-leaves,l",  po::value<int>(), "Maximum number of leaves per sub-subtree, used for transitivity merger")
         ("max-subtree-size,m", po::value<int>(), "Maximum number of leaves per subtree")
         ("output,o", po::value<std::string>(), "Output file name")
@@ -30,15 +29,12 @@ void parseArguments(int argc, char** argv)
         ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR")
         ("temp-dir", po::value<std::string>(), "Directory for storing temporary files")
         ("merge-subtrees", po::value<std::string>()->default_value("t"), "t: transitivity merger, p: progressive alignment")
-        ("gpu-index", po::value<std::string>(), "Specify the GPU index, separated by commas. Ex. 0,2,3")
         ("gappy-vertical", po::value<float>()->default_value(1), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column.")
         ("gappy-horizon", po::value<float>(), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment, have to be used with -o option")
         ("print-detail", "Print out every detail")
         ("debug", "Enable debug on the final alignment")
-        ("cpu-only", "Only using CPU to run the program")
         ("help,h", "Print help messages");
-
 }
 
 

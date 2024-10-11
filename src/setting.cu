@@ -1,5 +1,5 @@
 #ifndef SETTING_HPP
-#include "setting.hpp"
+#include "setting.cuh"
 #endif
 
 Params::Params(po::variables_map& vm) {
@@ -125,6 +125,48 @@ msa::option::option(po::variables_map& vm) {
     }
     printf("Maximum available CPU threads: %d. Using %d CPU threads.\n", maxCpuThreads, cpuNum);
     tbb::task_scheduler_init init(cpuNum);
+    int maxGpuNum;
+    cudaGetDeviceCount(&maxGpuNum);
+    int gpuNum = (vm.count("gpu-num")) ? vm["gpu-num"].as<int>() : maxGpuNum;
+    if (gpuNum <= 0) {
+        std::cerr << "ERROR: requested number of GPU <= 0.\n";
+        exit(1);
+    }
+    if (gpuNum > maxGpuNum) {
+        std::cerr << "ERROR: requested number of GPU more than available GPUs.\n";
+        exit(1);
+    }
+    std::vector<int> gpuIdx;
+    if (vm.count("gpu-index")) {
+        std::string gpuIdxString = vm["gpu-index"].as<std::string>();
+        std::string id = "";
+        for (int i = 0; i < gpuIdxString.size(); ++i) {
+            if (gpuIdxString[i] == ',') {
+                gpuIdx.push_back(std::atoi(id.c_str()));
+                id = "";
+            }
+            else if (i == gpuIdxString.size()-1) {
+                id += gpuIdxString[i];
+                gpuIdx.push_back(std::atoi(id.c_str()));
+                id = "";
+            }
+            else id += gpuIdxString[i];
+        }
+    }
+    else {
+        for (int i = 0; i < gpuNum; ++i) gpuIdx.push_back(i);
+    }
+    if (gpuIdx.size() != gpuNum) {
+        std::cerr << "ERROR: the number of requested GPUs does not match the number of specified gpu indexes.\n";
+        exit(1);
+    }
+    for (auto id: gpuIdx) {
+        if (id >= maxGpuNum) {
+            std::cerr << "ERROR: specified gpu index >= the number of GPUs\n";
+            exit(1);
+        }
+    }
+    printf("Maximum available GPUs: %d. Using %d GPUs.\n", maxGpuNum, gpuNum);
     float gappyVertical = vm["gappy-vertical"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
@@ -155,11 +197,13 @@ msa::option::option(po::variables_map& vm) {
         }
         else std::cout << tempDir << " created\n";
     }
+
     std::string outType = vm["output-type"].as<std::string>();
     if (outType != "FASTA" && outType != "CIGAR") {
         std::cerr << "ERROR: Unrecognized output type \"" << outType <<"\"\n";
         exit(1);
     }
+
     std::string merger = vm["merge-subtrees"].as<std::string>();
     if (merger == "T" || merger == "t") merger = "transitivity";
     else if (merger == "P" || merger == "p") merger = "progressive";
@@ -168,8 +212,8 @@ msa::option::option(po::variables_map& vm) {
         exit(1);
     }
     this->cpuNum = cpuNum; 
-    this->gpuNum = 0;
-    this->gpuIdx = std::vector<int> (0);
+    this->gpuNum = gpuNum;
+    this->gpuIdx = gpuIdx;
     this->maxSubtree = maxSubtreeSize;
     this->maxSubSubtree = maxSubSubtreeSize;
     this->debug = vm.count("debug");
@@ -181,7 +225,6 @@ msa::option::option(po::variables_map& vm) {
     this->merger = merger;
     this->printDetail = vm.count("print-detail");
 }
-
 
 void msa::utility::changeStorage(int idx) {
     this->seqsStorage[idx] = (seqsStorage[idx] == 0) ? 1 : 0;
