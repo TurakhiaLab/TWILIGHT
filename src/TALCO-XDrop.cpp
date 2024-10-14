@@ -335,7 +335,7 @@ void Talco_xdrop::Tile (
             if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                 // std::cout << "No more cells to compute based on x-drop critieria tile: " << tile << " k: " << k << " L: " << L[k%3] << " U: " <<U[k%3]+1 <<  std::endl;
                 // std::cout << "No more cells to compute based on x-drop critieria tile: " << tile << " k: " << k << " L: " << L[k%3] << " U: " <<U[k%3]+1 <<  std::endl;
-                printf("No more cells to compute based on x-drop critieria, ref(%d/%ld), qry(%d/%ld)\n", reference_idx, reference.size(), query_idx, query.size());
+                // printf("No more cells to compute based on x-drop critieria, ref(%d/%ld), qry(%d/%ld)\n", reference_idx, reference.size(), query_idx, query.size());
                 last_tile = true;
                 errorType = 1;
                 aln.clear();
@@ -343,7 +343,7 @@ void Talco_xdrop::Tile (
             }
             
             if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
-                fprintf(stderr, "ERROR: anti-diagonal larger than the max limit!\n");
+                // fprintf(stderr, "ERROR: anti-diagonal larger than the max limit!\n");
                 last_tile = true;
                 errorType = 2;
                 aln.clear();

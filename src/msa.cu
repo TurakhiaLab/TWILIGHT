@@ -2,11 +2,6 @@
 #include "msa.cuh"
 #endif
 
-
-bool cmp_msaIdx(Node* a, Node* b) {
-    return a->msaIdx.size() > b->msaIdx.size();
-}
-
 void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInfo_t* partition, Params& param) {
     
     auto progressiveStart = std::chrono::high_resolution_clock::now();
@@ -69,101 +64,71 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progessiveTime = progressiveEnd - progressiveStart;
     std::cout << "Progressive alignment in " <<  progessiveTime.count() / 1000000000 << " s\n";
-    
     if (util->badSequences.empty()) return;
+
+    // Adding bad sequences back
+    util->nowProcess = 1;
     auto badStart = std::chrono::high_resolution_clock::now();
-    std::cout << "Adding bad profiles back.\n";
-    
-    int levelThreshold = 0;
-    int maxIteration = 2;
-    int iteration = 0;
-    bool lastIter = false;
     std::map<std::string, int> NodeAlnOrder;
     std::vector<std::pair<std::pair<Node*, Node*>, int>> alnOrder;
-        
-    
-    while (!util->badSequences.empty() && iteration < maxIteration) {
-        if (lastIter || iteration == maxIteration-1) util->nowProcess = 1;
-        ++iteration;
-        hier.clear();
-        NodeAlnOrder.clear();
-        alnOrder.clear();
-        int badSeqBefore = 0, badSeqAfter = 0;
-        int badProfileBefore = 0, badProfileAfter = 0;
-        for (auto p: partition->partitionsRoot) {
-            if (util->badSequences.find(p.second.first->grpID) != util->badSequences.end()) {
-                auto badSeqName = util->badSequences[p.second.first->grpID];
-                std::vector<Node*> badSeqNode;
-                for (auto name: badSeqName) badSeqNode.push_back(T->allNodes[name]);
-                // Sort bad profiles based on number of sequences
-                std::sort(badSeqNode.begin(), badSeqNode.end(), cmp_msaIdx);
-                if (badSeqNode.size() > levelThreshold && levelThreshold != 0) {
-                    int tempSize = badSeqNode.size();
-                    for (int i = 0; i < tempSize-levelThreshold; ++i) {
-                        badSeqNode.pop_back();
-                    }
+    hier.clear();
+    int badSeqBefore = 0;
+    int badProfileBefore = 0;
+    for (auto p: partition->partitionsRoot) {
+        if (util->badSequences.find(p.second.first->grpID) != util->badSequences.end()) {
+            auto badSeqName = util->badSequences[p.second.first->grpID];
+            std::vector<Node*> badSeqNode;
+            for (auto name: badSeqName) badSeqNode.push_back(T->allNodes[name]);
+            badSeqName.clear();
+            for (auto node: badSeqNode) badSeqName.push_back(node->identifier);
+            badProfileBefore += badSeqNode.size();
+            for (auto n: badSeqName) badSeqBefore += T->allNodes[n]->msaIdx.size();
+            std::vector<std::string> nodeLeft;
+            while (badSeqName.size() > 1) {
+                nodeLeft.clear();
+                for (int i = 0; i < badSeqName.size()-1; i+=2) {
+                    int firstIdx  = (NodeAlnOrder.find(badSeqName[i]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[i]]+1 : 0;
+                    int secondIdx = (NodeAlnOrder.find(badSeqName[i+1]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[i+1]]+1 : 0;
+                    int maxIdx = max(firstIdx, secondIdx);
+                    NodeAlnOrder[badSeqName[i]] = maxIdx;
+                    NodeAlnOrder[badSeqName[i+1]] = maxIdx;
+                    alnOrder.push_back(std::make_pair(std::make_pair(T->allNodes[badSeqName[i]], T->allNodes[badSeqName[i+1]]), maxIdx));
+                    nodeLeft.push_back(badSeqName[i]);
                 }
-                badSeqName.clear();
-                for (auto node: badSeqNode) badSeqName.push_back(node->identifier);
-                badProfileBefore += badSeqNode.size();
-                for (auto n: badSeqName) badSeqBefore += T->allNodes[n]->msaIdx.size();
-                std::vector<std::string> nodeLeft;
-                while (badSeqName.size() > 1) {
-                    nodeLeft.clear();
-                    for (int i = 0; i < badSeqName.size()-1; i+=2) {
-                        int firstIdx  = (NodeAlnOrder.find(badSeqName[i]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[i]]+1 : 0;
-                        int secondIdx = (NodeAlnOrder.find(badSeqName[i+1]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[i+1]]+1 : 0;
-                        int maxIdx = max(firstIdx, secondIdx);
-                        NodeAlnOrder[badSeqName[i]] = maxIdx;
-                        NodeAlnOrder[badSeqName[i+1]] = maxIdx;
-                        alnOrder.push_back(std::make_pair(std::make_pair(T->allNodes[badSeqName[i]], T->allNodes[badSeqName[i+1]]), maxIdx));
-                        nodeLeft.push_back(badSeqName[i]);
-                    }
-                    if (badSeqName.size()%2 == 1) nodeLeft.push_back(badSeqName.back());
-                    badSeqName = nodeLeft;
-                }
-                assert(badSeqName.size() == 1);
-                int idx  = (NodeAlnOrder.find(badSeqName[0]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[0]]+1 : 0;
-                alnOrder.push_back(std::make_pair(std::make_pair(T->allNodes[p.second.first->identifier], T->allNodes[badSeqName[0]]), idx));
+                if (badSeqName.size()%2 == 1) nodeLeft.push_back(badSeqName.back());
+                badSeqName = nodeLeft;
             }
+            assert(badSeqName.size() == 1);
+            int idx  = (NodeAlnOrder.find(badSeqName[0]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[0]]+1 : 0;
+            alnOrder.push_back(std::make_pair(std::make_pair(T->allNodes[p.second.first->identifier], T->allNodes[badSeqName[0]]), idx));
         }
-        for (auto h: alnOrder) {
-            while (hier.size() < h.second+1) {
-                std::vector<std::pair<Node*, Node*>> temp;
-                hier.push_back(temp);
-            }
-            hier[h.second].push_back(h.first);
-        }
-        util->badSequences.clear();
-        level = 0;
-        if (!hier.empty()) {
-            std::cout << "Iteraton " << iteration-1 << ". Total " << hier.size() << " levels.\n";
-            for (auto m: hier) {
-                auto alnStart = std::chrono::high_resolution_clock::now();
-                if (option->cpuOnly || m.size() < 1000) msaGpu(T, m, util, option, param);
-                else                                    msaCpu(T, m, util, option, param);
-                auto alnEnd = std::chrono::high_resolution_clock::now();
-                std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-                if (option->printDetail) {
-                    if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
-                    else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
-                }
-                ++level;
-            }
-        }
-
-        for (auto bad: util->badSequences) badProfileAfter += bad.second.size();
-        for (auto bad: util->badSequences) for (auto name: bad.second) badSeqAfter += T->allNodes[name]->msaIdx.size();
-        if (badSeqBefore == badSeqAfter) lastIter = true;
-        std::cout << "== The number of Bad profiles/sequences ==\n";
-        std::cout << "Before: " << std::setw(5) << badProfileBefore << " / " << badSeqBefore << '\n';
-        std::cout << "After:  " << std::setw(5) << badProfileAfter << " / " << badSeqAfter << '\n';
-        std::cout << "==========================================\n";
     }
-
+    std::cout << "Adding bad profiles back. Total profiles/sequences: " << badProfileBefore << " / " << badSeqBefore << '\n';
+    for (auto h: alnOrder) {
+        while (hier.size() < h.second+1) {
+            std::vector<std::pair<Node*, Node*>> temp;
+            hier.push_back(temp);
+        }
+        hier[h.second].push_back(h.first);
+    }
+    util->badSequences.clear();
+    level = 0;
+    if (!hier.empty()) {
+        // std::cout << "Iteraton " << iteration-1 << ". Total " << hier.size() << " levels.\n";
+        for (auto m: hier) {
+            auto alnStart = std::chrono::high_resolution_clock::now();
+            msaCpu(T, m, util, option, param);auto alnEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+            if (option->printDetail) {
+                if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
+                else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
+            }
+            ++level;
+        }
+    }
     auto badEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds badTime = badEnd - badStart;
-    std::cout << "Added bad profiles in " <<  badTime.count() / 1000000000 << " s\n";
+    std::cout << "Added bad profiles/sequences in " <<  badTime.count() / 1000000000 << " s\n";
     return;
 }
 
@@ -189,7 +154,6 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         T->allNodes[n.first]->msa.clear();
         T->allNodes[n.first]->msa.push_back(n.first);
     }
-    
     std::vector<std::pair<Node*, Node*>> mergePairs;
     for (auto n: newT->allNodes) {
         if (n.second->children.size() > 1) {
@@ -742,11 +706,11 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 errorType
             );
             if (errorType == 1) {
-                std::cout << "Updated x-drop value on No. " << nIdx << '\n';
+                // if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << '\n';
                 talco_params.updateXDrop(talco_params.xdrop << 1);
             }
             if (errorType == 2) {
-                std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+                // if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
                 talco_params.updateFLen(talco_params.fLen << 1);
             }
         }
@@ -2214,7 +2178,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     exit(1);
                 }
 
-                if (rn % 10 == 0 && rn > 0 && option->printDetail) std::cout << rn*numBlocks << " pairs have been processed.\n";
+                if (rn % 10 == 0 && rn > 0 && option->printDetail) std::cout << rn*numBlocks << " pairs processed.\n";
                 
                 // tbb::this_task_arena::isolate( [&]{
                 // tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
@@ -2232,52 +2196,6 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
                     if (hostAlnLen[gn][n] <= 0) {
                         cpuFallback[nIdx] = true;
-                        if (util->nowProcess == 1) {
-                            std::vector<std::vector<float>> freqRef (hostLen[gn][2*n], std::vector<float> (6, 0.0));
-                            std::vector<std::vector<float>> freqQry (hostLen[gn][2*n+1], std::vector<float> (6, 0.0));
-                            std::vector<std::vector<float>> gapOp (2), gapEx (2), gapCl (2);
-                            
-                            for (int s = 0; s < hostLen[gn][2*n]; s++)   for (int t = 0; t < 6; ++t) freqRef[s][t] = hostFreq[gn][12*seqLen*n+6*s+t];
-                            for (int s = 0; s < hostLen[gn][2*n+1]; s++) for (int t = 0; t < 6; ++t) freqQry[s][t] = hostFreq[gn][12*seqLen*n+6*(seqLen+s)+t];
-                            for (int r = 0; r < hostLen[gn][2*n]; ++r) {
-                                gapOp[0].push_back(hostGapOp[gn][2*n*seqLen+r]);
-                                gapEx[0].push_back(hostGapEx[gn][2*n*seqLen+r]);
-                                gapCl[0].push_back(hostGapCl[gn][2*n*seqLen+r]);
-                            }
-                            for (int q = 0; q < hostLen[gn][2*n+1]; ++q) {
-                                gapOp[1].push_back(hostGapOp[gn][2*n*seqLen+seqLen+q]);
-                                gapEx[1].push_back(hostGapEx[gn][2*n*seqLen+seqLen+q]);
-                                gapCl[1].push_back(hostGapCl[gn][2*n*seqLen+seqLen+q]);
-                            }
-                            std::pair<int32_t, int32_t> num = std::make_pair(refNum, qryNum);
-                            Talco_xdrop::Params talco_params(hostParam);
-                            while (aln_old.empty()) {
-                                int16_t errorType = 0;
-                                Talco_xdrop::Align_freq (
-                                    talco_params,
-                                    freqRef,
-                                    freqQry,
-                                    gapOp,
-                                    gapEx,
-                                    gapCl,
-                                    num,
-                                    aln_old,
-                                    errorType
-                                );
-                                // assert((aln.empty() && errorType != 0) || (!aln.empty() && errorType == 0));
-                                if (errorType == 1) {
-                                    std::cout << "Updated x-drop value on No. " << nIdx << '\n';
-                                    talco_params.updateXDrop(talco_params.xdrop << 1);
-                                }
-                                if (errorType == 2) {
-                                    std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
-                                    talco_params.updateFLen(talco_params.fLen << 1);
-                                }
-                            }
-                            addGappyColumnsBack(aln_old, aln, gappyColumns[n], debugIdx);
-                            assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-                            printf("CPU fallback on No. %d (%s), Alignment Length: %lu\n", nIdx, nodes[nIdx].first->identifier.c_str(), aln.size());
-                        }
                     }
                     else {
                         for (int j = 0; j < hostAlnLen[gn][n]; ++j) aln_old.push_back(hostAln[gn][n*2*seqLen+j]);
@@ -2322,7 +2240,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         cudaDeviceSynchronize();  
         std::string freeErr = cudaGetErrorString(cudaGetLastError());
         if (freeErr != "no error") {
-            printf("ERROR: Free memory Last%s!\n", freeErr.c_str());
+            printf("CUDA_ERROR: Free memory %s!\n", freeErr.c_str());
             exit(1);
         }
         free(hostFreq[gn]);
@@ -2365,7 +2283,8 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         return;
     }
     if (util->nowProcess == 0) {
-        std::cout << "Bad alignments. Num of pairs: " << fallbackPairs.size() << '\n';
+        // std::cout << "Bad alignments. Num of pairs: " << fallbackPairs.size() << '\n';
+        int totalSeqs = 0;
         for (int i = 0; i < fallbackPairs.size(); ++i) {
             int nIdx = fallbackPairs[i];
             int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
@@ -2379,20 +2298,28 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 // proceed with qry and store ref as bad sequences
                 int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
                 int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-
                 util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
                 util->seqsLen[nodes[nIdx].second->identifier] = refLen;
                 util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
                 auto temp = nodes[nIdx].second->msaIdx;
                 tree->allNodes[nodes[nIdx].second->identifier]->msaIdx = nodes[nIdx].first->msaIdx;
                 tree->allNodes[nodes[nIdx].first->identifier]->msaIdx = temp;
-                std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << refNum <<" seqeuences).\n";
+                // std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << refNum <<" seqeuences).\n";
+                totalSeqs += refNum;
             }
             else {
                 util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
-                std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << qryNum <<" seqeuences).\n";
+                // std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << qryNum <<" seqeuences).\n";
+                totalSeqs += qryNum;
             }
         }
+        if (option->printDetail) {
+            if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring 1 pair (1 sequence).\n";
+            if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
+            else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
+        }
+        
+        
     }
     free(hostParam);
             

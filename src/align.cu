@@ -208,7 +208,7 @@ __global__ void alignGrpToGrp_talco(float* freq, int8_t *aln, int32_t* len, int3
                         int16_t pos_gapOpen_ref = __float2int_rn(gapOpen[2*bx*seqLen+reference_idx+j]);
                         int16_t pos_gapOpen_qry = __float2int_rn(gapOpen[(2*bx+1)*seqLen+query_idx+i]);
                         int16_t pos_gapExtend_ref = __float2int_rn(p_gapExtend*(1-ger));
-                        int16_t pos_gapExtend_qry = __float2int_rn(p_gapExtend*(1-ger));
+                        int16_t pos_gapExtend_qry = __float2int_rn(p_gapExtend*(1-geq));
                         
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                             // delOp =  S[(k+2)%3*fLen+offsetUp] + p_gapOpen;
