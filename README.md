@@ -15,7 +15,7 @@ make msa-accel
 ```
 ./msa-accel -h
 ```
-### Run with default settings
+### Run with the removing-gappy-column feature (Recommanded)
 ```
 ./msa-accel -t <tree file> -i <sequence file> -o <output file>
 ```
@@ -23,11 +23,8 @@ make msa-accel
 ```
 ./msa-accel -t <tree file> -i <sequence file> -o <output file> -l <maximum subtree size>
 ```
-### Run with the removing-gappy-column feature (Recommanded)
-```
-./msa-accel -t <tree file> -i <sequence file> -o <output file> --gappy-vertical 0.9 --gappy-horizon 1
-```
+
 ### For large dataset, align subtrees sequentially to reduce memory usage
 ```
-./msa-accel -t <tree file> -i <sequence file> -o <output file> --gappy-vertical 0.9 --gappy-horizon 1 --temp-dir <directory for stoting temporary files> -m <maximum subtree size> --merge-subtree <merger method>
+./msa-accel -t <tree file> -i <sequence file> -o <output file> --temp-dir <directory for storing temporary files> -m <maximum subtree size> --merge-subtree <merger method>
 ```
