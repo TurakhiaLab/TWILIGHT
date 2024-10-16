@@ -385,6 +385,10 @@ void Talco_xdrop::Tile (
                     }
                             
                     denominator = refNum * qryNum;
+                    // if (i ==  (U[k%3]+1-L[k%3])/2 && refNum > 3000 && qryNum > 3000) {
+                    //     std::cout << refNum << '\t' << qryNum << '\t' << refNum*qryNum << '\n';
+                    // }
+                    
                     similarScore = static_cast<int32_t>(std::round(numerator/denominator));
                     // if (i ==  (U[k%3]+1-L[k%3])/2 && refNum > 3000 && qryNum > 3000) printf("%d, %f, %f\n",similarScore, numerator, denominator);
                     

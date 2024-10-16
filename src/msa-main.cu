@@ -2,7 +2,7 @@
 #include "util.hpp"
 #endif
 
-#ifndef PROCESS_HPP
+#ifndef MSAGPU_HPP
 #include "msa-gpu.cuh"
 #endif
 
