@@ -15,7 +15,7 @@ make msa-accel
 ```
 ./msa-accel -h
 ```
-### Run with the removing-gappy-column feature (Recommanded)
+### Run with the default setting
 ```
 ./msa-accel -t <tree file> -i <sequence file> -o <output file>
 ```
