@@ -579,15 +579,15 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
         int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
         
-        if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
-        if (nodes.size() == 1) {
-        for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+0] << ',';
-        std::cout << '\n';
-        for (int i = 0; i < 50; ++i) std::cout << hostGapEx[seqLen+i] << ',';
-        std::cout << '\n';
-        for (int i = 0; i < 50; ++i) std::cout << hostGapOp[seqLen+i] << ',';
-        std::cout << '\n';
-        }
+        // if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
+        // if (nodes.size() == 1) {
+        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+0] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostGapEx[seqLen+i] << ',';
+        // std::cout << '\n';
+        // for (int i = 0; i < 50; ++i) std::cout << hostGapOp[seqLen+i] << ',';
+        // std::cout << '\n';
+        // }
         
         // Start alignment
         std::vector<int8_t> aln_old, aln;

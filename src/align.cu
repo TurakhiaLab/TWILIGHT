@@ -558,16 +558,10 @@ __global__ void alignGrpToGrp_talco(float* freq, int8_t *aln, int32_t* len, int3
                         last_tile = true;
                     }
                 }
-            }
-            __syncthreads();
-            if (tx == 0) {
                 alnLen[bx] += txNum;
-            }
-            if (tx == 0) {
                 idx[0] = reference_idx;
                 idx[1] = query_idx;
             }
-            __syncthreads();
             tile++;
         }
         __syncthreads();
