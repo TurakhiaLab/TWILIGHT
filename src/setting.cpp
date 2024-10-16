@@ -180,6 +180,7 @@ msa::option::option(po::variables_map& vm) {
     this->outType = outType;
     this->merger = merger;
     this->printDetail = vm.count("print-detail");
+    this->deleteTemp = vm.count("keep-temp");
 }
 
 

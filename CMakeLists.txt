@@ -10,24 +10,25 @@ if(CMAKE_CUDA_COMPILER)
 	set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
 	find_package(CUDA 10.0 REQUIRED)
 	set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_86 -lineinfo")
-	set(SRC_FILES src/msa-gpu.cu
+	set(SRC_FILES src/msa-main.cu
 				  src/align.cu	
-				  src/tree.cpp
-				  src/setting.cu
-				  src/treePartition.cpp
-				  src/TALCO-XDrop.cpp
-				  src/util.cpp
-				  src/msa.cu
-				  )
-else()
-  	message(STATUS "No CUDA support.")
-	set(SRC_FILES src/msa-cpu.cpp
+				  src/msa-gpu.cu
 				  src/tree.cpp
 				  src/setting.cpp
 				  src/treePartition.cpp
 				  src/TALCO-XDrop.cpp
 				  src/util.cpp
-				  src/msa.cpp
+				  src/msa-cpu.cpp
+				  )
+else()
+  	message(STATUS "No CUDA support.")
+	set(SRC_FILES src/msa-main.cpp
+				  src/tree.cpp
+				  src/setting.cpp
+				  src/treePartition.cpp
+				  src/TALCO-XDrop.cpp
+				  src/util.cpp
+				  src/msa-cpu.cpp
 	              )	
 endif()
 

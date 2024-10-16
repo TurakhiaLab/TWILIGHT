@@ -374,6 +374,8 @@ void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tr
     if (util->nowProcess == 2) {
         std::string command = "cat " + option->tempDir + "/*.final.aln > " + fileName;
         system(command.c_str());
+        command = "rm -rf " + option->tempDir;
+        system(command.c_str());
         return;
     }
     std::ofstream outFile(fileName);

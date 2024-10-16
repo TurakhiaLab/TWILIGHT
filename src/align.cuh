@@ -1,17 +1,7 @@
 #ifndef ALIGN_HPP
 #define ALIGN_HPP
 
-#include <string>
-#include <vector>
-#include <iostream>
-#include <cmath>
 #include <bits/stdc++.h>
-#include <tbb/parallel_for.h>
-
-
-#ifndef SETTING_HPP
-#include "setting.cuh"
-#endif
 
 const int FRONT_WAVE_LEN = 1024+512;
 const int THREAD_NUM = 256;

@@ -20,7 +20,7 @@
 #endif
 
 #ifndef SETTING_HPP
-#include "setting.cuh"
+#include "setting.hpp"
 #endif
 
 #ifndef TALCO_HPP

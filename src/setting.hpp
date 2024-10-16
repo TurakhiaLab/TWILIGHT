@@ -66,6 +66,7 @@ namespace msa
         std::string tempDir;
         std::string merger;
         bool printDetail;
+        bool deleteTemp;
         option(po::variables_map& vm);
     };
 
