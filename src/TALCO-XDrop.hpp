@@ -40,30 +40,7 @@ namespace Talco_xdrop {
             this->marker = (1 << 10); //reduce this value to save memory
         }
     };
-    // struct Params 
-    // {
-    //     int16_t match;
-    //     int16_t mismatch;
-    //     int16_t gapOpen;
-    //     int16_t gapExtend;
-
-    //     int16_t xdrop;
-    //     int16_t marker;
-    //     int16_t scoreMode;
-
-    //     int16_t hoxd70 [5][5] = { {  91, -114,  -31, -123, -100},
-    //                             {-114,  100, -125,  -31, -100},
-    //                             { -31, -125,  100, -114, -100},
-    //                             {-123,  -31, -114,   91, -100},
-    //                             {-100, -100, -100, -100, -100} }; 
     
-    //     int16_t hoxd70_gapOpen = -400;
-    //     int16_t hoxd70_gapExtend = -30;
-
-    //     Params(int16_t t_match, int16_t t_mismatch, int16_t t_gapOpen, int16_t t_gapExtend, int16_t t_xdrop, int16_t scoreMode) : 
-    //         match(t_match), mismatch(t_mismatch), gapOpen(t_gapOpen), gapExtend(t_gapExtend), xdrop(t_xdrop), scoreMode(scoreMode) {}
-    // };
-
     void Align_freq (
         Params params,
         // const std::vector<std::string>& reference,
@@ -73,7 +50,7 @@ namespace Talco_xdrop {
         const std::vector<std::vector<float>>& gapOp,
         const std::vector<std::vector<float>>& gapEx,
         const std::vector<std::vector<float>>& gapCl,
-        const std::pair<int32_t, int32_t>& num,
+        const std::pair<float, float>& num,
         std::vector<int8_t>& aln,
         int16_t& errorType
         // size_t num_alignments
@@ -87,7 +64,7 @@ namespace Talco_xdrop {
         const std::vector<std::vector<float>>& gapOp,
         const std::vector<std::vector<float>>& gapEx,
         const std::vector<std::vector<float>>& gapCl,
-        const std::pair<int32_t, int32_t>& num,
+        const std::pair<float, float>& num,
         Params params,
         int32_t &reference_idx,
         int32_t &query_idx,

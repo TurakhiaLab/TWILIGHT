@@ -9,7 +9,7 @@ void Talco_xdrop::Align_freq (
     const std::vector<std::vector<float>>& gapOp,
     const std::vector<std::vector<float>>& gapEx,
     const std::vector<std::vector<float>>& gapCl,
-    const std::pair<int32_t, int32_t>& num,
+    const std::pair<float, float>& num,
     std::vector<int8_t>& aln,
     int16_t& errorType
     // size_t num_alignments
@@ -250,7 +250,7 @@ void Talco_xdrop::Tile (
     const std::vector<std::vector<float>>& gapOp,
     const std::vector<std::vector<float>>& gapEx,
     const std::vector<std::vector<float>>& gapCl,   
-    const std::pair<int32_t, int32_t>& num,
+    const std::pair<float, float>& num,
     Params param,
     int32_t &reference_idx,
     int32_t &query_idx,
@@ -266,7 +266,7 @@ void Talco_xdrop::Tile (
         int32_t marker = param.marker;
         int32_t fLen = param.fLen;
         bool converged = false; bool conv_logic = false;
-        int32_t refNum = num.first, qryNum = num.second; 
+        float refNum = num.first, qryNum = num.second; 
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
         int32_t score = 0; int32_t max_score = 0; int32_t max_score_prime = -inf; // int32_t max_score_ref_idx = 0; int32_t max_score_query_idx = 0;
@@ -327,15 +327,9 @@ void Talco_xdrop::Tile (
             fprintf(stderr, "ERROR: Reference/Query index exceeded limit!\n");
             exit(1); 
         }
-        // printf("Tile: %d (%d, %d)\n", tile, reference_length, query_length);
-        // printf("Tile: %d, refIdx: %d, qryIdx: %d, refLen: %d, qryLen: %d\n", tile, reference_idx, query_idx, reference_length, query_length);
-            
         for (int32_t k = 0; k < reference_length + query_length - 1; k++){
             // printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
             if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
-                // std::cout << "No more cells to compute based on x-drop critieria tile: " << tile << " k: " << k << " L: " << L[k%3] << " U: " <<U[k%3]+1 <<  std::endl;
-                // std::cout << "No more cells to compute based on x-drop critieria tile: " << tile << " k: " << k << " L: " << L[k%3] << " U: " <<U[k%3]+1 <<  std::endl;
-                // printf("No more cells to compute based on x-drop critieria, ref(%d/%ld), qry(%d/%ld)\n", reference_idx, reference.size(), query_idx, query.size());
                 last_tile = true;
                 errorType = 1;
                 aln.clear();
@@ -354,7 +348,6 @@ void Talco_xdrop::Tile (
                 ftr_length.push_back(U[k%3] - L[k%3] + 1);
                 ftr_lower_limit.push_back(L[k%3]);
                 ftr_addr += U[k%3] - L[k%3] + 1;
-                // std::cout << k << " ftr length: " << U[k%3] - L[k%3] + 1 << " ftr_addr: " << ftr_addr << " ftr lower limit: " << L[k%3] << " tb len: " << tb.size() << std::endl;
             }
             // if (tile == 0) printf("k:%d, i_st: %d, i_en: %d\n",k, L[k%3], U[k%3]+1);
             for (int32_t i = L[k%3]; i < U[k%3]+1; i++) { // i-> query_idx, j -> reference_idx
@@ -392,9 +385,8 @@ void Talco_xdrop::Tile (
                     }
                             
                     denominator = refNum * qryNum;
-                    
                     similarScore = static_cast<int32_t>(std::round(numerator/denominator));
-                    // if (i == 0) printf("%d, %f, %f\n",similarScore, numerator, denominator);
+                    // if (i ==  (U[k%3]+1-L[k%3])/2 && refNum > 3000 && qryNum > 3000) printf("%d, %f, %f\n",similarScore, numerator, denominator);
                     
                     if (offsetDiag < 0) match = similarScore + score_from_prev_tile;
                     else                match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;

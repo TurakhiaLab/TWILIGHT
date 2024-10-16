@@ -44,8 +44,8 @@ __global__ void alignGrpToGrp_talco(float* freq, int8_t *aln, int32_t* len, int3
         
         int32_t refLen = len[2*bx];
         int32_t qryLen = len[2*bx+1];
-        int32_t refNum = num[2*bx];
-        int32_t qryNum = num[2*bx+1];
+        float refNum =  __int2float_rn(num[2*bx]);
+        float qryNum =  __int2float_rn(num[2*bx+1]);
 
         
         float p_gapOpen = param[25];

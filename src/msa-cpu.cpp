@@ -580,14 +580,14 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
         
         if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
-        // if (util->nowProcess) {
-        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+0] << ',';
-        // std::cout << '\n';
-        // for (int i = 0; i < 50; ++i) std::cout << hostGapEx[seqLen+i] << ',';
-        // std::cout << '\n';
-        // for (int i = 0; i < 50; ++i) std::cout << hostGapOp[seqLen+i] << ',';
-        // std::cout << '\n';
-        // }
+        if (nodes.size() == 1) {
+        for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+0] << ',';
+        std::cout << '\n';
+        for (int i = 0; i < 50; ++i) std::cout << hostGapEx[seqLen+i] << ',';
+        std::cout << '\n';
+        for (int i = 0; i < 50; ++i) std::cout << hostGapOp[seqLen+i] << ',';
+        std::cout << '\n';
+        }
         
         // Start alignment
         std::vector<int8_t> aln_old, aln;
@@ -606,7 +606,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             gapEx[1].push_back(freqQry[q][5] / qryNum);
             gapCl[1].push_back(hostGapCl[seqLen+q]);
         }                 
-        std::pair<int32_t, int32_t> num = std::make_pair(refNum, qryNum);
+        std::pair<float, float> num = std::make_pair(static_cast<float>(refNum), static_cast<float>(qryNum));
         Talco_xdrop::Params talco_params(hostParam);
         while (aln_old.empty()) {
             int16_t errorType = 0;
@@ -708,7 +708,6 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
     int32_t qryLen = util->seqsLen[nodes.second->identifier];    
     int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
     int32_t qryNum = tree->allNodes[nodes.second->identifier]->msaIdx.size();
-        
     if (util->nowProcess < 2) {
         int32_t numThreshold = 1000;
         float refWeight = 0.0, qryWeight = 0.0;
