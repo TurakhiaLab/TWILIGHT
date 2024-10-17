@@ -231,6 +231,7 @@ Tree* readNewick(std::string treeFileName)
     return T;
 }
 
+
 void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util) {
     for (auto subroot:  partition->partitionsRoot) {
         int subtree = tree->allNodes[subroot.first]->grpID;
@@ -287,6 +288,22 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
     }
     return;
 }
+
+
+
+void updateSeqLen(Tree* tree, paritionInfo_t* partition, msa::utility* util) {
+    for (auto subroot:  partition->partitionsRoot) {
+        int subtree = tree->allNodes[subroot.first]->grpID;
+        int seqLen = util->profileFreq[subtree].size();
+        util->seqsLen[subroot.first] = seqLen;
+        util->seqsIdx[subroot.first] = subtree;
+        util->seqsName[subtree] = subroot.first;
+        tree->allNodes[subroot.first]->msaAln = std::vector<int8_t> (seqLen, 0);
+        if (seqLen > util->seqLen) util->seqLen = seqLen;
+    }
+    return;
+}
+
 
 void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
     util->seqsIdx.clear();
@@ -543,6 +560,28 @@ void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string>
     }
 
     outFile.close();
+}
+
+void storeFreq(msa::utility* util, Tree* T, int grpID) {
+    int seqLen = util->seqsLen[T->root->identifier];
+    util->profileFreq[grpID] = std::vector<std::vector<float>> (seqLen, std::vector<float> (6, 0.0));
+    float totalWeight = 0;
+    for (auto sIdx: T->root->msaIdx) totalWeight += T->allNodes[util->seqsName[sIdx]]->weight;
+    for (int sIdx: T->root->msaIdx) {
+        int storage = util->seqsStorage[sIdx];
+        std::string name = util->seqsName[sIdx];
+        float w = T->allNodes[name]->weight / totalWeight * T->root->numLeaves;
+        for (int j = 0; j <  seqLen; ++j) {
+            if      (util->alnStorage[storage][sIdx][j] == 'A' || util->alnStorage[storage][sIdx][j] == 'a') util->profileFreq[grpID][j][0]+=1*w;
+            else if (util->alnStorage[storage][sIdx][j] == 'C' || util->alnStorage[storage][sIdx][j] == 'c') util->profileFreq[grpID][j][1]+=1*w;
+            else if (util->alnStorage[storage][sIdx][j] == 'G' || util->alnStorage[storage][sIdx][j] == 'g') util->profileFreq[grpID][j][2]+=1*w;
+            else if (util->alnStorage[storage][sIdx][j] == 'T' || util->alnStorage[storage][sIdx][j] == 't' ||
+                     util->alnStorage[storage][sIdx][j] == 'U' || util->alnStorage[storage][sIdx][j] == 'u') util->profileFreq[grpID][j][3]+=1*w;
+            else if (util->alnStorage[storage][sIdx][j] == 'N' || util->alnStorage[storage][sIdx][j] == 'n') util->profileFreq[grpID][j][4]+=1*w;
+            else                                                                                             util->profileFreq[grpID][j][5]+=1*w;
+        }
+    }
+    return;
 }
 
 // auxiliary

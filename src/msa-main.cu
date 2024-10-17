@@ -183,11 +183,12 @@ int main(int argc, char** argv) {
         }
         // for (auto node: subT->allNodes) delete node.second;
         if (P->partitionsRoot.size() > 1) {
-            std::string tempDir = option->tempDir; 
-            std::string subtreeFileName = "subtree-" + std::to_string(subtree);
-            std::string subtreeAlnFile = tempDir + '/' + subtreeFileName + ".temp.aln";
-            std::string subtreeFreqFile = tempDir + '/' + subtreeFileName + ".freq.txt";
-            outputFreq(subtreeFreqFile, util, subT, subtree);
+            // std::string tempDir = option->tempDir; 
+            // std::string subtreeFileName = "subtree-" + std::to_string(subtree);
+            // std::string subtreeAlnFile = tempDir + '/' + subtreeFileName + ".temp.aln";
+            // std::string subtreeFreqFile = tempDir + '/' + subtreeFileName + ".freq.txt";
+            // outputFreq(subtreeFreqFile, util, subT, subtree);
+            storeFreq(util, subT, subtree);
             util->storeCIGAR();
             util->seqsFree();
             util->clearAll();
@@ -209,7 +210,8 @@ int main(int argc, char** argv) {
     
     if (P->partitionsRoot.size() > 1) {
         util->nowProcess = 2; // merge subtrees
-        readFreq(option->tempDir, T, P, util);
+        // readFreq(option->tempDir, T, P, util);
+        updateSeqLen(T, P, util);
         if (option->merger == "transitivity") {
             auto alnStart = std::chrono::high_resolution_clock::now();
             alignSubtrees (T, newT, util, option, *param);

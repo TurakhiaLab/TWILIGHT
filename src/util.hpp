@@ -48,6 +48,8 @@ void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, 
 void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string>& seqs);
 void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string>& seqs);
 
+void storeFreq(msa::utility* util, Tree* T, int grpID);
+void updateSeqLen(Tree* tree, paritionInfo_t* partition, msa::utility* util);
 // auxiliary
 bool cmp(std::string a, std::string b);
 void getSubtreeNewick(Node* root, std::string& outputString);
