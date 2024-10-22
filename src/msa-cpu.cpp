@@ -2,7 +2,7 @@
 #include "msa-cpu.hpp"
 #endif
 
-void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInfo_t* partition, Params& param) {
+void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionInfo_t* partition, Params& param) {
     
     auto progressiveStart = std::chrono::high_resolution_clock::now();
     std::vector<std::vector<std::pair<Node*, Node*>>> hier;
@@ -20,6 +20,10 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, paritionInf
             hier[h.second].push_back(h.first);
         }
     }
+    auto scheduleEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds scheduleTime = scheduleEnd - progressiveStart;
+    if (option->printDetail) std::cout << "Scheduled alignment in " <<  scheduleTime.count() / 1000 << " us\n";
+    
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;
     for (auto m: hier) {
@@ -670,7 +674,7 @@ void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::ut
             int grpID = node->grpID;
             for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
                 if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.second->identifier)) {
-                    if (node->children[childIndex]->is_leaf()) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
+                    // if (node->children[childIndex]->is_leaf()) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
                     tree->allNodes[n.first->identifier]->msaFreq = node->children[childIndex]->msaFreq;
                     node->children[childIndex]->msaFreq.clear();
                     tree->allNodes[n.first->identifier]->msaIdx = node->children[childIndex]->msaIdx;
@@ -687,7 +691,7 @@ void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::ut
             int grpID = node->grpID;
             for (int childIndex=0; childIndex<node->children.size(); childIndex++) {
                 if ((node->children[childIndex]->grpID == -1 || node->children[childIndex]->grpID == grpID) && (node->children[childIndex]->identifier != n.first->identifier)) {
-                    if (node->children[childIndex]->is_leaf()) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
+                    // if (node->children[childIndex]->is_leaf()) tree->allNodes[node->children[childIndex]->identifier]->msaIdx.push_back(util->seqsIdx[node->children[childIndex]->identifier]);
                     tree->allNodes[n.second->identifier]->msaFreq = node->children[childIndex]->msaFreq;
                     node->children[childIndex]->msaFreq.clear();
                     tree->allNodes[n.second->identifier]->msaIdx = node->children[childIndex]->msaIdx;
@@ -914,6 +918,8 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
                 for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
                 for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
             }
+            // for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+            // for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
             if (gapR) gappyColumns.first.pop();
             if (gapQ) gappyColumns.second.pop();
         }
@@ -1140,9 +1146,7 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
             }
             
         }
-        // Replace the first child with node
-        NodeAlnOrder[node->identifier] = (NodeAlnOrder.find(children[0]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[0]->identifier] : -1;
-        children[0] = node;
+        // Pair children
         while (children.size() > 1) {
             std::vector<Node*> nodeLeft;
             for (int i = 0; i < children.size()-1; i+=2) {
@@ -1157,6 +1161,35 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
             if (children.size()%2 == 1) nodeLeft.push_back(children.back());
             children = nodeLeft;
         }
+        NodeAlnOrder[node->identifier] = (NodeAlnOrder.find(children[0]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[0]->identifier] : -1;
+        // children[0] = node;
+        // std::map<int, std::vector<Node*>> childrenIdx;
+        // for (int i = 0; i < children.size(); ++i) {
+        //     int idx  = (NodeAlnOrder.find(children[i]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[i]->identifier]+1 : 0;
+        //     if (childrenIdx.find(idx) == childrenIdx.end()) childrenIdx[idx] = std::vector<Node*> (0);
+        //     childrenIdx[idx].push_back(children[i]);
+        // }
+        // int start = childrenIdx.begin()->first, end = childrenIdx.rbegin()->first + 1;
+        // for (int idx = start; idx < end; ++idx) {
+        //     if (childrenIdx.find(idx+1) == childrenIdx.end()) childrenIdx[idx+1] = std::vector<Node*> (0);
+        //     for (int i = 0; i < childrenIdx[idx].size()-1; i+=2) {
+        //         alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), idx));
+        //         childrenIdx[idx+1].push_back(children[i]);
+        //     }
+        //     if (childrenIdx[idx].size()%2 == 1) childrenIdx[idx+1].push_back(children.back());
+        // }
+        // int idx = end - 1;
+        // while (true) {
+        //     if (childrenIdx[idx].size() < 2) break;
+        //     if (childrenIdx.find(idx+1) == childrenIdx.end()) childrenIdx[idx+1] = std::vector<Node*> (0);
+        //     for (int i = 0; i < childrenIdx[idx].size()-1; i+=2) {
+        //         alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), idx));
+        //         childrenIdx[idx+1].push_back(children[i]);
+        //     }
+        //     if (childrenIdx[idx].size()%2 == 1) childrenIdx[idx+1].push_back(children.back());
+        //     ++idx;
+        // }
+        // NodeAlnOrder[node->identifier] = idx - 1;
         postOrder.pop();
     }
 }
@@ -1170,10 +1203,8 @@ void getPostOrderList(Node* node, std::stack<Node*>& postStack) {
         current = s1.top(); 
         postStack.push(current);
         s1.pop(); 
-        for (auto ch: current->children) {
-            if (ch->grpID == current->grpID) {
-                s1.push(ch);
-            }      
+        for (int i = current->children.size()-1; i >= 0; --i) {
+            if (current->children[i]->grpID == current->grpID) s1.push(current->children[i]);     
         }
     } 
     return;

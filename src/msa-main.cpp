@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
     Tree* T = readNewick(vm);
     std::cout << "Total leaves: " << T->m_numLeaves << '\n';
     // printTree(T->root, -1);
-    paritionInfo_t* P = new paritionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
+    partitionInfo_t* P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
     partitionTree(T->root, P);
     Tree* newT = reconsturctTree(T->root, P->partitionsRoot);
     // readSequences(vm, util, option, T);
@@ -94,7 +94,7 @@ int main(int argc, char** argv) {
         // std::cout << "Subtree No." << subtree << " contains "<< subT->m_numLeaves << " sequences.\n";
 
         auto treeBuiltStart = std::chrono::high_resolution_clock::now();
-        paritionInfo_t * subP = new paritionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
+        partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
         partitionTree(subT->root, subP);
         auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;

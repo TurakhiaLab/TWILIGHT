@@ -110,6 +110,7 @@ Tree::Tree(std::string newickString) {
                 nc++;
                 // float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
                 float len = (branch.size() > 0) ? std::stof(branch) : 1.0;
+                if (len == 0) len = 1.0;
                 branchLen[level].push(len);
                 level--;
                 branchStart = false;
@@ -129,6 +130,7 @@ Tree::Tree(std::string newickString) {
         numClose.push_back(nc);
         // float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
         float len = (branch.size() > 0) ? std::stof(branch) : 1.0;
+        if (len == 0) len = 1.0;
         branchLen[level].push(len);
 
         // Adjusting max and mean depths
@@ -196,8 +198,6 @@ Tree::Tree(std::string newickString) {
     this->calSeqWeight();
 }
 
-
-
 Tree::Tree(Node* node) {
     Node* root = new Node(node->identifier, node->branchLength);
     int grp = node->grpID;
@@ -217,9 +217,12 @@ Tree::Tree(Node* node) {
         }
         if (current->is_leaf()) this->m_numLeaves += 1;
         s1.pop(); 
-        for (auto ch: current->children) {
-            if (ch->grpID == grp) s1.push(ch);      
+        for (int i = current->children.size()-1; i >= 0; --i) {
+            if (current->children[i]->grpID == grp) s1.push(current->children[i]);     
         }
+        // for (auto ch: current->children) {
+        //     if (ch->grpID == grp) s1.push(ch);      
+        // }
     } 
     this->calLeafNum();
     this->calSeqWeight();

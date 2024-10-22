@@ -115,12 +115,12 @@ int main(int argc, char** argv) {
     Tree* T = readNewick(vm);
     std::cout << "Total leaves: " << T->m_numLeaves << '\n';
     // printTree(T->root, -1);
-    paritionInfo_t* P = new paritionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
+    partitionInfo_t* P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
     partitionTree(T->root, P);
     Tree* newT = reconsturctTree(T->root, P->partitionsRoot);
-    // readSequences(vm, util, option, T);
     if (P->partitionsRoot.size() > 1) std::cout << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
-    
+    // if (P->partitionsRoot.size() > 1) readSequencesNoutputTemp(vm, T, P, util, option);
+    // exit(1);
     // int totalL = 0;
     // for (auto root: P->partitionsRoot) {
     //     Tree* subT = new Tree(root.second.first);
@@ -137,23 +137,20 @@ int main(int argc, char** argv) {
         if (P->partitionsRoot.size() > 1) std::cout << "Start processing subtree No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
         Tree* subT = new Tree(subRoot.second.first);
         if (P->partitionsRoot.size() > 1 && !option->deleteTemp) outputSubtree(subT, option, subtree);
-        util->setSubtreeIdx(subtree);
         readSequences(vm, util, option, subT);
-        // std::cout << "Subtree No." << subtree << " contains "<< subT->m_numLeaves << " sequences.\n";
-
         auto treeBuiltStart = std::chrono::high_resolution_clock::now();
-        paritionInfo_t * subP = new paritionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
+        partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
         partitionTree(subT->root, subP);
         auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
         if (subP->partitionsRoot.size() > 1) std::cout << "Partition the subtree into " << subP->partitionsRoot.size() << " sub-subtrees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
         // Progressive alignment on each sub-subtree
-        auto msaStart = std::chrono::high_resolution_clock::now();
+        // auto msaStart = std::chrono::high_resolution_clock::now();
         Tree* newSubT;
         if (subP->partitionsRoot.size() > 1) newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
         msaOnSubtreeGpu(subT, util, option, subP, *param);
-        auto msaEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds msaTime = msaEnd - msaStart;
+        // auto msaEnd = std::chrono::high_resolution_clock::now();
+        // std::chrono::nanoseconds msaTime = msaEnd - msaStart;
         // std::cout << "MSA on sub-subtree " << subtree << " in " <<  msaTime.count() / 1000000000 << " s\n";
         
         if (subP->partitionsRoot.size() > 1) {
@@ -183,29 +180,27 @@ int main(int argc, char** argv) {
         }
         // for (auto node: subT->allNodes) delete node.second;
         if (P->partitionsRoot.size() > 1) {
-            // std::string tempDir = option->tempDir; 
-            // std::string subtreeFileName = "subtree-" + std::to_string(subtree);
-            // std::string subtreeAlnFile = tempDir + '/' + subtreeFileName + ".temp.aln";
-            // std::string subtreeFreqFile = tempDir + '/' + subtreeFileName + ".freq.txt";
-            // outputFreq(subtreeFreqFile, util, subT, subtree);
+            auto storeStart = std::chrono::high_resolution_clock::now();
             storeFreq(util, subT, subtree);
             util->storeCIGAR();
             util->seqsFree();
             util->clearAll();
-            // outputAln(subtreeAlnFile, util, option, subT, subtree);
-            
+            auto storeEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds storeTime = storeEnd - storeStart;
+            std::cout << "Stored the subtree alignment in " << storeTime.count() / 1000000 << " ms.\n";
         }
-        delete subT;
         delete subP;
+        delete subT;
         if (subP->partitionsRoot.size() > 1) delete newSubT;
         auto subtreeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
-        std::cout << "Finished the alignment on subtree No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
+        if (P->partitionsRoot.size() > 1) std::cout << "Finished the alignment on subtree No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
+        else                              std::cout << "Finished the alignment in " << subtreeTime.count() / 1000000000 << " s\n";
     }
     if (P->partitionsRoot.size() > 1) {
         auto alnSubtreeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnSubtreeTime = alnSubtreeEnd - alnSubtreeStart;
-        std::cout << "Finsihed alignment on all subtrees in " << alnSubtreeTime.count() / 1000000 << " ms.\n";
+        std::cout << "Finsihed alignment on all subtrees in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
     }
     
     if (P->partitionsRoot.size() > 1) {
@@ -259,6 +254,9 @@ int main(int argc, char** argv) {
             std::cout << "Calculated Sum-of-Pairs-Score in " << spTime.count() / 1000000 << " ms. Score = " << score << ".\n";
         }
     }
+    delete T;
+    delete P;
+    delete newT;
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
     std::cout << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";

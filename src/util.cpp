@@ -9,9 +9,9 @@ void printTree(Node* node, int grpID)
 {
     if (grpID == -1) {
         if (node->parent == nullptr)
-            std::cout << std::setw(7) << node->identifier << ": " << node->branchLength << "\t" << "ROOT\t" << node->numLeaves << '\t' << node->weight <<std::endl;
+            std::cout << std::setw(7) << node->identifier << ": " << node->branchLength << "\t" << "ROOT\t" << node->grpID << '\t' << node->weight <<std::endl;
         else
-            std::cout << std::setw(7) << node->identifier << ": " << node->branchLength << "\t" << node->parent->identifier << "\t" << node->numLeaves << '\t' << node->weight << std::endl;  
+            std::cout << std::setw(7) << node->identifier << ": " << node->branchLength << "\t" << node->parent->identifier << "\t" << node->grpID << '\t' << node->weight << std::endl;  
 
         if (node->children.size() == 0) return;
         // std::cout << "Print children\n";
@@ -140,18 +140,11 @@ void readSequences(std::string seqFileName, msa::utility* util, msa::option* opt
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
 
+/*
 void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option)
 {
     auto seqReadStart = std::chrono::high_resolution_clock::now();
-    std::string tempDir;
-    if (!vm.count("temp-dir")) tempDir =  "./temp";
-    else tempDir = vm["temp-dir"].as<std::string>();
-    if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
-    if (mkdir(tempDir.c_str(), 0777) == -1) {
-        if( errno == EEXIST ) std::cout << tempDir << " already exists, some files may be overwritten\n";
-        else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
-    }
-    else std::cout << tempDir << " created\n";
+    std::string tempDir = option->tempDir;
     // std::cout << "Total " <<  partition->partitionsRoot.size() << " subtrees.\n";
     std::string seqFileName = vm["sequences"].as<std::string>();
     int maxLen = 0, totalLen = 0, seqNum = 0, minLen = INT_MAX;
@@ -176,8 +169,8 @@ void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t*
             }
         }
         std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
-        // std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
-        // outputSubtree(subtreeTreeFile, subT);
+        std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
+        outputSubtree(subT, option, subtreeIdx);
         std::string subtreeSeqFile = tempDir + '/' + subtreeFileName + ".raw.fa";
         outputSubtreeSeqs(subtreeSeqFile, seqs);
         seqs.clear();
@@ -199,6 +192,19 @@ void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t*
     std::cout << "============================\n";
     std::cout << "Created " << partition->partitionsRoot.size() << " subtree files in " << tempDir << " in " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
+*/
+
+void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option)
+{
+    auto seqReadStart = std::chrono::high_resolution_clock::now();
+    std::string tempDir = option->tempDir;
+    for (auto subroot: partition->partitionsRoot) {
+        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
+        Tree* subT = new Tree(subroot.second.first);
+        outputSubtree(subT, option, subtreeIdx);
+    }
+    return;
+}
 
 Tree* readNewick(po::variables_map& vm)
 {
@@ -211,8 +217,6 @@ Tree* readNewick(po::variables_map& vm)
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
     std::cout << "Newick string read in: " <<  treeBuiltTime.count() << " ns\n";
-
-    // printTree(T->root);
 
     return T;
 }
@@ -231,8 +235,7 @@ Tree* readNewick(std::string treeFileName)
     return T;
 }
 
-
-void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::utility* util) {
+void readFreq(std::string tempDir, Tree* tree, partitionInfo_t* partition, msa::utility* util) {
     for (auto subroot:  partition->partitionsRoot) {
         int subtree = tree->allNodes[subroot.first]->grpID;
         std::string freqFile = tempDir + '/' + "subtree-" + std::to_string(subtree) + ".freq.txt";
@@ -289,9 +292,7 @@ void readFreq(std::string tempDir, Tree* tree, paritionInfo_t* partition, msa::u
     return;
 }
 
-
-
-void updateSeqLen(Tree* tree, paritionInfo_t* partition, msa::utility* util) {
+void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util) {
     for (auto subroot:  partition->partitionsRoot) {
         int subtree = tree->allNodes[subroot.first]->grpID;
         int seqLen = util->profileFreq[subtree].size();
@@ -304,8 +305,7 @@ void updateSeqLen(Tree* tree, paritionInfo_t* partition, msa::utility* util) {
     return;
 }
 
-
-void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
+void outputFinal (po::variables_map& vm, Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
     util->seqsIdx.clear();
     std::string seqFileName = vm["sequences"].as<std::string>();
     std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
@@ -368,8 +368,11 @@ void outputFinal (po::variables_map& vm, Tree* tree, paritionInfo_t* partition, 
                 }
             }
             {
-                assert(alnSeq.size() == tree->allNodes[subroot.first]->msaAln.size());
                 tbb::mutex::scoped_lock lock(writeMutex);
+                if (alnSeq.size() != tree->allNodes[subroot.first]->msaAln.size()) {
+                    std::cout << "ERROR: length not match. alnSeq (" << alnSeq.size() << ") != msaAln (" << tree->allNodes[subroot.first]->msaAln.size() << '\n'; 
+                }
+                assert(alnSeq.size() == tree->allNodes[subroot.first]->msaAln.size());
                 seqs[seqName] = alnSeq;
             }
         }
@@ -391,8 +394,10 @@ void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tr
     if (util->nowProcess == 2) {
         std::string command = "cat " + option->tempDir + "/*.final.aln > " + fileName;
         system(command.c_str());
-        command = "rm -rf " + option->tempDir;
-        system(command.c_str());
+        if (option->deleteTemp) {
+            command = "rm -rf " + option->tempDir;
+            system(command.c_str());
+        }
         return;
     }
     std::ofstream outFile(fileName);
@@ -519,7 +524,7 @@ void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string>&
     }
     int alnLen = seqs.begin()->second.size();
     for (auto it = seqs.begin(); it != seqs.end(); ++it) {
-        assert(it->second.size() == alnLen);
+        // assert(it->second.size() == alnLen);
         outFile << ('>' + it->first + '\n');
         outFile << (it->second + '\n');
     }

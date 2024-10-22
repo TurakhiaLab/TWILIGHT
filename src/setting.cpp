@@ -109,10 +109,9 @@ Params::Params(po::variables_map& vm) {
     }
 }
 
-
 msa::option::option(po::variables_map& vm) {
     int maxSubtreeSize = (vm.count("max-subtree-size")) ? vm["max-subtree-size"].as<int>() : INT32_MAX;
-    int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT_MAX;
+    int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
     if (cpuNum <= 0) {
@@ -180,9 +179,8 @@ msa::option::option(po::variables_map& vm) {
     this->outType = outType;
     this->merger = merger;
     this->printDetail = vm.count("print-detail");
-    this->deleteTemp = vm.count("keep-temp");
+    this->deleteTemp = !vm.count("keep-temp");
 }
-
 
 void msa::utility::changeStorage(int idx) {
     this->seqsStorage[idx] = (seqsStorage[idx] == 0) ? 1 : 0;
@@ -203,6 +201,8 @@ void msa::utility::seqsFree(){
     delete [] this->alnStorage[1];
     this->alnStorage[0] = nullptr;
     this->alnStorage[1] = nullptr;
+    this->memNum = 0;
+    this->memLen = 0;
     return;
 }
 
@@ -270,7 +270,6 @@ void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pa
             else                             this->alnStorage[0][s][i] = 0; 
             this->alnStorage[1][s][i] = 0;  
         }
-        // if (s == 0) std::cout << seq.first << '\n' << s << '\n' << seq.second.first << '\n';
         this->seqsIdx[seq.first] = s;
         this->seqsName[s] = seq.first;
         this->seqsLen[seq.first] = seq.second.first.size();
@@ -290,7 +289,12 @@ void msa::utility::memCheck(int seqLen, option* option) {
 }
 
 void msa::utility::storeCIGAR() {
-    for (auto seq: this->seqsIdx) {
+
+    tbb::mutex writeMutex;
+    tbb::parallel_for(tbb::blocked_range<int>(0, this->seqsIdx.size()), [&](tbb::blocked_range<int> range){ 
+    for (int n = range.begin(); n < range.end(); ++n) {
+        auto seq = std::make_pair(this->seqsName[n], n);
+    // for (auto seq: this->seqsIdx) {
         std::string seqName = seq.first;
         int sIdx = seq.second;
         int storage = this->seqsStorage[sIdx];
@@ -316,15 +320,19 @@ void msa::utility::storeCIGAR() {
             ++i;
         }
         cigar += (std::to_string(num) + type);
-        this->seqsCIGAR[seqName] = cigar;
+        {
+            tbb::mutex::scoped_lock lock(writeMutex);
+            this->seqsCIGAR[seqName] = cigar;
+        }
+        // this->seqsCIGAR[seqName] = cigar;
     }
+    });
     return;
 }
 
 void msa::utility::clearAll() {
     this->rawSeqs.clear();
     this->badSequences.clear();
-    this->subtrees.clear();
     this->seqsIdx.clear();
     this->seqsName.clear();
     this->seqsLen.clear();

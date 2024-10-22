@@ -55,7 +55,7 @@ bool nodeWithNoLeafTraversal(Node* node)
     return nodeWithNoLeaf;
 }
 
-void internalNodeResolution(Node* node, paritionInfo_t* partition)
+void internalNodeResolution(Node* node, partitionInfo_t* partition)
 {
     if (node->grpID != -1) return;
 
@@ -226,7 +226,7 @@ void setChildrenGrpID(Node*& node, int ID_org, int ID) {
     return;
 }
 
-void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root, paritionInfo_t*& partition) {
+void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root, partitionInfo_t*& partition) {
     
     size_t tree1ID = (root->grpID == -1) ? 0 : root->grpID;
     size_t tree2ID = (root->grpID == -1) ? 1 : partition->numPartitions + 1;
@@ -254,7 +254,7 @@ void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root, par
     
 }
 
-void partitionTree(Node* root, paritionInfo_t* partition) {
+void partitionTree(Node* root, partitionInfo_t* partition) {
     size_t totalLeaves = getNumLeaves(root, root->grpID);
     if (partition->partitionOption == "centroid") {
         if (totalLeaves <= partition->maxPartitionSize) {
@@ -340,7 +340,6 @@ Tree* reconsturctTree(Node* root, std::unordered_map<std::string, std::pair<Node
     return T;
 }
 
-
 void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::map<std::string, std::string>& nodes) {
     std::cout << node->identifier << '\n';
     if (nodes.find(node->identifier) != nodes.end()) {
@@ -373,10 +372,13 @@ Tree* reconsturctTree(Node* root, std::map<std::string, std::string>& nodes) {
     return T;
 }
 
+partitionInfo_t::~partitionInfo_t() {
+    this->partitionsRoot.clear();
+}
 
 
 
-void paritionInfo_t::createPartition(Tree* T, paritionInfo_t* partition)
+void partitionInfo_t::createPartition(Tree* T, partitionInfo_t* partition)
 {
     Node* root = T->root;
     partition->partitionsRoot[root->identifier] = std::make_pair(root, T->m_numLeaves);

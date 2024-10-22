@@ -14,6 +14,7 @@
 #include <boost/program_options.hpp> 
 #include <tbb/task_scheduler_init.h>
 #include <tbb/parallel_for.h>
+#include <tbb/mutex.h>
 
 
 namespace po = boost::program_options;
@@ -74,7 +75,7 @@ namespace msa
     {
         std::unordered_map<std::string, std::string> rawSeqs;
         std::map<int, std::vector<std::string>> badSequences;
-        std::map<int, std::vector<int>> subtrees;
+        // std::map<int, std::vector<int>> subtrees;
         std::unordered_map<std::string, int>  seqsIdx;
         std::unordered_map<int, std::string> seqsName;
         std::unordered_map<std::string, int>  seqsLen;
