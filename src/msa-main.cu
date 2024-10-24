@@ -134,8 +134,10 @@ int main(int argc, char** argv) {
         auto subtreeStart = std::chrono::high_resolution_clock::now();
         ++proceeded;
         int subtree = T->allNodes[subRoot.first]->grpID;
+        // if (subtree == 6) continue;
         if (P->partitionsRoot.size() > 1) std::cout << "Start processing subtree No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
         Tree* subT = new Tree(subRoot.second.first);
+        // printTree(subT->root, -1);
         if (P->partitionsRoot.size() > 1 && !option->deleteTemp) outputSubtree(subT, option, subtree);
         readSequences(vm, util, option, subT);
         auto treeBuiltStart = std::chrono::high_resolution_clock::now();

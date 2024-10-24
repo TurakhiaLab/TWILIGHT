@@ -282,6 +282,9 @@ void Talco_xdrop::Tile (
         int32_t max_score_marker_start_addr = 0; int32_t max_score_marker_start_ftr = 0;
         int8_t tb_state_marker = 0;
 
+        float denominator = refNum * qryNum;
+                    
+
         int32_t L[3], U[3];
         int32_t *S[3], *I[2], *D[2];
         int32_t *CS[3], *CI[2], *CD[2];
@@ -373,7 +376,7 @@ void Talco_xdrop::Tile (
                     //     score_from_prev_tile = tile*10;
                     // }
                     int32_t similarScore = 0;
-                    float denominator = 0;
+                    // float denominator = 0;
                     float numerator = 0;
                     for (int l = 0; l < 6; ++l) {
                         for (int m = 0; m < 6; ++m) {
@@ -382,9 +385,8 @@ void Talco_xdrop::Tile (
                             else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
                             else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[m*5+l];
                         }
-                    }
-                            
-                    denominator = refNum * qryNum;
+                    }  
+                    // denominator = refNum * qryNum;
                     // if (i ==  (U[k%3]+1-L[k%3])/2 && refNum > 3000 && qryNum > 3000) {
                     //     std::cout << refNum << '\t' << qryNum << '\t' << refNum*qryNum << '\n';
                     // }
@@ -399,8 +401,8 @@ void Talco_xdrop::Tile (
 
                 int32_t pos_gapOpen_ref = static_cast<int32_t>(gapOp[0][reference_idx+j]);
                 int32_t pos_gapOpen_qry = static_cast<int32_t>(gapOp[1][query_idx+i]);
-                int32_t pos_gapExtend_ref = static_cast<int32_t>(gapExtend*(1.0-reference[reference_idx+j][5] / (refNum * 1.0)));
-                int32_t pos_gapExtend_qry = static_cast<int32_t>(gapExtend*(1.0-query[query_idx+i][5] / (qryNum * 1.0)));
+                int32_t pos_gapExtend_ref = static_cast<int32_t>(gapExtend*(1.0-reference[reference_idx+j][5] / refNum));
+                int32_t pos_gapExtend_qry = static_cast<int32_t>(gapExtend*(1.0-query[query_idx+i][5] / qryNum ));
                 
 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {

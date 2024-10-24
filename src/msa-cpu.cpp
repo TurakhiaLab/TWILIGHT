@@ -626,22 +626,30 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 errorType
             );
             if (errorType == 1) {
-                // std::cout << "Updated x-drop value on No. " << nIdx << '\n';
+                if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << '\n';
                 talco_params.updateXDrop(talco_params.xdrop << 1);
             }
             if (errorType == 2) {
-                // std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+                if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
                 talco_params.updateFLen(talco_params.fLen << 1);
             }
         }
         std::pair<int, int> debugIdx;
         addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
+        if (debugIdx.first != refLen || debugIdx.second != qryLen) {
+            std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
+            std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
+            std::cout << "Num: " << refNum << '-' << qryNum << '\n';
+        }
         assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-        if (util->nowProcess < 2) {{
-            tbb::mutex::scoped_lock lock(memMutex);
-            util->memCheck(aln.size(), option);
-        }}
-        {
+        if (util->nowProcess < 2) {
+            {
+                tbb::mutex::scoped_lock lock(memMutex);
+                util->memCheck(aln.size(), option);
+                updateAlignment(tree, nodes[nIdx], util, aln); 
+            }
+        }
+        else {
             tbb::mutex::scoped_lock lock(memMutex);
             updateAlignment(tree, nodes[nIdx], util, aln); 
         }
@@ -1139,6 +1147,8 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
                 for (int chIdx = 0; chIdx < node->parent->children.size(); ++chIdx) {
                     if (node->parent->children[chIdx]->identifier == node->identifier) {
                         node->parent->children[chIdx] = children[0];
+                        children[0]->parent = node->parent;
+                        break;
                     }
                 }
                 postOrder.pop();
@@ -1156,12 +1166,13 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
                 NodeAlnOrder[children[i]->identifier] = maxIdx;
                 NodeAlnOrder[children[i+1]->identifier] = maxIdx;
                 alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), maxIdx));
+                // std::cout << children[i]->identifier << '+' << children[i+1]->identifier << ':' << maxIdx << '\n';
                 nodeLeft.push_back(children[i]);
             }
             if (children.size()%2 == 1) nodeLeft.push_back(children.back());
             children = nodeLeft;
         }
-        NodeAlnOrder[node->identifier] = (NodeAlnOrder.find(children[0]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[0]->identifier] : -1;
+        NodeAlnOrder[node->identifier] = NodeAlnOrder[children[0]->identifier];
         // children[0] = node;
         // std::map<int, std::vector<Node*>> childrenIdx;
         // for (int i = 0; i < children.size(); ++i) {

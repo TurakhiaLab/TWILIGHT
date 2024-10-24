@@ -569,22 +569,27 @@ void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string>
 
 void storeFreq(msa::utility* util, Tree* T, int grpID) {
     int seqLen = util->seqsLen[T->root->identifier];
+    std::cout << "Alignment Length: " << seqLen << '\n';
     util->profileFreq[grpID] = std::vector<std::vector<float>> (seqLen, std::vector<float> (6, 0.0));
     float totalWeight = 0;
     for (auto sIdx: T->root->msaIdx) totalWeight += T->allNodes[util->seqsName[sIdx]]->weight;
+    
     for (int sIdx: T->root->msaIdx) {
         int storage = util->seqsStorage[sIdx];
         std::string name = util->seqsName[sIdx];
         float w = T->allNodes[name]->weight / totalWeight * T->root->numLeaves;
-        for (int j = 0; j <  seqLen; ++j) {
-            if      (util->alnStorage[storage][sIdx][j] == 'A' || util->alnStorage[storage][sIdx][j] == 'a') util->profileFreq[grpID][j][0]+=1*w;
-            else if (util->alnStorage[storage][sIdx][j] == 'C' || util->alnStorage[storage][sIdx][j] == 'c') util->profileFreq[grpID][j][1]+=1*w;
-            else if (util->alnStorage[storage][sIdx][j] == 'G' || util->alnStorage[storage][sIdx][j] == 'g') util->profileFreq[grpID][j][2]+=1*w;
+        tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
+        for (int j = r.begin(); j < r.end(); ++j) {
+        // for (int j = 0; j <  seqLen; ++j) {
+            if      (util->alnStorage[storage][sIdx][j] == 'A' || util->alnStorage[storage][sIdx][j] == 'a') util->profileFreq[grpID][j][0]+=1.0*w;
+            else if (util->alnStorage[storage][sIdx][j] == 'C' || util->alnStorage[storage][sIdx][j] == 'c') util->profileFreq[grpID][j][1]+=1.0*w;
+            else if (util->alnStorage[storage][sIdx][j] == 'G' || util->alnStorage[storage][sIdx][j] == 'g') util->profileFreq[grpID][j][2]+=1.0*w;
             else if (util->alnStorage[storage][sIdx][j] == 'T' || util->alnStorage[storage][sIdx][j] == 't' ||
-                     util->alnStorage[storage][sIdx][j] == 'U' || util->alnStorage[storage][sIdx][j] == 'u') util->profileFreq[grpID][j][3]+=1*w;
-            else if (util->alnStorage[storage][sIdx][j] == 'N' || util->alnStorage[storage][sIdx][j] == 'n') util->profileFreq[grpID][j][4]+=1*w;
-            else                                                                                             util->profileFreq[grpID][j][5]+=1*w;
+                     util->alnStorage[storage][sIdx][j] == 'U' || util->alnStorage[storage][sIdx][j] == 'u') util->profileFreq[grpID][j][3]+=1.0*w;
+            else if (util->alnStorage[storage][sIdx][j] == 'N' || util->alnStorage[storage][sIdx][j] == 'n') util->profileFreq[grpID][j][4]+=1.0*w;
+            else                                                                                             util->profileFreq[grpID][j][5]+=1.0*w;
         }
+        });
     }
     return;
 }
