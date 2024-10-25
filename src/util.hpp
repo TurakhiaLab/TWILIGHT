@@ -8,6 +8,7 @@
 #include <tbb/parallel_for.h>
 #include <tbb/task_scheduler_init.h>
 #include <tbb/mutex.h>
+#include<tbb/spin_rw_mutex.h>
 #include <cstdio>
 #include <sys/stat.h>
 #include <queue>

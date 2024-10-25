@@ -311,7 +311,8 @@ void outputFinal (po::variables_map& vm, Tree* tree, partitionInfo_t* partition,
     std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
     std::map<std::string, std::string> seqs;
     std::map<int, std::pair<std::string, std::string>> rawSeqs;
-
+    tbb::spin_rw_mutex  writeMutex;
+                            
     int proceeded = 0;    
     for (auto subroot: partition->partitionsRoot) {
         gzFile f_rd = gzopen(seqFileName.c_str(), "r");
@@ -333,7 +334,6 @@ void outputFinal (po::variables_map& vm, Tree* tree, partitionInfo_t* partition,
         kseq_destroy(kseq_rd);
         gzclose(f_rd);
         assert(subT->m_numLeaves == rawSeqs.size());
-        tbb::mutex writeMutex;
         tbb::parallel_for(tbb::blocked_range<int>(0, rawSeqs.size()), [&](tbb::blocked_range<int> range){ 
         for (int n = range.begin(); n < range.end(); ++n) {
             std::string seqName = rawSeqs[n].first;
@@ -368,7 +368,7 @@ void outputFinal (po::variables_map& vm, Tree* tree, partitionInfo_t* partition,
                 }
             }
             {
-                tbb::mutex::scoped_lock lock(writeMutex);
+                tbb::spin_rw_mutex::scoped_lock lock(writeMutex);
                 if (alnSeq.size() != tree->allNodes[subroot.first]->msaAln.size()) {
                     std::cout << "ERROR: length not match. alnSeq (" << alnSeq.size() << ") != msaAln (" << tree->allNodes[subroot.first]->msaAln.size() << '\n'; 
                 }

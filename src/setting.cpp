@@ -115,14 +115,14 @@ msa::option::option(po::variables_map& vm) {
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
     if (cpuNum <= 0) {
-        std::cerr << "ERROR: requested cpu threads <= 0.\n";
+        std::cerr << "ERROR: requested cpu cores <= 0.\n";
         exit(1);
     }
     if (cpuNum > maxCpuThreads) {
-        std::cerr << "ERROR: requested cpu threads more available threads.\n";
+        std::cerr << "ERROR: requested cpu cores more available threads.\n";
         exit(1);
     }
-    printf("Maximum available CPU threads: %d. Using %d CPU threads.\n", maxCpuThreads, cpuNum);
+    printf("Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
     tbb::task_scheduler_init init(cpuNum);
     float gappyVertical = vm["gappy-vertical"].as<float>();
     float gappyHorizon;
