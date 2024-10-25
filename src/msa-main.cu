@@ -62,6 +62,7 @@ int main(int argc, char** argv) {
     }
 
     msa::option* option = new msa::option(vm);
+    tbb::task_scheduler_init init(option->cpuNum);
     int maxGpuNum;
     cudaGetDeviceCount(&maxGpuNum);
     int gpuNum = (vm.count("gpu-num")) ? vm["gpu-num"].as<int>() : maxGpuNum;

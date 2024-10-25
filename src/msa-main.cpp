@@ -58,6 +58,7 @@ int main(int argc, char** argv) {
     }
 
     msa::option* option = new msa::option(vm);
+    tbb::task_scheduler_init init(option->cpuNum);
     // setOptions(vm, option);
     msa::utility* util = new msa::utility;
 

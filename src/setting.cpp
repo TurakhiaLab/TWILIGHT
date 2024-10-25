@@ -123,7 +123,6 @@ msa::option::option(po::variables_map& vm) {
         exit(1);
     }
     printf("Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
-    tbb::task_scheduler_init init(cpuNum);
     float gappyVertical = vm["gappy-vertical"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
