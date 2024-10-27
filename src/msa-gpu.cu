@@ -1089,12 +1089,10 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
                     if (hostAlnLen[gn][n] <= 0) {
-                        if (hostAlnLen[gn][n] <= 0) {
                         {
                             tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex);
                             fallbackPairs.push_back(nIdx);
                         }
-                    }
                     }
                     else {
                         for (int j = 0; j < hostAlnLen[gn][n]; ++j) aln_old.push_back(hostAln[gn][n*2*seqLen+j]);

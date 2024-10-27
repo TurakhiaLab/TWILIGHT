@@ -64,6 +64,71 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progessiveTime = progressiveEnd - progressiveStart;
     std::cout << "Progressive alignment in " <<  progessiveTime.count() / 1000000000 << " s\n";
+    if (util->badSequences.empty()) return;
+    // Adding bad sequences back
+    util->nowProcess = 1;
+    auto badStart = std::chrono::high_resolution_clock::now();
+    std::map<std::string, int> NodeAlnOrder;
+    std::vector<std::pair<std::pair<Node*, Node*>, int>> alnOrder;
+    hier.clear();
+    int badSeqBefore = 0;
+    int badProfileBefore = 0;
+    for (auto p: partition->partitionsRoot) {
+        if (util->badSequences.find(p.second.first->grpID) != util->badSequences.end()) {
+            auto badSeqName = util->badSequences[p.second.first->grpID];
+            std::vector<Node*> badSeqNode;
+            for (auto name: badSeqName) badSeqNode.push_back(T->allNodes[name]);
+            badSeqName.clear();
+            for (auto node: badSeqNode) badSeqName.push_back(node->identifier);
+            badProfileBefore += badSeqNode.size();
+            for (auto n: badSeqName) badSeqBefore += T->allNodes[n]->msaIdx.size();
+            std::vector<std::string> nodeLeft;
+            while (badSeqName.size() > 1) {
+                nodeLeft.clear();
+                for (int i = 0; i < badSeqName.size()-1; i+=2) {
+                    int firstIdx  = (NodeAlnOrder.find(badSeqName[i]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[i]]+1 : 0;
+                    int secondIdx = (NodeAlnOrder.find(badSeqName[i+1]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[i+1]]+1 : 0;
+                    int maxIdx = std::max(firstIdx, secondIdx);
+                    NodeAlnOrder[badSeqName[i]] = maxIdx;
+                    NodeAlnOrder[badSeqName[i+1]] = maxIdx;
+                    alnOrder.push_back(std::make_pair(std::make_pair(T->allNodes[badSeqName[i]], T->allNodes[badSeqName[i+1]]), maxIdx));
+                    nodeLeft.push_back(badSeqName[i]);
+                }
+                if (badSeqName.size()%2 == 1) nodeLeft.push_back(badSeqName.back());
+                badSeqName = nodeLeft;
+            }
+            assert(badSeqName.size() == 1);
+            int idx  = (NodeAlnOrder.find(badSeqName[0]) != NodeAlnOrder.end()) ? NodeAlnOrder[badSeqName[0]]+1 : 0;
+            alnOrder.push_back(std::make_pair(std::make_pair(T->allNodes[p.second.first->identifier], T->allNodes[badSeqName[0]]), idx));
+        }
+    }
+    std::cout << "Adding bad profiles back. Total profiles/sequences: " << badProfileBefore << " / " << badSeqBefore << '\n';
+    for (auto h: alnOrder) {
+        while (hier.size() < h.second+1) {
+            std::vector<std::pair<Node*, Node*>> temp;
+            hier.push_back(temp);
+        }
+        hier[h.second].push_back(h.first);
+    }
+    util->badSequences.clear();
+    level = 0;
+    if (!hier.empty()) {
+        for (auto m: hier) {
+            auto alnStart = std::chrono::high_resolution_clock::now();
+            msaCpu(T, m, util, option, param);
+            auto alnEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+            if (option->printDetail) {
+                if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
+                else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
+            }
+            ++level;
+        }
+    }
+    util->nowProcess = 0;
+    auto badEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds badTime = badEnd - badStart;
+    std::cout << "Added bad profiles/sequences in " <<  badTime.count() / 1000000000 << " s\n";
     return;
 }
 
@@ -555,6 +620,10 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     hostParam[28] = param.xdrop;
 
     tbb::mutex memMutex;
+
+    tbb::spin_rw_mutex fallbackMutex;
+    std::vector<int> fallbackPairs;
+
     tbb::this_task_arena::isolate( [&]{
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
     for (int nIdx = range.begin(); nIdx < range.end(); ++nIdx) {
@@ -625,6 +694,14 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 aln_old,
                 errorType
             );
+            if (util->nowProcess == 0 && errorType != 0) {
+                aln_old.clear();
+                {
+                    tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex);
+                    fallbackPairs.push_back(nIdx);
+                }
+                break;
+            }
             if (errorType == 1) {
                 if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << '\n';
                 talco_params.updateXDrop(talco_params.xdrop << 1);
@@ -634,32 +711,31 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 talco_params.updateFLen(talco_params.fLen << 1);
             }
         }
-        std::pair<int, int> debugIdx;
-        addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
-        if (debugIdx.first != refLen || debugIdx.second != qryLen) {
-            std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
-            std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
-            std::cout << "Num: " << refNum << '-' << qryNum << '\n';
-        }
-        assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-        if (util->nowProcess < 2) {
-            {
+        if (!aln_old.empty()) {
+            std::pair<int, int> debugIdx;
+            addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
+            if (debugIdx.first != refLen || debugIdx.second != qryLen) {
+                std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
+                std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
+                std::cout << "Num: " << refNum << '-' << qryNum << '\n';
+            }
+            assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
+            if (util->nowProcess < 2) {
+                {
+                    tbb::mutex::scoped_lock lock(memMutex);
+                    util->memCheck(aln.size(), option);
+                    updateAlignment(tree, nodes[nIdx], util, aln); 
+                }
+            }
+            else {
                 tbb::mutex::scoped_lock lock(memMutex);
-                util->memCheck(aln.size(), option);
                 updateAlignment(tree, nodes[nIdx], util, aln); 
             }
+            if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
+                updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
+            }
+            assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
         }
-        else {
-            tbb::mutex::scoped_lock lock(memMutex);
-            updateAlignment(tree, nodes[nIdx], util, aln); 
-        }
-        if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
-            updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
-        }
-         
-        
-         
-        assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
         free(hostFreq);
         free(hostGapOp);
         free(hostGapEx);
@@ -668,6 +744,42 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     });
     });
     free(hostParam);
+    if (fallbackPairs.empty()) {
+        return;
+    }
+    int totalSeqs = 0;
+    for (int i = 0; i < fallbackPairs.size(); ++i) {
+        int nIdx = fallbackPairs[i];
+        int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
+        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
+        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
+        if (util->badSequences.find(grpID) == util->badSequences.end()) {
+            util->badSequences[grpID] = std::vector<std::string> (0);
+        }
+        if (refNum < qryNum) {
+            // proceed with qry and store ref as bad sequences
+            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+            util->seqsLen[nodes[nIdx].second->identifier] = refLen;
+            util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
+            auto temp = nodes[nIdx].second->msaIdx;
+            tree->allNodes[nodes[nIdx].second->identifier]->msaIdx = nodes[nIdx].first->msaIdx;
+            tree->allNodes[nodes[nIdx].first->identifier]->msaIdx = temp;
+            totalSeqs += refNum;
+        }
+        else {
+            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+            // std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << qryNum <<" seqeuences).\n";
+            totalSeqs += qryNum;
+        }
+    }
+    if (option->printDetail) {
+        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring 1 pair (1 sequence).\n";
+        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
+        else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
+    }
+
     return;
 }
 

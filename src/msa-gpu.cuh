@@ -1,8 +1,6 @@
 #ifndef MSAGPU_HPP
 #define MSAGPU_HPP
 
-#include<tbb/spin_rw_mutex.h>
-
 #ifndef MSA_HPP
 #include "msa-cpu.hpp"
 #endif
