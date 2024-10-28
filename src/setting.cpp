@@ -105,7 +105,7 @@ Params::Params(po::variables_map& vm) {
             }
             std::cout << '\n';
         }
-        std::cout << "GapOpen: " << this->gapOpen << " / GapExtend: " << this->gapExtend << " / GapClose: " << this->gapClose << " / Xdrop: " << this->xdrop << '\n';
+        std::cout << "GapOpen: " << this->gapOpen << " / GapExtend: " << this->gapExtend << " / Xdrop: " << this->xdrop << '\n';
     }
 }
 
@@ -198,6 +198,7 @@ void msa::utility::seqsFree(){
     }
     delete [] this->alnStorage[0];
     delete [] this->alnStorage[1];
+    delete [] this->seqMemLen;
     this->alnStorage[0] = nullptr;
     this->alnStorage[1] = nullptr;
     this->memNum = 0;
@@ -219,10 +220,6 @@ void msa::utility::seqMalloc(int seqNum, int seqLen, option* option){
         int adjustLen = static_cast<int>(seqLen * this->timesBigger);
         temp[0] = new char*[seqNum]; 
         temp[1] = new char*[seqNum]; 
-        // for (int i = 0; i < seqNum; ++i) {
-        //     temp[0][i] = new char[adjustLen];
-        //     temp[1][i] = new char[adjustLen];
-        // }
         for (int i = 0; i < seqNum; ++i) {
             temp[0][i] = new char[adjustLen];
             temp[1][i] = new char[adjustLen];
@@ -243,6 +240,7 @@ void msa::utility::seqMalloc(int seqNum, int seqLen, option* option){
         int adjustLen = static_cast<int>(seqLen * this->timesBigger); 
         this->alnStorage[0] = new char*[seqNum]; 
         this->alnStorage[1] = new char*[seqNum]; 
+        this->seqMemLen = new size_t[seqNum];
         for (int i = 0; i < seqNum; ++i) {
             this->alnStorage[0][i] = new char[adjustLen];
             this->alnStorage[1][i] = new char[adjustLen];
@@ -260,6 +258,24 @@ void msa::utility::seqMalloc(int seqNum, int seqLen, option* option){
     return;
 }
 
+void msa::utility::seqMalloc(int seqLen, int idx){
+    int adjustLen = static_cast<int>(seqLen * this->timesBigger);
+    char* temp_0 = new char[adjustLen];
+    char* temp_1 = new char[adjustLen];
+    for (int j = 0; j < adjustLen; ++j) {
+        temp_0[j] = (j < this->seqMemLen[idx]) ? alnStorage[0][idx][j] : 0;
+        temp_1[j] = (j < this->seqMemLen[idx]) ? alnStorage[1][idx][j] : 0;
+    }
+    delete [] this->alnStorage[0][idx];
+    delete [] this->alnStorage[1][idx];
+    this->alnStorage[0][idx] = temp_0;
+    this->alnStorage[1][idx] = temp_1;
+    this->seqMemLen[idx] = adjustLen;
+    // if (adjustLen > this->memLen) this->memLen = adjustLen;
+    return;
+}
+
+
 void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap, option* option){
     this->seqMalloc(seqsMap.size(), seqLen, option);
     int s = 0;
@@ -273,6 +289,8 @@ void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pa
         this->seqsName[s] = seq.first;
         this->seqsLen[seq.first] = seq.second.first.size();
         this->seqsStorage[s] = 0;
+        this->seqMemLen[s] = this->memLen;
+        
         ++s;
     }
     // printf("Allocate memory for sequence storage, size = %lu x %lu\n", this->memNum, this->memLen);
@@ -283,6 +301,14 @@ void msa::utility::memCheck(int seqLen, option* option) {
     if (seqLen > this->memLen) {
         if (option->printDetail) printf("Reallocate Memory. SeqLen (%d) > MemLen (%ld)\n", seqLen, this->memLen);
         seqMalloc(this->memNum, seqLen, option);
+    }
+    return;
+}
+
+void msa::utility::memCheck(int seqLen, int idx) {
+    if (seqLen > this->seqMemLen[idx]) {
+        // printf("No: %d Reallocate Memory. SeqLen (%d) > MemLen (%ld)\n",idx, seqLen, this->seqMemLen[idx]);
+        seqMalloc(seqLen, idx);
     }
     return;
 }

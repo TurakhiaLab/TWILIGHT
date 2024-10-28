@@ -240,7 +240,13 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
 void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
     int32_t seqLen = 0;
-    if (util->nowProcess < 2) seqLen = util->memLen;
+    if (util->nowProcess < 2) {
+        for (auto n: tree->allNodes) {
+            if (n.second->is_leaf()) {
+                if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
+            }
+        }
+    }
     else {
         for (auto pf: util->profileFreq) if (pf.second.size() > seqLen) seqLen = pf.second.size();
     }
@@ -604,7 +610,10 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
 {
     if (util->nowProcess < 2) updateNode(tree, nodes, util);
     int32_t seqLen = 0;
-    if (util->nowProcess < 2) seqLen = util->memLen;
+    if (util->nowProcess < 2) {
+        for (auto n: tree->allNodes) seqLen = (util->seqsLen[n.first] > seqLen) ? util->seqsLen[n.first] : seqLen;
+        seqLen *= 2;
+    }
     else {
         for (auto n: nodes) {
             if (tree->allNodes[n.first->identifier]->msaAln.size() > seqLen)  seqLen = tree->allNodes[n.first->identifier]->msaAln.size();
@@ -619,7 +628,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     hostParam[27] = param.gapClose;
     hostParam[28] = param.xdrop;
 
-    tbb::mutex memMutex;
+    // tbb::mutex memMutex;
 
     tbb::spin_rw_mutex fallbackMutex;
     std::vector<int> fallbackPairs;
@@ -720,17 +729,17 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 std::cout << "Num: " << refNum << '-' << qryNum << '\n';
             }
             assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-            if (util->nowProcess < 2) {
-                {
-                    tbb::mutex::scoped_lock lock(memMutex);
-                    util->memCheck(aln.size(), option);
-                    updateAlignment(tree, nodes[nIdx], util, aln); 
-                }
-            }
-            else {
-                tbb::mutex::scoped_lock lock(memMutex);
-                updateAlignment(tree, nodes[nIdx], util, aln); 
-            }
+            // if (util->nowProcess < 2) {
+            //     {
+            //         tbb::mutex::scoped_lock lock(memMutex);
+            //         util->memCheck(aln.size(), option);
+            //         updateAlignment(tree, nodes[nIdx], util, aln); 
+            //     }
+            // }
+            // else {
+            //     updateAlignment(tree, nodes[nIdx], util, aln); 
+            // }
+            updateAlignment(tree, nodes[nIdx], util, aln); 
             if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
                 updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
             }
@@ -743,6 +752,11 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     }    
     });
     });
+    for (auto n: tree->allNodes) {
+        if (n.second->is_leaf()) {
+            if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
+        }
+    }
     free(hostParam);
     if (fallbackPairs.empty()) {
         return;
@@ -779,7 +793,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
         else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
     }
-
+    
     return;
 }
 
@@ -1071,6 +1085,7 @@ void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
         tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodes.first->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
         for (int idx = range.begin(); idx < range.end(); ++idx) {
             int sIdx = tree->allNodes[nodes.first->identifier]->msaIdx[idx];  
+            util->memCheck(aln.size(), sIdx);
         // for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx) {
             int orgIdx = 0;
             int storeFrom = util->seqsStorage[sIdx];
@@ -1091,7 +1106,8 @@ void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
         tbb::this_task_arena::isolate( [&]{
         tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodes.second->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
         for (int idx = range.begin(); idx < range.end(); ++idx) {
-           int sIdx = tree->allNodes[nodes.second->identifier]->msaIdx[idx];
+            int sIdx = tree->allNodes[nodes.second->identifier]->msaIdx[idx];
+            util->memCheck(aln.size(), sIdx);
         // for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) {
             int storeFrom = util->seqsStorage[sIdx];
             int storeTo = 1 - util->seqsStorage[sIdx];

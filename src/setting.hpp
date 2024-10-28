@@ -87,6 +87,7 @@ namespace msa
         int nowProcess = 0;
         size_t subtreeIdx = 0;
         size_t memLen;
+        size_t* seqMemLen;
         size_t memNum;
         size_t seqLen;
         size_t seqNum;
@@ -97,9 +98,11 @@ namespace msa
         void seqsFree();
         void seqFree(int i);
         void seqMalloc(int seqNum, int seqLen, option* option);
+        void seqMalloc(int seqLen, int idx);
         void seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap, option* option);
         void storeCIGAR();
         void memCheck(int seqLen, option* option);
+        void memCheck(int seqLen, int idx);
         void clearAll();
         void debug();
     };

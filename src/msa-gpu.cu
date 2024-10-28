@@ -169,7 +169,10 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     // cudaGetDeviceCount(&gpuNum); // number of CUDA devices
     
     int32_t seqLen = 0;
-    if (util->nowProcess < 2) seqLen = util->memLen;
+    if (util->nowProcess < 2) {
+        for (auto n: tree->allNodes) seqLen = (util->seqsLen[n.first] > seqLen) ? util->seqsLen[n.first] : seqLen;
+        seqLen *= 2;
+    }
     else {
         for (auto pf: util->profileFreq) if (pf.second[0].size() > seqLen) seqLen = pf.second[0].size();
     }
@@ -1074,10 +1077,10 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
 
                 if (rn % 10 == 0 && rn > 0 && option->printDetail) std::cout << rn*numBlocks << " pairs processed.\n";
                 
-                // tbb::this_task_arena::isolate( [&]{
-                // tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
-                // for (int n = range.begin(); n < range.end(); ++n) {
-                for (int n = 0; n < alnPairs; ++n) {
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
+                for (int n = range.begin(); n < range.end(); ++n) {
+                // for (int n = 0; n < alnPairs; ++n) {
                     int32_t nIdx = n + rn*numBlocks;
                     int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
                     int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
@@ -1100,20 +1103,20 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                         assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
                     }
                     // Update alignment & frequency
-                    // Update alignment & frequency
                     if (!aln.empty()) {
-                        {
-                            tbb::spin_rw_mutex::scoped_lock lock(memMutex);
-                            util->memCheck(aln.size(), option);
-                            updateAlignment(tree, nodes[nIdx], util, aln);
-                        }
+                        updateAlignment(tree, nodes[nIdx], util, aln);
+                        // {
+                        //     tbb::spin_rw_mutex::scoped_lock lock(memMutex);
+                        //     util->memCheck(aln.size(), option);
+                        //     updateAlignment(tree, nodes[nIdx], util, aln);
+                        // }
                         if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
                             updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
                         }
                     }
                 }
-                // });
-                // });
+                });
+                });
                
             }  
 
@@ -1173,6 +1176,12 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     delete [] hostGapOp;
     delete [] hostGapEx;
     delete [] hostGapCl;
+
+    for (auto n: tree->allNodes) {
+        if (n.second->is_leaf()) {
+            if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
+        }
+    }
     
     
     if (fallbackPairs.empty()) {
@@ -1504,10 +1513,10 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                 }
 
                 if (rn % 10 == 0 && rn > 0 && option->printDetail) std::cout << rn*numBlocks << " pairs processed.\n";
-                // tbb::this_task_arena::isolate( [&]{
-                // tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
-                // for (int n = range.begin(); n < range.end(); ++n) {
-                for (int n = 0; n < alnPairs; ++n) {
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
+                for (int n = range.begin(); n < range.end(); ++n) {
+                // for (int n = 0; n < alnPairs; ++n) {
                     int32_t nIdx = n + rn*numBlocks;
                     int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
                     int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
@@ -1529,18 +1538,19 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                     }
                     // Update alignment & frequency
                     if (!aln.empty()) {
-                        {
-                            tbb::spin_rw_mutex::scoped_lock lock(memMutex);
-                            util->memCheck(aln.size(), option);
-                            updateAlignment(tree, nodes[nIdx], util, aln);
-                        }
+                        // {
+                        //     tbb::spin_rw_mutex::scoped_lock lock(memMutex);
+                        //     util->memCheck(aln.size(), option);
+                        //     updateAlignment(tree, nodes[nIdx], util, aln);
+                        // }
+                        updateAlignment(tree, nodes[nIdx], util, aln);
                         if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
                             updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
                         }
                     }
                 }
-                // });
-                // });
+                });
+                });
                
             }  
 
@@ -1598,6 +1608,12 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
     delete [] hostSeqInfo;
     delete [] hostGapOp;
     delete [] hostWeight;
+
+    for (auto n: tree->allNodes) {
+        if (n.second->is_leaf()) {
+            if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
+        }
+    }
 
     // CPU Fallback
     if (fallbackPairs.empty()) {
