@@ -722,7 +722,7 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
 void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
     updateNode(tree, nodes, util);
-    int numBlocks = 1024; 
+    int numBlocks = 2048; 
     int blockSize = THREAD_NUM;
     int gpuNum = option->gpuNum;
     // cudaGetDeviceCount(&gpuNum); // number of CUDA devices
@@ -1229,7 +1229,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
 void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
     updateNode(tree, nodes, util);
-    int numBlocks = 1024; 
+    int numBlocks = 2048; 
     int blockSize = THREAD_NUM;
     int gpuNum = option->gpuNum;
     // cudaGetDeviceCount(&gpuNum); // number of CUDA devices
