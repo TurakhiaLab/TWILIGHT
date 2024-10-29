@@ -140,7 +140,7 @@ msa::option::option(po::variables_map& vm) {
         gappyHorizon = 0;
     }
     std::string tempDir;
-    if (vm.count("max-subtree-size")) {
+    if (vm.count("max-subtree")) {
         if (!vm.count("temp-dir")) tempDir =  "./temp";
         else tempDir = vm["temp-dir"].as<std::string>();
         if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
