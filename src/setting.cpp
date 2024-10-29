@@ -110,7 +110,7 @@ Params::Params(po::variables_map& vm) {
 }
 
 msa::option::option(po::variables_map& vm) {
-    int maxSubtreeSize = (vm.count("max-subtree-size")) ? vm["max-subtree-size"].as<int>() : INT32_MAX;
+    int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
