@@ -143,7 +143,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                     if (tx == 0) {
                         last_tile = true;
-                        printf("No.%d No more cells to compute based on x-drop criteria. Align length = %d, length left (r,q): (%d,%d)\n", bx, alnLen[bx], reference_length, query_length);
+                        // printf("No.%d No more cells to compute based on x-drop criteria. Align length = %d, length left (r,q): (%d,%d)\n", bx, alnLen[bx], reference_length, query_length);
                     }
                     __syncthreads();
                     break;
@@ -152,7 +152,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
                     if (tx == 0) {
                         last_tile = true;
-                        printf("No.%d Anti-diagonal larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx,fLen, alnLen[bx], reference_length, query_length);
+                        // printf("No.%d Anti-diagonal larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx,fLen, alnLen[bx], reference_length, query_length);
                     }
                     __syncthreads();
                     break;
@@ -313,7 +313,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 if (max_score_prime >= INT16_MAX - __float2int_rn(p_scoreMat[0])) {
                     if (tx == 0) {
                         last_tile = true;
-                        printf("No.%d Max number (%d) larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx, max_score_prime, (INT16_MAX - __float2int_rn(p_scoreMat[0])), alnLen[bx], reference_length, query_length);
+                        // printf("No.%d Max number (%d) larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx, max_score_prime, (INT16_MAX - __float2int_rn(p_scoreMat[0])), alnLen[bx], reference_length, query_length);
                     }
                     __syncthreads();
                     break;
@@ -723,7 +723,7 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
                 if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                     if (tx == 0) {
                         last_tile = true;
-                        printf("No.%d No more cells to compute based on x-drop criteria. Align length = %d, length left (r,q): (%d,%d)\n", bx, alnLen[bx], reference_length, query_length);
+                        // printf("No.%d No more cells to compute based on x-drop criteria. Align length = %d, length left (r,q): (%d,%d)\n", bx, alnLen[bx], reference_length, query_length);
                     }
                     __syncthreads();
                     break;
@@ -731,7 +731,7 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
                 if (U[k%3]-L[k%3]+1 > fLen) { // Limit the size of the anti-diagonal
                     if (tx == 0) {
                         last_tile = true;
-                        printf("No.%d Anti-diagonal larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx,fLen, alnLen[bx], reference_length, query_length);
+                        // printf("No.%d Anti-diagonal larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx,fLen, alnLen[bx], reference_length, query_length);
                     }
                     __syncthreads();
                     break;
@@ -904,7 +904,7 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
                 if (max_score_prime >= INT16_MAX - __float2int_rn(p_scoreMat[0])) {
                     if (tx == 0) {
                         last_tile = true;
-                        printf("No.%d Max number (%d) larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx, max_score_prime, (INT16_MAX - __float2int_rn(p_scoreMat[0])), alnLen[bx], reference_length, query_length);
+                        // printf("No.%d Max number (%d) larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx, max_score_prime, (INT16_MAX - __float2int_rn(p_scoreMat[0])), alnLen[bx], reference_length, query_length);
                     }
                     __syncthreads();
                     break;

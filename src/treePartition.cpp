@@ -340,38 +340,6 @@ Tree* reconsturctTree(Node* root, std::unordered_map<std::string, std::pair<Node
     return T;
 }
 
-void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::map<std::string, std::string>& nodes) {
-    std::cout << node->identifier << '\n';
-    if (nodes.find(node->identifier) != nodes.end()) {
-        Node* NodeCopy;
-        if (T->allNodes.size() == 0) {
-            std::cout << "0" << node->identifier << '\n';
-            NodeCopy = new Node(node->identifier, node->branchLength);
-            NodeCopy->grpID = -1;
-            T->root = NodeCopy;
-        }
-        else {
-            std::cout << "1" << node->identifier << '\n';
-            NodeCopy = new Node(node->identifier, parent, node->branchLength);
-            NodeCopy->grpID = -1;
-            // T->allNodes[parent->identifier]->children.push_back(NodeCopy);
-        }
-        parent = NodeCopy;
-        T->allNodes[NodeCopy->identifier] = NodeCopy;
-    }
-    for (auto ch: node->children) {
-        preOrderTraversal(parent, ch, T, nodes);
-    }
-    return;
-}
-
-Tree* reconsturctTree(Node* root, std::map<std::string, std::string>& nodes) {
-    Tree* T = new Tree();
-    Node* nullNode = nullptr;
-    preOrderTraversal(nullNode, root, T, nodes);
-    return T;
-}
-
 partitionInfo_t::~partitionInfo_t() {
     this->partitionsRoot.clear();
 }

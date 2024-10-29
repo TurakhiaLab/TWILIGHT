@@ -151,6 +151,7 @@ int main(int argc, char** argv) {
         // auto msaStart = std::chrono::high_resolution_clock::now();
         Tree* newSubT;
         if (subP->partitionsRoot.size() > 1) newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
+
         msaOnSubtreeGpu(subT, util, option, subP, *param);
         // auto msaEnd = std::chrono::high_resolution_clock::now();
         // std::chrono::nanoseconds msaTime = msaEnd - msaStart;

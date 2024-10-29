@@ -224,8 +224,8 @@ void msa::utility::seqMalloc(int seqNum, int seqLen, option* option){
             temp[0][i] = new char[adjustLen];
             temp[1][i] = new char[adjustLen];
             for (int j = 0; j < adjustLen; ++j) {
-                temp[0][i][j] = (j < memLen) ? alnStorage[0][i][j] : 0;
-                temp[1][i][j] = (j < memLen) ? alnStorage[1][i][j] : 0;
+                temp[0][i][j] = (j < this->seqMemLen[i]) ? alnStorage[0][i][j] : 0;
+                temp[1][i][j] = (j < this->seqMemLen[i]) ? alnStorage[1][i][j] : 0;
             }
             delete [] this->alnStorage[0][i];
             delete [] this->alnStorage[1][i];

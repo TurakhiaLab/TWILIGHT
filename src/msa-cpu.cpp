@@ -39,26 +39,21 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     }
     // Push msa results to roots of sub-subtrees
     for (auto p: partition->partitionsRoot) {
-        std::stack<Node*> msaStack;
-        getPostOrderList(p.second.first, msaStack);
-        std::vector<Node*> msaArray;
-        while (!msaStack.empty()) {
-            msaArray.push_back(msaStack.top());
-            msaStack.pop();
-        }
-        if (msaArray.back()->msaIdx.size() == 0 && msaArray.size() > 1) {
-            if (msaArray.size() == 2) {
-                T->allNodes[msaArray.back()->identifier]->msaIdx = msaArray[0]->msaIdx;
-                util->seqsLen[msaArray.back()->identifier] = util->seqsLen[msaArray[0]->identifier];
-                break;
-            }
-            for (int m = msaArray.size()-2; m >=0; --m) {
-                if (msaArray[m]->msaIdx.size()>0) {
-                    T->allNodes[msaArray.back()->identifier]->msaIdx = msaArray[m]->msaIdx;
-                    util->seqsLen[msaArray.back()->identifier] = util->seqsLen[msaArray[m]->identifier];
+        Node* current = T->allNodes[p.first];
+        while (true) {
+            int chIdx = 0;
+            for (int i = 0; i < current->children.size(); ++i) {
+                if (current->children[i]->grpID == T->allNodes[p.first]->grpID) {
+                    chIdx = i;
                     break;
                 }
             }
+            if (!current->children[chIdx]->msaIdx.empty()) {
+                T->allNodes[p.first]->msaIdx = current->children[chIdx]->msaIdx;
+                util->seqsLen[p.first] = util->seqsLen[current->children[chIdx]->identifier];
+                break;
+            }
+            current = current->children[chIdx];
         }
     }
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
@@ -153,7 +148,6 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         T->allNodes[n.first]->msa.clear();
         T->allNodes[n.first]->msa.push_back(n.first);
     }
-    
     std::vector<std::pair<Node*, Node*>> mergePairs;
     for (auto n: newT->allNodes) {
         if (n.second->children.size() > 1) {
@@ -200,20 +194,6 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         }
         if (option->merger == "transitivity" || util->nowProcess < 2) {
             transitivityMerge(T, newT, singleLevel, util, option);
-            for (auto n: singleLevel) {
-                if (util->nowProcess == 2 && n.first->parent == nullptr) T->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
-                std::vector<std::string> temp = T->allNodes[n.first->identifier]->msa;
-                for (int r = 1; r < T->allNodes[n.first->identifier]->msa.size(); ++r) {
-                    std::string grpNode = T->allNodes[n.first->identifier]->msa[r];
-                    for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[grpNode]->msa.push_back(id);
-                }
-                for (auto id: T->allNodes[n.second->identifier]->msa) T->allNodes[n.first->identifier]->msa.push_back(id);
-                for (int r = 1; r < T->allNodes[n.second->identifier]->msa.size(); ++r) {
-                    std::string grpNode = T->allNodes[n.second->identifier]->msa[r];
-                    for (auto id: temp) T->allNodes[grpNode]->msa.push_back(id);
-                }
-                for (auto id: temp) T->allNodes[n.second->identifier]->msa.push_back(id);
-            }
         }
         else if (option->merger == "progressive" && util->nowProcess == 2) {
             msaCpu(T, singleLevel, util, option, param);
@@ -223,10 +203,10 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         std::chrono::nanoseconds roundTime = roundEnd - roundStart;
         if (option->printDetail) {
             if (singleLevel.size() > 1) {
-                std::cout << "Merged "<< singleLevel.size() << " edges in " << roundTime.count() / 1000000 << " ms\n";
+                std::cout << "Merged "<< singleLevel.size() << " edges in " << roundTime.count() / 1000 << " us\n";
             }
             else {
-                std::cout << "Merged "<< singleLevel.size() << " edge in " << roundTime.count() / 1000000 << " ms\n";
+                std::cout << "Merged "<< singleLevel.size() << " edge in " << roundTime.count() / 1000 << " us\n";
             }
         }
         totalEdges += singleLevel.size();
@@ -241,11 +221,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
 {
     int32_t seqLen = 0;
     if (util->nowProcess < 2) {
-        for (auto n: tree->allNodes) {
-            if (n.second->is_leaf()) {
-                if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
-            }
-        }
+        for (auto n: tree->allNodes) seqLen = std::max(util->seqsLen[n.first], seqLen);
     }
     else {
         for (auto pf: util->profileFreq) if (pf.second.size() > seqLen) seqLen = pf.second.size();
@@ -402,11 +378,14 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
             int seqLen = tree->allNodes[n.first->identifier]->msaAln.size();
             util->seqsLen[n.first->identifier] = seqLen;
             if (util->nowProcess < 2) {
-                util->memCheck(seqLen, option);
                 for (auto id: tree->allNodes[n.first->identifier]->msa) {
-                    // auto id = tree->root->msa[k];
                     std::vector<int8_t> aln = tree->allNodes[id]->msaAln;
-                    for (auto sIdx: tree->allNodes[id]->msaIdx) {
+                    tbb::this_task_arena::isolate( [&]{
+                    tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[id]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
+                    for (int idx = range.begin(); idx < range.end(); ++idx) {
+                        int sIdx = tree->allNodes[id]->msaIdx[idx];
+                    // for (auto sIdx: tree->allNodes[id]->msaIdx) {
+                        util->memCheck(seqLen, sIdx);
                         int orgIdx = 0;
                         int storeFrom = util->seqsStorage[sIdx];
                         int storeTo = 1 - util->seqsStorage[sIdx];
@@ -422,6 +401,8 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
                         util->seqsLen[id] = aln.size();
                         util->changeStorage(sIdx);
                     }
+                    });
+                    });
                 }
                 // });
             }
@@ -493,7 +474,7 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
         int32_t qryLen = qryOpAln.size();
         int32_t refNum = refAln.size();
         int32_t qryNum = qryAln.size();
-        int32_t seqLen = std::max(refLen, qryLen);
+        // int32_t seqLen = std::max(refLen, qryLen);
         for (int i = 0; i < refNum; ++i) {
             std::vector<int8_t> temp;
             refNewAln.push_back(temp);
@@ -502,22 +483,6 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
             std::vector<int8_t> temp;
             qryNewAln.push_back(temp);
         }
-        // std::cout << refLen << ':';
-        // for (int i = 0; i < refLen; ++i) {
-        //     if ((refOpAln[i] & 0XFFFF) == refGap || (refOpAln[i] & 0XFFFF) == 3) 
-        //         std::cout << i << ',';
-        // }
-        // std::cout << '\n';
-        // std::cout << qryLen << ':';
-        // for (int i = 0; i < qryLen; ++i) {
-        //     if ((qryOpAln[i] & 0XFFFF) == 2 || (qryOpAln[i] & 0XFFFF) == 3) 
-        //         std::cout << i << ',';
-        // }
-        // std::cout << '\n';
-        // aln = 0: match
-        // aln = 1: ref gap
-        // aln = 2: qry gap
-        // aln = 3: permenant gap
         int32_t rIdx = 0, qIdx = 0;
         while (rIdx < refLen && qIdx < qryLen) {
             if (((refOpAln[rIdx] & 0xFFFF) != refGap && (refOpAln[rIdx] & 0xFFFF) != 3)  &&
@@ -602,7 +567,15 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
         }
     }
     });
-    
+    for (auto n: nodes) {
+        if (util->nowProcess == 2 && n.first->parent == nullptr) tree->allNodes[n.first->identifier]->msa.push_back(n.first->identifier);
+        std::vector<std::string> tempTotal = tree->allNodes[n.first->identifier]->msa;
+        std::vector<std::string> tempR = tree->allNodes[n.first->identifier]->msa;
+        std::vector<std::string> tempQ = tree->allNodes[n.second->identifier]->msa;
+        for (auto id: tree->allNodes[n.second->identifier]->msa) tempTotal.push_back(id);
+        for (auto id: tempR) tree->allNodes[id]->msa = tempTotal;
+        for (auto id: tempQ) tree->allNodes[id]->msa = tempTotal;
+    }
     return;
 }
 
@@ -1135,8 +1108,8 @@ void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
         tree->allNodes[nodes.second->identifier]->msaIdx.clear();
     }
     else {
-        int seqLenR = util->seqsLen[nodes.first->identifier];
-        int seqLenQ = util->seqsLen[nodes.second->identifier];
+        // int seqLenR = util->seqsLen[nodes.first->identifier];
+        // int seqLenQ = util->seqsLen[nodes.second->identifier];
         if (tree->allNodes[nodes.first->identifier]->msa.empty())  tree->allNodes[nodes.first->identifier]->msa.push_back(nodes.first->identifier);
         if (tree->allNodes[nodes.second->identifier]->msa.empty()) tree->allNodes[nodes.second->identifier]->msa.push_back(nodes.second->identifier);
         for (auto seqName: tree->allNodes[nodes.first->identifier]->msa) {
@@ -1212,8 +1185,8 @@ void updateFrequency(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
     }
     else {
         float refNum_f = 0, qryNum_f = 0;
-        int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
-        int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        // int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
+        // int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
         for (int t = 0; t < 6; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
         for (int t = 0; t < 6; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
         int32_t refNum = static_cast<int32_t>(round(refNum_f));
@@ -1267,6 +1240,12 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
         if (children.empty()) {
             node->grpID = -2;
             postOrder.pop();
+            for (auto it = node->parent->children.begin(); it != node->parent->children.end(); ++it) {
+                if ((*it)->identifier == node->identifier) {
+                    node->parent->children.erase(it);
+                    break;
+                }
+            }
             continue;
         }
         // Only one child, merge the child and the parent 
@@ -1282,7 +1261,6 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
                 postOrder.pop();
                 continue;
             }
-            
         }
         // Pair children
         while (children.size() > 1) {
@@ -1294,7 +1272,6 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
                 NodeAlnOrder[children[i]->identifier] = maxIdx;
                 NodeAlnOrder[children[i+1]->identifier] = maxIdx;
                 alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), maxIdx));
-                // std::cout << children[i]->identifier << '+' << children[i+1]->identifier << ':' << maxIdx << '\n';
                 nodeLeft.push_back(children[i]);
             }
             if (children.size()%2 == 1) nodeLeft.push_back(children.back());

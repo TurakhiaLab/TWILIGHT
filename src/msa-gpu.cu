@@ -63,19 +63,25 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
     for (auto p: partition->partitionsRoot) {
         Node* current = T->allNodes[p.first];
         while (true) {
-            if (!current->children[0]->msaIdx.empty()) {
-                T->allNodes[p.first]->msaIdx = current->children[0]->msaIdx;
-                util->seqsLen[p.first] = util->seqsLen[current->children[0]->identifier];
+            int chIdx = 0;
+            for (int i = 0; i < current->children.size(); ++i) {
+                if (current->children[i]->grpID == T->allNodes[p.first]->grpID) {
+                    chIdx = i;
+                    break;
+                }
+            }
+            if (!current->children[chIdx]->msaIdx.empty()) {
+                T->allNodes[p.first]->msaIdx = current->children[chIdx]->msaIdx;
+                util->seqsLen[p.first] = util->seqsLen[current->children[chIdx]->identifier];
                 break;
             }
-            current = current->children[0];
+            current = current->children[chIdx];
         }
     }
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progessiveTime = progressiveEnd - progressiveStart;
     std::cout << "Progressive alignment in " <<  progessiveTime.count() / 1000000000 << " s\n";
     if (util->badSequences.empty()) return;
-
     // Adding bad sequences back
     util->nowProcess = 1;
     auto badStart = std::chrono::high_resolution_clock::now();
@@ -171,7 +177,6 @@ void createOverlapAlnGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     int32_t seqLen = 0;
     if (util->nowProcess < 2) {
         for (auto n: tree->allNodes) seqLen = (util->seqsLen[n.first] > seqLen) ? util->seqsLen[n.first] : seqLen;
-        seqLen *= 2;
     }
     else {
         for (auto pf: util->profileFreq) if (pf.second[0].size() > seqLen) seqLen = pf.second[0].size();
