@@ -345,7 +345,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
             }
         }
         std::pair<int, int> debugIdx;
-        addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
+        addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
         assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
         tree->allNodes[nodes[nIdx].first->identifier]->msaAln = aln;
         free(hostFreq);
@@ -695,7 +695,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         }
         if (!aln_old.empty()) {
             std::pair<int, int> debugIdx;
-            addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
+            addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
             if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                 std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                 std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
@@ -1009,7 +1009,7 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
     return;
 }
 
-void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, std::pair<int, int>& debugIdx) {
+void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, std::pair<int, int>& debugIdx, msa::option* option) {
     int rIdx = 0, qIdx = 0, j = 0; 
     while (j < aln_old.size() || (!gappyColumns.first.empty() || !gappyColumns.second.empty())) {
         bool gapR = (gappyColumns.first.empty())  ? false : (rIdx == gappyColumns.first.front().first);
@@ -1017,16 +1017,20 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
         int gapRLen = (!gapR) ? 0 : gappyColumns.first.front().second;
         int gapQLen = (!gapQ) ? 0 : gappyColumns.second.front().second;
         if (gapR || gapQ) {
-            if (gapRLen >= gapQLen) {
-                for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-                for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
-            }
-            else {
-                for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-                for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
-            }
-            // for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
-            // for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+            // if (option->alignGappy) {
+            //     if (gapRLen >= gapQLen) {
+            //         for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+            //         for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
+            //     }
+            //     else {
+            //         for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+            //         for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
+            //     }
+            // }
+            // else {
+            for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+            for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+            // }
             if (gapR) gappyColumns.first.pop();
             if (gapQ) gappyColumns.second.pop();
         }

@@ -56,6 +56,7 @@ public:
     void calSeqWeight();
     Tree(std::string newick);
     Tree(Node* node);
+    Tree(std::vector<std::string>& nodes);
     Tree() {root = nullptr;}
     ~Tree();
 };

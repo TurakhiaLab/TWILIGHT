@@ -228,6 +228,19 @@ Tree::Tree(Node* node) {
     this->calSeqWeight();
 }
 
+Tree::Tree(std::vector<std::string>& nodes) {
+    Node* treeRoot = new Node("node_1", 1.0);
+    this->root = treeRoot;
+    this->root->grpID = -1;
+    allNodes["node_1"] = treeRoot;
+    for (int i = 0; i < nodes.size(); ++i) {
+        auto nodeName = nodes[i];
+        Node* newNode = new Node(nodeName, this->root, 1.0);
+        newNode->grpID = i;
+        allNodes[nodeName] = newNode;
+    }
+}
+
 Tree::~Tree() {
     for (auto n: this->allNodes) {
         delete n.second;

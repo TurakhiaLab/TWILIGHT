@@ -41,11 +41,10 @@ void printLeaves(Node* node)
 }
 
 // read
-void readSequences(po::variables_map& vm, msa::utility* util, msa::option* option, Tree* tree)
+void readSequences(msa::utility* util, msa::option* option, Tree* tree)
 {
     auto seqReadStart = std::chrono::high_resolution_clock::now();
-
-    std::string seqFileName = vm["sequences"].as<std::string>();
+    std::string seqFileName = option->seqFile;
     gzFile f_rd = gzopen(seqFileName.c_str(), "r");
     if (!f_rd) {
         fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
@@ -101,43 +100,75 @@ void readSequences(po::variables_map& vm, msa::utility* util, msa::option* optio
     std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
 }
 
-void readSequences(std::string seqFileName, msa::utility* util, msa::option* option, Tree* tree)
-{
-    auto seqReadStart = std::chrono::high_resolution_clock::now();
-
-    gzFile f_rd = gzopen(seqFileName.c_str(), "r");
-    if (!f_rd) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
-        exit(1);
+void readFrequency(msa::utility* util, msa::option* option, Tree* tree) {
+    auto freqReadStart = std::chrono::high_resolution_clock::now();
+    std::string path = option->msaDir;
+    std::vector<std::string> seqs (0);
+    std::vector<std::string> subroots;
+    int subtreeIdx = 0;
+    int totalFile = 0;
+    for (const auto & msaFile : fs::directory_iterator(path)) totalFile += 1;
+    for (const auto & msaFile : fs::directory_iterator(path)) {
+        std::string msaFileName = msaFile.path();
+        gzFile f_rd = gzopen(msaFileName.c_str(), "r");
+        if (!f_rd) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
+            exit(1);
+        }
+        std::cout << "Start reading " << msaFileName << " (" << subtreeIdx+1 << '/' << totalFile << ")\n";
+        kseq_t* kseq_rd = kseq_init(f_rd);
+        int seqNum = 0, msaLen;
+        std::string seqName;
+        while (kseq_read(kseq_rd) >= 0) {
+            int seqLen = kseq_rd->seq.l;
+            if (seqNum == 0) {
+                msaLen = seqLen;
+                seqName = kseq_rd->name.s;
+                subroots.push_back(seqName);
+            }
+            else {
+                if (seqLen != msaLen) {
+                    fprintf(stderr, "ERROR: seqeunce length does not match in %s\n", msaFileName.c_str());
+                    exit(1);
+                }
+            }
+            std::string seq = std::string(kseq_rd->seq.s, seqLen);
+            seqs.push_back(seq);
+            ++seqNum;
+        }
+        kseq_destroy(kseq_rd);
+        gzclose(f_rd);
+        util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
+        for (auto seq: seqs) {
+            tbb::parallel_for(tbb::blocked_range<int>(0, msaLen), [&](tbb::blocked_range<int> r) {
+            for (int j = r.begin(); j < r.end(); ++j) {
+                if      (seq[j] == 'A' || seq[j] == 'a') util->profileFreq[subtreeIdx][j][0]+=1.0;
+                else if (seq[j] == 'C' || seq[j] == 'c') util->profileFreq[subtreeIdx][j][1]+=1.0;
+                else if (seq[j] == 'G' || seq[j] == 'g') util->profileFreq[subtreeIdx][j][2]+=1.0;
+                else if (seq[j] == 'T' || seq[j] == 't' ||
+                         seq[j] == 'U' || seq[j] == 'u') util->profileFreq[subtreeIdx][j][3]+=1.0;
+                else if (seq[j] == 'N' || seq[j] == 'n') util->profileFreq[subtreeIdx][j][4]+=1.0;
+                else                                     util->profileFreq[subtreeIdx][j][5]+=1.0;
+            }
+            });
+        }
+        if (option->printDetail) {
+            std::cout << "File " << subtreeIdx << '(' << msaFileName << ") Num: " << seqNum << ", Length: " << msaLen << '\n';
+        }
+        util->seqsLen[seqName] = msaLen;
+        util->seqsIdx[seqName] = subtreeIdx;
+        util->seqsName[subtreeIdx] = seqName;
+        tree->allNodes[seqName]->msaAln = std::vector<int8_t> (msaLen, 0);
+        if (msaLen > util->seqLen) util->seqLen = msaLen;
+        seqs.clear();
+        ++subtreeIdx;
     }
-
-    kseq_t* kseq_rd = kseq_init(f_rd);
-
-    int seqNum = 0, maxLen = 0;
-    uint64_t totalLen = 0;
-    
-    std::map<std::string, std::pair<std::string, int>> seqs;
-    
-    while (kseq_read(kseq_rd) >= 0) {
-        int seqLen = kseq_rd->seq.l;
-        std::string seqName = kseq_rd->name.s;
-        int subtreeIdx = tree->allNodes[seqName]->grpID;
-        std::string seq = std::string(kseq_rd->seq.s, seqLen);
-        seqs[seqName] = std::make_pair(seq, subtreeIdx);
-        if (option->debug) util->rawSeqs[seqName] = seq;
-        if (seqLen > maxLen) maxLen = seqLen;
-        totalLen += seqLen;
-    }
-    
-    seqNum = seqs.size();
-    uint32_t avgLen = totalLen/seqNum;
-    std::cout << "(Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
-
-    util->seqsMallocNStore(maxLen, seqs, option);
-    
-    auto seqReadEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
-    std::cout << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    Tree* newTree = new Tree(subroots);
+    tree = newTree;
+    auto freqReadEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds seqReadTime = freqReadEnd - freqReadStart;
+    std::cout << "MSA files read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    return;
 }
 
 /*
@@ -216,7 +247,7 @@ Tree* readNewick(po::variables_map& vm)
     Tree *T = new Tree(newick);
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-    std::cout << "Newick string read in: " <<  treeBuiltTime.count() << " ns\n";
+    std::cout << "Newick string read in: " <<  treeBuiltTime.count() / 1000000 << " ms\n";
 
     return T;
 }
@@ -230,7 +261,7 @@ Tree* readNewick(std::string treeFileName)
     Tree *T = new Tree(newick);
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-    std::cout << "Newick string read in: " <<  treeBuiltTime.count() << " ns\n";
+    std::cout << "Newick string read in: " <<  treeBuiltTime.count() / 1000000 << " ms\n";
 
     return T;
 }
@@ -305,9 +336,9 @@ void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util) {
     return;
 }
 
-void outputFinal (po::variables_map& vm, Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
+void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
     util->seqsIdx.clear();
-    std::string seqFileName = vm["sequences"].as<std::string>();
+    std::string seqFileName = option->seqFile;
     std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
     std::map<std::string, std::string> seqs;
     std::map<int, std::pair<std::string, std::string>> rawSeqs;
@@ -390,7 +421,8 @@ void outputFinal (po::variables_map& vm, Tree* tree, partitionInfo_t* partition,
     return;
 }
 
-void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tree* T) {
+void outputAln(msa::utility* util, msa::option* option, Tree* T) {
+    std::string fileName = option->outFile;
     if (util->nowProcess == 2) {
         std::string command = "cat " + option->tempDir + "/*.final.aln > " + fileName;
         system(command.c_str());
@@ -405,6 +437,7 @@ void outputAln(std::string fileName, msa::utility* util, msa::option* option, Tr
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
         exit(1);
     }
+    
     std::vector<std::string> seqs;
     for (auto seq: util->seqsIdx)
         seqs.push_back(seq.first);

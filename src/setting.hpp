@@ -57,12 +57,17 @@ namespace msa
         int maxSubtree;
         int maxSubSubtree;
         int gappyHorizon;
+        int alnMode; //0: MSA from raw sequences, 1: merge multiple MSA files
         float gappyVertical;
         std::vector<int> gpuIdx;
         int nowProcess;
         bool debug;
         bool cpuOnly;
         bool psgop;
+        std::string treeFile;
+        std::string seqFile;
+        std::string outFile;
+        std::string msaDir;
         std::string outType;
         std::string tempDir;
         std::string merger;

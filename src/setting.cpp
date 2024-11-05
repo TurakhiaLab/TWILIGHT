@@ -17,11 +17,10 @@ Params::Params(po::variables_map& vm) {
     if (userDefine == 0) {
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
-                if (i == 4 || j == 4)        this->scoringMatrix[i][j] = 0;
+                if (i == 4 || j == 4)        this->scoringMatrix[i][j] = vm.count("wildcard") ? mat : 0.0;
                 else if (i == j)             this->scoringMatrix[i][j] = mat;
                 else if (std::abs(i-j) == 2) this->scoringMatrix[i][j] = mis+(trans-1)*(mat-mis)/(trans);
                 else                         this->scoringMatrix[i][j] = mis;
-                // std::cout << std::setw(10) << param->scoringMatrix[i][j] << ' ';
             }
             // std::cout << '\n';
         }
@@ -78,9 +77,11 @@ Params::Params(po::variables_map& vm) {
         int offset = 59;
         for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] *= 600 / avg1;
         for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] -= offset;
+
+        float Nscore = vm.count("wildcard") ? std::round(pamx[0][0] / 10.0) : 0.0;
         
         for (i = 0; i < 5; ++i) for (j = 0; j < 5; ++j) 
-            this->scoringMatrix[i][j] = (i == 4 || j == 4) ? 0.0 : std::round(pamx[i][j] / 10.0);
+            this->scoringMatrix[i][j] = (i == 4 || j == 4) ? Nscore : std::round(pamx[i][j] / 10.0);
         
         
         float gop = 1.53; float ge = 0.123;
@@ -110,29 +111,47 @@ Params::Params(po::variables_map& vm) {
 }
 
 msa::option::option(po::variables_map& vm) {
+    if (!vm.count("tree") && !vm.count("sequences") && !vm.count("files")) {
+        std::cerr << "ERROR: No input file.\n";
+        exit(1);
+    }
+    if (vm.count("sequences") && !vm.count("tree")) {
+        std::cerr << "ERROR: A tree file is required for building MSA from raw seqeunces.\n";
+        exit(1);
+    }
+    if (vm.count("sequences") && vm.count("files")) {
+        std::cerr << "ERROR: Both modes cannot run at the same time.\n";
+        exit(1);
+    }
+    if (vm.count("tree")) this->treeFile = vm["tree"].as<std::string>();
+    if (vm.count("sequences")) {this->seqFile = vm["sequences"].as<std::string>(); this->alnMode = 0;}
+    if (vm.count("files")) {this->msaDir = vm["files"].as<std::string>(); this->alnMode = 1;}
+    if (vm.count("output")) this->outFile = vm["output"].as<std::string>();
+    else this->outFile = "output.aln";
+
     int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
     if (cpuNum <= 0) {
-        std::cerr << "ERROR: requested cpu cores <= 0.\n";
+        std::cerr << "ERROR: Requested cpu cores <= 0.\n";
         exit(1);
     }
     if (cpuNum > maxCpuThreads) {
-        std::cerr << "ERROR: requested cpu cores more available threads.\n";
+        std::cerr << "ERROR: Requested cpu cores more available threads.\n";
         exit(1);
     }
     printf("Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
     float gappyVertical = vm["gappy-vertical"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
-        std::cerr << "ERROR: the value of gappy-vertical should be (0,1]\n";
+        std::cerr << "ERROR: The value of gappy-vertical should be (0,1]\n";
         exit(1);
     }
     if (vm.count("gappy-horizon")) {
         gappyHorizon = vm["gappy-horizon"].as<float>();
         if (gappyHorizon - round(gappyHorizon) != 0 || gappyHorizon < 1) {
-            std::cerr << "ERROR: the value of gappy-horizon should be an positive integer\n";
+            std::cerr << "ERROR: The value of gappy-horizon should be an positive integer\n";
             exit(1);
         }
     }
@@ -149,7 +168,7 @@ msa::option::option(po::variables_map& vm) {
                 std::cout << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
                 exit(1);
             }
-            else { fprintf(stderr, "ERROR: cant create directory: %s\n", tempDir.c_str()); exit(1); }
+            else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
         }
         else std::cout << tempDir << " created\n";
     }
@@ -160,7 +179,7 @@ msa::option::option(po::variables_map& vm) {
     }
     std::string merger = vm["merge-subtrees"].as<std::string>();
     if (merger == "T" || merger == "t") merger = "transitivity";
-    else if (merger == "P" || merger == "p") merger = "progressive";
+    else if (merger == "P" || merger == "p") merger = "profile";
     else {
         std::cerr << "ERROR: Unrecognized method to merge subtrees \"" << merger <<"\"\n";
         exit(1);
@@ -178,7 +197,7 @@ msa::option::option(po::variables_map& vm) {
     this->outType = outType;
     this->merger = merger;
     this->printDetail = vm.count("print-detail");
-    this->deleteTemp = !vm.count("keep-temp");
+    this->deleteTemp = vm.count("delete-temp");
 }
 
 void msa::utility::changeStorage(int idx) {

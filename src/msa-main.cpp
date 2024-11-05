@@ -12,16 +12,18 @@ void parseArguments(int argc, char** argv)
 {
     // Setup boost::program_options
     mainDesc.add_options()
-        ("tree,t", po::value<std::string>()->required(), "Initial Tree - Newick format (required)")
-        ("sequences,i", po::value<std::string>()->required(), "Input tip sequences - Fasta format (required)")
+        ("tree,t", po::value<std::string>(), "Initial Tree - Newick format (required if building MSA from raw sequences)")
+        ("sequences,i", po::value<std::string>(), "Input tip sequences - Fasta format")
+        ("files, f", po::value<std::string>(), "Path to the directory containing all MSA files. MSA files should be in Fasta format")
         ("cpu-num,c",  po::value<int>(), "Number of CPU cores")
         ("max-leaves,l",  po::value<int>(), "Maximum number of leaves per sub-subtree, used for transitivity merger")
         ("max-subtree,m", po::value<int>(), "Maximum number of leaves per subtree")
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files")
         ("output,o", po::value<std::string>(), "Output file name")
         ("gappy-vertical,v", po::value<float>()->default_value(0.9), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column. Set to 1 to disable this feature.")
-        ("gappy-horizon,h", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
+        ("gappy-horizon,z", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment, have to be used with -o option")
+        ("wildcard,w", "Treat unknown 'N' as a wildcard and aligned to usual letters")
         ("print-detail", "Print out every detail")
         ("match",      po::value<paramType>()->default_value(18), "Match score")
         ("mismatch",   po::value<paramType>()->default_value(-8), "Mismatch penalty")
@@ -33,7 +35,7 @@ void parseArguments(int argc, char** argv)
         ("pam-n",      po::value<int>()->default_value(200), "'n' in the PAM-n matrix. Should be used with kimura scoring matrix")
         ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR, CIGAR stands for CIGAR-like compressed format")
         ("merge-subtrees", po::value<std::string>()->default_value("p"), "t: transitivity merger, p: progressive alignment")
-        ("keep-temp", "Keep temporary subtree files. If not specified, temporary files will be deleted to save storage space.")
+        ("delete-temp", "delete temporary subtree folder and files.")
         ("debug", "Enable debug on the final alignment")
         ("help,h", "Print help messages");
 }
@@ -65,7 +67,7 @@ int main(int argc, char** argv) {
     Params* param = new Params(vm);
 
     // Partition tree into subtrees
-    Tree* T = readNewick(vm);
+    Tree* T = readNewick(option->treeFile);
     std::cout << "Total leaves: " << T->m_numLeaves << '\n';
     // printTree(T->root, -1);
     partitionInfo_t* P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
@@ -91,7 +93,7 @@ int main(int argc, char** argv) {
         Tree* subT = new Tree(subRoot.second.first);
         if (P->partitionsRoot.size() > 1) outputSubtree(subT, option, subtree);
         util->setSubtreeIdx(subtree);
-        readSequences(vm, util, option, subT);
+        readSequences(util, option, subT);
         // std::cout << "Subtree No." << subtree << " contains "<< subT->m_numLeaves << " sequences.\n";
 
         auto treeBuiltStart = std::chrono::high_resolution_clock::now();
@@ -187,7 +189,7 @@ int main(int argc, char** argv) {
         }
         int totalSeqs = 0;
         auto outStart = std::chrono::high_resolution_clock::now();
-        outputFinal (vm, T, P, util, option, totalSeqs);
+        outputFinal (T, P, util, option, totalSeqs);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::cout << "Output " << newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
@@ -196,17 +198,15 @@ int main(int argc, char** argv) {
     
     // output MSA
     if (vm.count("output")) {
-        std::string outFile = vm["output"].as<std::string>();
-        if (outFile == "") outFile = "output.aln";
         auto outStart = std::chrono::high_resolution_clock::now();
-        outputAln(outFile, util, option, T);
+        outputAln(util, option, T);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";
         // Calculate sum-of-pairs score
         if (vm.count("sum-of-pairs-score")) {
             auto spStart = std::chrono::high_resolution_clock::now();
-            double score = calSPScore(outFile, util, param);
+            double score = calSPScore(option->outFile, util, param);
             auto spEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds spTime = spEnd - spStart;
             std::cout << "Calculated Sum-of-Pairs-Score in " << spTime.count() / 1000000 << " ms. Score = " << score << ".\n";
