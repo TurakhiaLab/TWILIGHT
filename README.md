@@ -28,6 +28,12 @@ make msa-accel
 ```
 ./msa-accel -t <tree file> -i <sequence file> -o <output file> -d <directory for storing temporary files> -m <maximum subtree size> --merge-subtree <merger method>
 ```
+
+### Merge multiple MSA files
+```
+./msa-accel -f <directory that stores all MSA files> -o <output file>
+```
+
 ## Example command
 ### Run with the default setting
 ```
