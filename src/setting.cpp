@@ -159,7 +159,7 @@ msa::option::option(po::variables_map& vm) {
         gappyHorizon = 0;
     }
     std::string tempDir;
-    if (vm.count("max-subtree")) {
+    if (vm.count("max-subtree") || vm.count("files")) {
         if (!vm.count("temp-dir")) tempDir =  "./temp";
         else tempDir = vm["temp-dir"].as<std::string>();
         if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
@@ -183,6 +183,17 @@ msa::option::option(po::variables_map& vm) {
     else {
         std::cerr << "ERROR: Unrecognized method to merge subtrees \"" << merger <<"\"\n";
         exit(1);
+    }
+    if (vm.count("output-subtrees")) {
+        std::string subtreeDir = "./subtrees";
+        if (mkdir(subtreeDir.c_str(), 0777) == -1) {
+            if( errno == EEXIST ) {
+                std::cout << subtreeDir << " already exists. In order to prevent your file from being overwritten, please delete or move this folder to another directory.\n";
+                exit(1);
+            }
+            else { fprintf(stderr, "ERROR: Can't create directory: %s\n", subtreeDir.c_str()); exit(1); }
+        }
+        else std::cout << subtreeDir << " created for storing subtree files.\n";
     }
     this->cpuNum = cpuNum; 
     this->gpuNum = 0;

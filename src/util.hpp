@@ -35,19 +35,19 @@ namespace fs = std::experimental::filesystem;
 #endif
 
 void readSequences(msa::utility* util, msa::option* option, Tree* tree);
-void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option);
 Tree* readNewick(std::string treeFileName);
-void readFrequency(msa::utility* util, msa::option* option, Tree* tree);
+void readFrequency(msa::utility* util, msa::option* option);
 
 void printTree(Node* node, int grpID);
 void printLeaves(Node* node);
 
 void outputAln(msa::utility* util, msa::option* option, Tree* T);
 void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID);
+void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option);
 void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx);
 void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
-void outputSubtreeSeqs(std::string fileName, std::map<std::string, std::string>& seqs);
-void outputSubtreeCIGAR(std::string fileName, std::map<std::string, std::string>& seqs);
+void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs);
+void outputSubtreeCIGAR(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs);
 
 void storeFreq(msa::utility* util, Tree* T, int grpID);
 void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util);

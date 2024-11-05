@@ -228,16 +228,19 @@ Tree::Tree(Node* node) {
     this->calSeqWeight();
 }
 
-Tree::Tree(std::vector<std::string>& nodes) {
+Tree::Tree(std::unordered_map<std::string,int>& seqsLen, std::unordered_map<std::string,int>& seqsIdx) {
     Node* treeRoot = new Node("node_1", 1.0);
     this->root = treeRoot;
     this->root->grpID = -1;
-    allNodes["node_1"] = treeRoot;
-    for (int i = 0; i < nodes.size(); ++i) {
-        auto nodeName = nodes[i];
+    this->allNodes["node_1"] = treeRoot;
+    for (auto seq: seqsIdx) {
+        int grpID = seq.second;
+        std::string nodeName = seq.first;
+        int msaLen = seqsLen[nodeName];
         Node* newNode = new Node(nodeName, this->root, 1.0);
-        newNode->grpID = i;
-        allNodes[nodeName] = newNode;
+        newNode->grpID = grpID;
+        this->allNodes[nodeName] = newNode;
+        this->allNodes[nodeName]->msaAln = std::vector<int8_t> (msaLen, 0);
     }
 }
 

@@ -160,7 +160,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
             mergePairs.push_back(std::make_pair(n.second, n.second->children[0]));
         }
     }
-    
+        
     std::vector<std::pair<Node*, Node*>> singleLevel;
     std::map<std::string, char> addedNodes;
     
@@ -187,6 +187,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         }
         bool breakLoop = false;
         if (singleLevel.empty()) {
+            if (option->alnMode == 1) break;
             for (auto mp: mergePairs) {
                 singleLevel.push_back(mp);
             }
@@ -195,7 +196,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         if (option->merger == "transitivity" || util->nowProcess < 2) {
             transitivityMerge(T, newT, singleLevel, util, option);
         }
-        else if (option->merger == "progressive" && util->nowProcess == 2) {
+        else if (option->merger == "profile" && util->nowProcess == 2) {
             msaCpu(T, singleLevel, util, option, param);
         }
        
@@ -211,7 +212,6 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         }
         totalEdges += singleLevel.size();
         if (breakLoop) break;
-        // if (totalLevels % 100 == 0) std::cout << "=============" << totalLevels << "=================\n";
     }
     if (option->printDetail) std::cout << "Total Edges/Levels: " << totalEdges << '/' << totalLevels << '\n';
     return;
@@ -593,7 +593,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             if (tree->allNodes[n.second->identifier]->msaAln.size() > seqLen) seqLen = tree->allNodes[n.second->identifier]->msaAln.size();
         }
     }
-    
     paramType* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
     hostParam[25] = param.gapOpen;
@@ -702,16 +701,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 std::cout << "Num: " << refNum << '-' << qryNum << '\n';
             }
             assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-            // if (util->nowProcess < 2) {
-            //     {
-            //         tbb::mutex::scoped_lock lock(memMutex);
-            //         util->memCheck(aln.size(), option);
-            //         updateAlignment(tree, nodes[nIdx], util, aln); 
-            //     }
-            // }
-            // else {
-            //     updateAlignment(tree, nodes[nIdx], util, aln); 
-            // }
             updateAlignment(tree, nodes[nIdx], util, aln); 
             if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
                 updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
@@ -725,11 +714,14 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     }    
     });
     });
-    for (auto n: tree->allNodes) {
-        if (n.second->is_leaf()) {
-            if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
+    if (util->nowProcess < 2) {
+        for (auto n: tree->allNodes) {
+            if (n.second->is_leaf()) {
+                if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
+            }
         }
     }
+    
     free(hostParam);
     if (fallbackPairs.empty()) {
         return;

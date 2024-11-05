@@ -56,7 +56,7 @@ public:
     void calSeqWeight();
     Tree(std::string newick);
     Tree(Node* node);
-    Tree(std::vector<std::string>& nodes);
+    Tree(std::unordered_map<std::string,int>& seqsLen, std::unordered_map<std::string,int>& seqsIdx);
     Tree() {root = nullptr;}
     ~Tree();
 };

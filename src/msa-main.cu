@@ -14,7 +14,7 @@ void parseArguments(int argc, char** argv)
     mainDesc.add_options()
         ("tree,t", po::value<std::string>(), "Initial Tree - Newick format (required if building MSA from raw sequences)")
         ("sequences,i", po::value<std::string>(), "Input tip sequences - Fasta format")
-        ("files, f", po::value<std::string>(), "Path to the directory containing all MSA files. MSA files should be in Fasta format")
+        ("files,f", po::value<std::string>(), "Path to the directory containing all MSA files. MSA files should be in Fasta format")
         ("cpu-num,c",  po::value<int>(), "Number of CPU cores")
         ("gpu-num,g",  po::value<int>(), "Number of GPUs")
         ("max-leaves,l",  po::value<int>(), "Maximum number of leaves per sub-subtree, used for transitivity merger")
@@ -38,10 +38,10 @@ void parseArguments(int argc, char** argv)
         ("merge-subtrees", po::value<std::string>()->default_value("p"), "t: transitivity merger, p: profile alignment")
         ("gpu-index", po::value<std::string>(), "Specify the GPU index, separated by commas. Ex. 0,2,3")
         ("delete-temp", "delete temporary subtree folder and files.")
+        ("output-subtrees", "writing the tree file of each subtree.")
         ("debug", "Enable debug on the final alignment")
         ("cpu-only", "Only using CPU to run the program")
         ("help,h", "Print help messages");
-
 }
 
 int main(int argc, char** argv) {
@@ -61,6 +61,10 @@ int main(int argc, char** argv) {
         else
             return 1;
     }
+    if(vm.count("help")) {
+        std::cerr << mainDesc << std::endl;
+        return 0;
+    }
 
     msa::option* option = new msa::option(vm);
     tbb::task_scheduler_init init(option->cpuNum);
@@ -79,7 +83,10 @@ int main(int argc, char** argv) {
         P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
         partitionTree(T->root, P);
         newT = reconsturctTree(T->root, P->partitionsRoot);
-        if (P->partitionsRoot.size() > 1) std::cout << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
+        if (P->partitionsRoot.size() > 1) {
+            std::cout << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
+            if (vm.count("output-subtrees")) outputSubtreeTrees(T, P, util, option);
+        }
         // Start alignmnet on subtrees
         int proceeded = 0;
         auto alnSubtreeStart = std::chrono::high_resolution_clock::now();
@@ -91,7 +98,6 @@ int main(int argc, char** argv) {
             if (P->partitionsRoot.size() > 1) std::cout << "Start processing subtree No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             Tree* subT = new Tree(subRoot.second.first);
             // printTree(subT->root, -1);
-            if (P->partitionsRoot.size() > 1 && !option->deleteTemp) outputSubtree(subT, option, subtree);
             readSequences(util, option, subT);
             auto treeBuiltStart = std::chrono::high_resolution_clock::now();
             partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
@@ -178,13 +184,20 @@ int main(int argc, char** argv) {
         }
     }
     else {
-        readFrequency(util, option, T);
+        readFrequency(util, option);
+        T = new Tree(util->seqsLen, util->seqsIdx);
         util->nowProcess = 2; // merge subtrees
         auto alnStart = std::chrono::high_resolution_clock::now();
-        mergeSubtrees (T, newT, util, option, *param);
+        mergeSubtrees (T, T, util, option, *param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-        std::cout << "Profile alignment on " << newT->allNodes.size() << " subtrees in " << alnTime.count() / 1000000 << " ms\n";
+        std::cout << "Profile alignment on " << T->allNodes.size() << " subtrees in " << alnTime.count() / 1000000 << " ms\n";
+        int totalSeqs = 0;
+        auto outStart = std::chrono::high_resolution_clock::now();
+        outputFinal (T, P, util, option, totalSeqs);
+        auto outEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds outTime = outEnd - outStart;
+        std::cout << "Output " << T->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
     }
     
     
@@ -207,7 +220,7 @@ int main(int argc, char** argv) {
     }
     delete T;
     delete P;
-    delete newT;
+    if (option->alnMode == 0) delete newT;
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
     std::cout << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
