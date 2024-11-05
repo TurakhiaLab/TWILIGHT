@@ -2,6 +2,10 @@
 #include "util.hpp"
 #endif
 
+#ifndef MSA_HPP
+#include "msa-cpu.hpp"
+#endif
+
 po::options_description mainDesc("MSA Command Line Arguments");
 
 void parseArguments(int argc, char** argv)
