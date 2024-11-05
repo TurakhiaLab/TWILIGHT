@@ -2,10 +2,6 @@
 #include "util.hpp"
 #endif
 
-#ifndef MSAGPU_HPP
-#include "msa-gpu.cuh"
-#endif
-
 po::options_description mainDesc("MSA Command Line Arguments");
 
 void parseArguments(int argc, char** argv)
