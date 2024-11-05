@@ -193,7 +193,7 @@ int main(int argc, char** argv) {
         outputFinal (T, P, util, option, totalSeqs);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
-        std::cout << "Output " << T->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
+        std::cout << "Output " << T->allNodes.size() - 1 << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
     }
     
     
@@ -215,8 +215,10 @@ int main(int argc, char** argv) {
         }
     }
     delete T;
-    delete P;
-    if (option->alnMode == 0) delete newT;
+    if (option->alnMode == 0)  {
+        delete newT;
+        delete P;
+    }
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
     std::cout << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
