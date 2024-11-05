@@ -66,7 +66,7 @@ find_package(TBB REQUIRED tbbmalloc tbbmalloc_proxy tbb_preview)
 # 				src/msa.cpp)
 
 add_executable (msa-accel ${SRC_FILES})
-target_link_libraries(msa-accel PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
+target_link_libraries(msa-accel PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS} stdc++fs)
 
 # target_link_libraries(msa-gpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
 # target_link_libraries(msa-cpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
