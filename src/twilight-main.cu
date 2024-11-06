@@ -75,11 +75,10 @@ int main(int argc, char** argv) {
     Tree* T, * newT;
     partitionInfo_t* P;
 
-    
-    if (option->alnMode == 0) {
+
+    if (option->alnMode == 0) { // Twilight
         // Partition tree into subtrees
         T = readNewick(option->treeFile);
-        std::cout << "Total leaves: " << T->m_numLeaves << '\n';
         P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
         partitionTree(T->root, P);
         newT = reconsturctTree(T->root, P->partitionsRoot);
@@ -94,10 +93,8 @@ int main(int argc, char** argv) {
             auto subtreeStart = std::chrono::high_resolution_clock::now();
             ++proceeded;
             int subtree = T->allNodes[subRoot.first]->grpID;
-            // if (subtree == 6) continue;
             if (P->partitionsRoot.size() > 1) std::cout << "Start processing subtree No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             Tree* subT = new Tree(subRoot.second.first);
-            // printTree(subT->root, -1);
             readSequences(util, option, subT);
             auto treeBuiltStart = std::chrono::high_resolution_clock::now();
             partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
@@ -133,7 +130,6 @@ int main(int argc, char** argv) {
                 std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
                 std::cout << "Completed checking " << subT->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
             }
-            // for (auto node: subT->allNodes) delete node.second;
             if (P->partitionsRoot.size() > 1) {
                 auto storeStart = std::chrono::high_resolution_clock::now();
                 storeFreq(util, subT, subtree);
@@ -183,7 +179,7 @@ int main(int argc, char** argv) {
             std::cout << "Output " << newT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
         }
     }
-    else {
+    else { // Twilight-Mer
         readFrequency(util, option);
         T = new Tree(util->seqsLen, util->seqsIdx);
         util->nowProcess = 2; // merge subtrees
@@ -224,6 +220,7 @@ int main(int argc, char** argv) {
         delete newT;
         delete P;
     }
+    
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
     std::cout << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
