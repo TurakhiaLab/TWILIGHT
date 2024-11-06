@@ -10,7 +10,7 @@ if(CMAKE_CUDA_COMPILER)
 	set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
 	find_package(CUDA 10.0 REQUIRED)
 	set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_86 -lineinfo")
-	set(SRC_FILES src/msa-main.cu
+	set(SRC_FILES src/twilight-main.cu
 				  src/align.cu	
 				  src/msa-gpu.cu
 				  src/tree.cpp
@@ -22,7 +22,7 @@ if(CMAKE_CUDA_COMPILER)
 				  )
 else()
   	message(STATUS "No CUDA support.")
-	set(SRC_FILES src/msa-main.cpp
+	set(SRC_FILES src/twilight-main.cpp
 				  src/tree.cpp
 				  src/setting.cpp
 				  src/treePartition.cpp
@@ -65,8 +65,8 @@ find_package(TBB REQUIRED tbbmalloc tbbmalloc_proxy tbb_preview)
 # 				src/util.cpp
 # 				src/msa.cpp)
 
-add_executable (msa-accel ${SRC_FILES})
-target_link_libraries(msa-accel PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS} stdc++fs)
+add_executable (twilight ${SRC_FILES})
+target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS} stdc++fs)
 
 # target_link_libraries(msa-gpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
 # target_link_libraries(msa-cpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
