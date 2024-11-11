@@ -38,13 +38,14 @@ struct Params
     // float userGapExtend = -30;
 
     float scoringMatrix [5][5];
-    float userMatrix [5][5] = { {  2.22,  -1.86,  -1.46,  -1.39 },  // a
-                                { -1.86,   1.16,  -2.48,  -1.05 },  // c
-                                { -1.46,  -2.48,   1.03,  -1.74 },  // g
-                                { -1.39,  -1.05,  -1.74,   1.65 }}; // t
-    float userGapOpen = -10;
-    float userGapClose = -10;
-    float userGapExtend = -2;
+    float userMatrix [5][5] = { { 18, -8, 5,  -8,  0},  // a
+                                { -8, 18, -8,  5,  0},  // c
+                                {  5, -8, 18, -8,  0},  // g
+                                { -8,  5, -8, 18,  0}, // t
+                                {  0,  0,  0,  0, 18}};
+    float userGapOpen = -50;
+    float userGapClose = -50;
+    float userGapExtend = -5;
     Params(po::variables_map& vm);
 };
 

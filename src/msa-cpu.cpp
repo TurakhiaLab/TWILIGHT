@@ -940,6 +940,7 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
     return;
 }
 
+/*
 void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen) {
     float gappyVertical = option->gappyVertical;
     int gappyHorizon = option->gappyHorizon, gappyLength;
@@ -1000,7 +1001,134 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
     assert(newRef + gapRef == refLen); assert(newQry + gapQry == qryLen);
     return;
 }
+*/
 
+void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen) {
+    float gappyVertical = option->gappyVertical;
+    int gappyHorizon = option->gappyHorizon, gappyLength;
+    int rawIdx = 0, newIdx = 0;
+    int gapRef = 0, gapQry = 0;
+    int32_t refLen = util->seqsLen[nodes.first->identifier];
+    int32_t qryLen = util->seqsLen[nodes.second->identifier];
+    float refNum_f = 0, qryNum_f = 0;
+    for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
+    for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
+    int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes.first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
+    int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes.second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
+    while (true) {
+        if (rawIdx >= refLen) {
+            for (int i = newIdx; i < refLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*i+j] = 0;
+            break;
+        }
+        int tempStart = rawIdx;
+        bool onlyN = false;
+        for (gappyLength = rawIdx; gappyLength < refLen; ++gappyLength) {
+            if (hostFreq[6*gappyLength+5]/refNum <= gappyVertical) break;
+            if (gappyLength == rawIdx) {
+                if (hostFreq[6*gappyLength+0] == 0 && 
+                    hostFreq[6*gappyLength+1] == 0 &&
+                    hostFreq[6*gappyLength+2] == 0 &&
+                    hostFreq[6*gappyLength+3] == 0) onlyN = true;
+                else onlyN = false;
+            }
+            if (onlyN) {
+                if (hostFreq[6*gappyLength+0] > 0 || 
+                    hostFreq[6*gappyLength+1] > 0 ||
+                    hostFreq[6*gappyLength+2] > 0 ||
+                    hostFreq[6*gappyLength+3] > 0) {
+                    gappyColumns.first.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+                    onlyN = false;
+                    tempStart = gappyLength;
+                }
+            }
+            else {
+                if (hostFreq[6*gappyLength+0] == 0 && 
+                    hostFreq[6*gappyLength+1] == 0 &&
+                    hostFreq[6*gappyLength+2] == 0 &&
+                    hostFreq[6*gappyLength+3] == 0) {
+                    gappyColumns.first.push(std::make_pair(tempStart, (gappyLength-tempStart))); 
+                    onlyN = true;
+                    tempStart = gappyLength;
+                }
+            }
+
+        }
+        if (gappyLength - tempStart >= gappyHorizon) {
+            if (onlyN) gappyColumns.first.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+            else       gappyColumns.first.push(std::make_pair(tempStart, gappyLength-tempStart)); 
+            gapRef += gappyLength-rawIdx;
+            rawIdx += gappyLength-rawIdx;
+        }
+        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, refLen); ++rawIdx) {
+            for (int t = 0; t < 6; ++t) hostFreq[6*newIdx+t] = hostFreq[6*rawIdx+t];
+            hostGapOp[newIdx] = hostGapOp[rawIdx]; 
+            // hostGapEx[newIdx] = hostGapEx[rawIdx]; 
+            // hostGapCl[newIdx] = hostGapCl[rawIdx];
+            ++newIdx;
+        } 
+    }
+    newRef = newIdx;
+    rawIdx = 0; newIdx = 0;
+    while (true) {
+        if (rawIdx >= qryLen) {
+            for (int i = newIdx; i < qryLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*(seqLen+i)+j] = 0;
+            break;
+        }
+        int tempStart = rawIdx;
+        bool onlyN = false;
+        for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) {
+            if (hostFreq[6*(seqLen+gappyLength)+5]/qryNum <= gappyVertical) break;
+            if (gappyLength == rawIdx) {
+                if (hostFreq[6*(seqLen+gappyLength)+0] == 0 && 
+                    hostFreq[6*(seqLen+gappyLength)+1] == 0 &&
+                    hostFreq[6*(seqLen+gappyLength)+2] == 0 &&
+                    hostFreq[6*(seqLen+gappyLength)+3] == 0) onlyN = true;
+                else onlyN = false;
+            }
+            if (onlyN) {
+                if (hostFreq[6*(seqLen+gappyLength)+0] > 0 || 
+                    hostFreq[6*(seqLen+gappyLength)+1] > 0 ||
+                    hostFreq[6*(seqLen+gappyLength)+2] > 0 ||
+                    hostFreq[6*(seqLen+gappyLength)+3] > 0) {
+                    gappyColumns.second.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+                    onlyN = false;
+                    tempStart = gappyLength;
+                }
+            }
+            else {
+                if (hostFreq[6*(seqLen+gappyLength)+0] == 0 && 
+                    hostFreq[6*(seqLen+gappyLength)+1] == 0 &&
+                    hostFreq[6*(seqLen+gappyLength)+2] == 0 &&
+                    hostFreq[6*(seqLen+gappyLength)+3] == 0) {
+                    gappyColumns.second.push(std::make_pair(tempStart, (gappyLength-tempStart))); 
+                    onlyN = true;
+                    tempStart = gappyLength;
+                }
+            }
+        }
+        if (gappyLength - tempStart >= gappyHorizon) {
+            if (onlyN) gappyColumns.second.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+            else       gappyColumns.second.push(std::make_pair(tempStart, gappyLength-tempStart)); 
+            gapQry += gappyLength-rawIdx;
+            rawIdx += gappyLength-rawIdx;
+        }
+        // if (n == 0 && alnPairs == 3) std::cout << newIdx << ':' << newIdx + gapQry << ':' << rawIdx << ':' << qryLen << ':' << seqLen << '\n';
+        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, qryLen); ++rawIdx) {
+            for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+newIdx)+t] = hostFreq[6*(seqLen+rawIdx)+t];
+            hostGapOp[seqLen+newIdx] = hostGapOp[seqLen+rawIdx]; 
+            // hostGapEx[seqLen+newIdx] = hostGapEx[seqLen+rawIdx]; 
+            // hostGapCl[seqLen+newIdx] = hostGapCl[seqLen+rawIdx];
+            ++newIdx;
+        } 
+    }
+    newQry = newIdx;
+    if (newRef + gapRef != refLen) std::cout << "REF:" << newRef << '+' << gapRef << " != " << refLen << '\n';
+    if (newQry + gapQry != qryLen) std::cout << "QRY:" << newQry << '+' << gapQry << " != " << qryLen << '\n';
+    assert(newRef + gapRef == refLen); assert(newQry + gapQry == qryLen);
+    return;
+}
+
+/*
 void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, std::pair<int, int>& debugIdx, msa::option* option) {
     int rIdx = 0, qIdx = 0, j = 0; 
     while (j < aln_old.size() || (!gappyColumns.first.empty() || !gappyColumns.second.empty())) {
@@ -1008,6 +1136,10 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
         bool gapQ = (gappyColumns.second.empty()) ? false : (qIdx == gappyColumns.second.front().first);
         int gapRLen = (!gapR) ? 0 : gappyColumns.first.front().second;
         int gapQLen = (!gapQ) ? 0 : gappyColumns.second.front().second;
+        bool allNR = gapRLen < 0;
+        bool allNQ = gapQLen < 0;
+        gapRLen = std::abs(gapRLen);
+        gapQLen = std::abs(gapQLen);
         if (gapR || gapQ) {
             // if (option->alignGappy) {
             //     if (gapRLen >= gapQLen) {
@@ -1047,6 +1179,86 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
     debugIdx.first = rIdx; debugIdx.second = qIdx;
     return;
 }
+*/
+
+void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, std::pair<int, int>& debugIdx, msa::option* option) {
+    int rIdx = 0, qIdx = 0, j = 0; 
+    while (j < aln_old.size() || (!gappyColumns.first.empty() || !gappyColumns.second.empty())) {
+        bool gapR = (gappyColumns.first.empty())  ? false : (rIdx == gappyColumns.first.front().first);
+        bool gapQ = (gappyColumns.second.empty()) ? false : (qIdx == gappyColumns.second.front().first);
+        int gapRLen = (!gapR) ? 0 : gappyColumns.first.front().second;
+        int gapQLen = (!gapQ) ? 0 : gappyColumns.second.front().second;
+        bool allNR = gapRLen < 0;
+        bool allNQ = gapQLen < 0;
+        gapRLen = std::abs(gapRLen);
+        gapQLen = std::abs(gapQLen);
+        if (gapR && !gapQ) {
+            for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+            gappyColumns.first.pop();
+        }
+        else if (!gapR && gapQ) {
+            for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+            gappyColumns.second.pop();
+        }
+        else if (gapR && gapQ) {
+            if (!allNR && !allNQ) {
+                for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+                for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                gappyColumns.first.pop();
+                gappyColumns.second.pop();
+            }
+            else if (allNR && !allNQ) {
+                for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                gappyColumns.second.pop();
+                // std::cout << "Q: " << gapQLen << '\n';
+            }
+            else if (allNR && !allNQ) {
+                for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+                gappyColumns.first.pop();
+                // std::cout << "R: " << gapRLen << '\n';
+            }
+            else {
+                // std::cout << "RQRQRQ: " << std::min(gapRLen, gapQLen) << '\n';
+                if (gapRLen > gapQLen) {
+                    for (int g = 0; g < gapQLen; ++g) {++qIdx; ++rIdx; aln.push_back(0);}
+                    gappyColumns.first.front().first = rIdx;
+                    gappyColumns.first.front().second = gapRLen - gapQLen;
+                    gappyColumns.second.pop();
+                }
+                else {
+                    for (int g = 0; g < gapRLen; ++g) {++qIdx; ++rIdx; aln.push_back(0);}
+                    gappyColumns.second.front().first = qIdx;
+                    gappyColumns.second.front().second = gapQLen - gapRLen;
+                    gappyColumns.first.pop();
+                }
+            }
+            // for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+            // for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+            // if (gapR) gappyColumns.first.pop();
+            // if (gapQ) gappyColumns.second.pop();
+        }
+        else {
+            switch ((aln_old[j] & 0xFFFF)) {
+                case 0: ++rIdx; ++qIdx; aln.push_back(0); break;
+                case 1: ++qIdx;         aln.push_back(1); break;
+                case 2: ++rIdx;         aln.push_back(2); break;
+            }
+            ++j;
+        }
+        if (gappyColumns.first.empty() && gappyColumns.second.empty()) {
+            for (j = j; j < aln_old.size(); ++j) {
+                switch ((aln_old[j] & 0xFFFF)) {
+                    case 0: ++rIdx; ++qIdx; aln.push_back(0); break;
+                    case 1: ++qIdx;         aln.push_back(1); break;
+                    case 2: ++rIdx;         aln.push_back(2); break;
+                }
+            }
+        }
+    }
+    debugIdx.first = rIdx; debugIdx.second = qIdx;
+    return;
+}
+
 
 void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, std::vector<int8_t>& aln) {
     if (util->nowProcess < 2) {

@@ -183,7 +183,10 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         int32_t Lprime = max(0, k-reference_length + 1);
                         int32_t j= min(k, reference_length - 1) - (i-Lprime);
                         if (j < 0) { printf("tx: %d, ERROR: j less than 0.\n", tx);}
-                        int16_t match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
+                        int16_t match = -inf, insExt = -inf, delExt = -inf;
+                        // int16_t insOp = -inf, delOp = -inf;
+                        int16_t insOp = (j > 0) ? -inf : p_gapOpen + (i-1) * p_gapExtend;
+                        int16_t delOp = (i > 0) ? -inf : p_gapOpen + (j-1) * p_gapExtend;
                         int32_t offset = i-L[k%3];
                         int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
                         int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;

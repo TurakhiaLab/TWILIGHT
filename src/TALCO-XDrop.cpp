@@ -352,6 +352,7 @@ void Talco_xdrop::Tile (
                 ftr_lower_limit.push_back(L[k%3]);
                 ftr_addr += U[k%3] - L[k%3] + 1;
             }
+
             // if (tile == 0) printf("k:%d, i_st: %d, i_en: %d\n",k, L[k%3], U[k%3]+1);
             for (int32_t i = L[k%3]; i < U[k%3]+1; i++) { // i-> query_idx, j -> reference_idx
                 int32_t Lprime = std::max(0, static_cast<int32_t>(k)-static_cast<int32_t>(reference_length) + 1); 
@@ -367,6 +368,7 @@ void Talco_xdrop::Tile (
                 int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
                 int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
                 int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
+                
 
                 
                 int score_from_prev_tile = 0;
@@ -383,7 +385,7 @@ void Talco_xdrop::Tile (
                             // denominator += reference[reference_idx+j][l]*query[query_idx+i][m];
                             if (m == 5 && l == 5)      numerator += 0;
                             else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
-                            else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[m*5+l];
+                            else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[l*5+m];
                         }
                     }  
                     // denominator = refNum * qryNum;
@@ -404,7 +406,6 @@ void Talco_xdrop::Tile (
                 int32_t pos_gapExtend_ref = static_cast<int32_t>(gapExtend*(1.0-reference[reference_idx+j][5] / refNum));
                 int32_t pos_gapExtend_qry = static_cast<int32_t>(gapExtend*(1.0-query[query_idx+i][5] / qryNum ));
                 
-
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                     // delOp = S[(k+2)%3][offsetUp] + gapOpen;
                     delOp = S[(k+2)%3][offsetUp] + pos_gapOpen_ref;
@@ -419,9 +420,16 @@ void Talco_xdrop::Tile (
                     insExt = I[(k+1)%2][offsetLeft] + pos_gapExtend_qry;
                 }
 
+                
+                // I[k%2][offset] = (i > 0) ? insOp : param.gapOpen + (j-1) * param.gapExtend;
+                // D[k%2][offset] = (j > 0) ? delOp : param.gapOpen + (i-1) * param.gapExtend;
 
-                I[k%2][offset] =  insOp;
-                D[k%2][offset] =  delOp;
+                I[k%2][offset] = (j > 0) ? insOp : param.gapOpen + (i-1) * param.gapExtend;
+                D[k%2][offset] = (i > 0) ? delOp : param.gapOpen + (j-1) * param.gapExtend;
+
+                // I[k%2][offset] = insOp;
+                // D[k%2][offset] = delOp;
+
                 Iptr = false;
                 Dptr = false;
 
@@ -452,6 +460,8 @@ void Talco_xdrop::Tile (
                     S[k%3][offset] = D[k%2][offset];
                     ptr = 2;
                 }
+                
+                
                 
                 // if (tile > 0)
                 // {

@@ -96,7 +96,7 @@ Params::Params(po::variables_map& vm) {
             }
         }
         this->gapOpen = this->userGapOpen; this->gapExtend = this->userGapExtend;
-        this->gapOpen = this->userGapClose;
+        this->gapClose = this->userGapClose;
         this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     if (vm.count("print-detail")) {
