@@ -21,7 +21,7 @@ void parseArguments(int argc, char** argv)
         ("max-subtree,m", po::value<int>(), "Maximum number of leaves per subtree")
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files")
         ("output,o", po::value<std::string>(), "Output file name")
-        ("gappy-vertical,v", po::value<float>()->default_value(0.9), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column. Set to 1 to disable this feature.")
+        ("gappy-vertical,v", po::value<float>()->default_value(0.95), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column. Set to 1 to disable this feature.")
         ("gappy-horizon,z", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment, have to be used with -o option")
         ("wildcard,w", "Treat unknown 'N' as a wildcard and aligned to usual letters")
@@ -96,6 +96,19 @@ int main(int argc, char** argv) {
             if (P->partitionsRoot.size() > 1) std::cout << "Start processing subtree No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             Tree* subT = new Tree(subRoot.second.first);
             readSequences(util, option, subT);
+
+            // // Generate MAFFT's files
+            // std::vector<std::pair<std::string, std::string>> seqs;
+            // for (auto s: util->rawSeqs) {
+            //     int sIdx = util->seqsIdx[s.first];
+            //     seqs.push_back(std::make_pair(std::to_string(sIdx), s.second));
+            //     T->allNodes[s.first]->identifier = std::to_string(sIdx);
+            // }
+            // outputSubtreeTrees(T, P, util, option);
+            // outputSubtreeSeqs("./subtrees/rnasim.raw.mafft.fa", seqs);
+            // // printTree(subT->root, -1);
+            // exit(1);
+
             auto treeBuiltStart = std::chrono::high_resolution_clock::now();
             partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
             partitionTree(subT->root, subP);

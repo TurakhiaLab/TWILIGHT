@@ -1003,6 +1003,7 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
 }
 */
 
+
 void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen) {
     float gappyVertical = option->gappyVertical;
     int gappyHorizon = option->gappyHorizon, gappyLength;
@@ -1023,7 +1024,8 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
         int tempStart = rawIdx;
         bool onlyN = false;
         for (gappyLength = rawIdx; gappyLength < refLen; ++gappyLength) {
-            if (hostFreq[6*gappyLength+5]/refNum <= gappyVertical) break;
+            if ((hostFreq[6*gappyLength+5])/refNum <= gappyVertical) break;
+            // if ((hostFreq[6*gappyLength+5]+hostFreq[6*gappyLength+4])/refNum <= gappyVertical) break;
             if (gappyLength == rawIdx) {
                 if (hostFreq[6*gappyLength+0] == 0 && 
                     hostFreq[6*gappyLength+1] == 0 &&
@@ -1077,7 +1079,8 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
         int tempStart = rawIdx;
         bool onlyN = false;
         for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) {
-            if (hostFreq[6*(seqLen+gappyLength)+5]/qryNum <= gappyVertical) break;
+            if ((hostFreq[6*(seqLen+gappyLength)+5])/qryNum <= gappyVertical) break;
+            // if ((hostFreq[6*(seqLen+gappyLength)+5]+hostFreq[6*(seqLen+gappyLength)+4])/qryNum <= gappyVertical) break;
             if (gappyLength == rawIdx) {
                 if (hostFreq[6*(seqLen+gappyLength)+0] == 0 && 
                     hostFreq[6*(seqLen+gappyLength)+1] == 0 &&
@@ -1181,8 +1184,10 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
 }
 */
 
+
 void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, std::pair<int, int>& debugIdx, msa::option* option) {
     int rIdx = 0, qIdx = 0, j = 0; 
+    bool preN = false;
     while (j < aln_old.size() || (!gappyColumns.first.empty() || !gappyColumns.second.empty())) {
         bool gapR = (gappyColumns.first.empty())  ? false : (rIdx == gappyColumns.first.front().first);
         bool gapQ = (gappyColumns.second.empty()) ? false : (qIdx == gappyColumns.second.front().first);
@@ -1192,50 +1197,118 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
         bool allNQ = gapQLen < 0;
         gapRLen = std::abs(gapRLen);
         gapQLen = std::abs(gapQLen);
-        if (gapR && !gapQ) {
-            for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
-            gappyColumns.first.pop();
-        }
-        else if (!gapR && gapQ) {
-            for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
-            gappyColumns.second.pop();
-        }
-        else if (gapR && gapQ) {
-            if (!allNR && !allNQ) {
-                for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
-                for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
-                gappyColumns.first.pop();
-                gappyColumns.second.pop();
-            }
-            else if (allNR && !allNQ) {
-                for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
-                gappyColumns.second.pop();
-                // std::cout << "Q: " << gapQLen << '\n';
-            }
-            else if (allNR && !allNQ) {
-                for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
-                gappyColumns.first.pop();
-                // std::cout << "R: " << gapRLen << '\n';
-            }
-            else {
-                // std::cout << "RQRQRQ: " << std::min(gapRLen, gapQLen) << '\n';
-                if (gapRLen > gapQLen) {
-                    for (int g = 0; g < gapQLen; ++g) {++qIdx; ++rIdx; aln.push_back(0);}
-                    gappyColumns.first.front().first = rIdx;
-                    gappyColumns.first.front().second = gapRLen - gapQLen;
-                    gappyColumns.second.pop();
+        if (gapR || gapQ) {
+            if (gapR && !gapQ) {
+                if (!allNR) {
+                    for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+                    gappyColumns.first.pop();
+                    preN = allNR;
                 }
                 else {
-                    for (int g = 0; g < gapRLen; ++g) {++qIdx; ++rIdx; aln.push_back(0);}
-                    gappyColumns.second.front().first = qIdx;
-                    gappyColumns.second.front().second = gapQLen - gapRLen;
+                    int delLen = 0, qTerminal = (gappyColumns.second.empty()) ? aln_old.size() : gappyColumns.second.front().first; 
+                    for (int k = j; k < aln_old.size(); ++k) {
+                        if ((aln_old[k] & 0xFFFF) != 1 || (qIdx+delLen) >= qTerminal) break;
+                        ++delLen; 
+                    }
+                    // if (delLen > 0) printf("R: delLen:%d, gapRLen:%d, rIdx: %d, qIdx: %d, terminal:%d\n", delLen, gapRLen, rIdx, qIdx, qTerminal);
+                    
+                    if (delLen > gapRLen) {
+                        for (int g = 0; g < gapRLen; ++g) {++rIdx; ++qIdx; ++j; aln.push_back(0);}
+                        gappyColumns.first.pop();
+                        preN = false;
+                    }
+                    else {
+                        for (int g = 0; g < delLen; ++g) {++rIdx; ++qIdx; ++j; aln.push_back(0);}
+                        for (int g = delLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
+                        gappyColumns.first.pop();
+                        preN = true;
+                    }
+                }   
+            }
+            else if (!gapR && gapQ) {
+                if (!allNQ) {
+                    for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                    gappyColumns.second.pop();
+                    preN = allNQ;
+                }
+                else {
+                    int delLen = 0, rTerminal = (gappyColumns.first.empty()) ? aln_old.size() : gappyColumns.first.front().first; ; 
+                    for (int k = j; k < aln_old.size(); ++k) {
+                        if ((aln_old[k] & 0xFFFF) != 2 || (rIdx+delLen) >= rTerminal) break;
+                        ++delLen; 
+                    }
+                    // if (delLen > 0) printf("Q: delLen:%d, gapQLen:%d, rIdx: %d, qIdx: %d, terminal:%d\n", delLen, gapQLen, rIdx, qIdx, rTerminal);
+                    
+                    if (delLen > gapQLen) {
+                        for (int g = 0; g < gapQLen; ++g) {++rIdx; ++qIdx; ++j; aln.push_back(0);}
+                        gappyColumns.second.pop();
+                        preN = false;
+                    }
+                    else {
+                        for (int g = 0; g < delLen; ++g) {++rIdx; ++qIdx; ++j; aln.push_back(0);}
+                        for (int g = delLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
+                        gappyColumns.second.pop();
+                        preN = true;
+                    }
+                }   
+                // for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                // gappyColumns.second.pop();
+                // preN = allNQ;
+            }
+            else if (gapR && gapQ) {
+                if (!allNR && !allNQ) {
+                    // if (gapRLen >= gapQLen) {
+                    //     for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+                    //     for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
+                    // }
+                    // else {
+                    //     for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+                    //     for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
+                    // }
+                    // printf("(%d,%d):(%d,%d)\n",gappyColumns.first.front().first, gappyColumns.second.front().first, gapRLen, gapQLen);
+                    for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+                    for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
                     gappyColumns.first.pop();
+                    gappyColumns.second.pop();
+                    preN = false;
+                }
+                else if (allNR && !allNQ) {
+                    if (!preN) {
+                        for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                        gappyColumns.second.pop();
+                    }
+                    else {
+                        for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+                        gappyColumns.first.pop();
+                    }   
+                }
+                else if (!allNR && allNQ) {
+                    if (!preN) {
+                        for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+                        gappyColumns.first.pop();
+                    }
+                    else {
+                        for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                        gappyColumns.second.pop();
+                    }
+                }
+                else {
+                    // std::cout << "RQRQRQ: " << std::min(gapRLen, gapQLen) << '\n';
+                    if (gapRLen > gapQLen) {
+                        for (int g = 0; g < gapQLen; ++g) {++qIdx; ++rIdx; aln.push_back(0);}
+                        gappyColumns.first.front().first = rIdx;
+                        gappyColumns.first.front().second = gapRLen - gapQLen;
+                        gappyColumns.second.pop();
+                    }
+                    else {
+                        for (int g = 0; g < gapRLen; ++g) {++qIdx; ++rIdx; aln.push_back(0);}
+                        gappyColumns.second.front().first = qIdx;
+                        gappyColumns.second.front().second = gapQLen - gapRLen;
+                        gappyColumns.first.pop();
+                    }
+                    preN = true;
                 }
             }
-            // for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
-            // for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
-            // if (gapR) gappyColumns.first.pop();
-            // if (gapQ) gappyColumns.second.pop();
         }
         else {
             switch ((aln_old[j] & 0xFFFF)) {

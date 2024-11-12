@@ -421,14 +421,12 @@ void Talco_xdrop::Tile (
                 }
 
                 
-                // I[k%2][offset] = (i > 0) ? insOp : param.gapOpen + (j-1) * param.gapExtend;
-                // D[k%2][offset] = (j > 0) ? delOp : param.gapOpen + (i-1) * param.gapExtend;
+                
+                // I[k%2][offset] = (j > 0) ? insOp : param.gapOpen + (i-1) * param.gapExtend;
+                // D[k%2][offset] = (i > 0) ? delOp : param.gapOpen + (j-1) * param.gapExtend;
 
-                I[k%2][offset] = (j > 0) ? insOp : param.gapOpen + (i-1) * param.gapExtend;
-                D[k%2][offset] = (i > 0) ? delOp : param.gapOpen + (j-1) * param.gapExtend;
-
-                // I[k%2][offset] = insOp;
-                // D[k%2][offset] = delOp;
+                I[k%2][offset] = insOp;
+                D[k%2][offset] = delOp;
 
                 Iptr = false;
                 Dptr = false;
