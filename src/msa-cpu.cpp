@@ -28,12 +28,17 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     int level = 0;
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
+        option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);
         msaCpu(T, m, util, option, param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
         if (option->printDetail) {
             if (m.size() > 1) std::cout << "Level "<< level << ", aligned " << m.size() << " pairs in " <<  alnTime.count() / 1000000 << " ms\n";
             else              std::cout << "Level "<< level << ", aligned " << m.size() << " pair in " <<  alnTime.count() / 1000000 << " ms\n";
+        }
+        if (option->redo) {
+            option->psgop = true;
+            return;
         }
         ++level;
     }
@@ -250,10 +255,10 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
         int32_t newRef = refLen, newQry = qryLen;
         float refNum = 0, qryNum = 0;
         if (util->nowProcess < 2) {
-            calculateProfileFreq(hostFreq, hostGapOp, tree, nodes[nIdx], util, seqLen, param);
+            calculateProfileFreq(hostFreq, tree, nodes[nIdx], util,  seqLen, 0, 0);
+            calculatePSGOP(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, seqLen, 0, 0, param);
             refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
             qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
-        
         }
         else {
             int subtreeRef = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
@@ -264,45 +269,9 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
             for (int t = 0; t < 6; ++t) qryNum += util->profileFreq[subtreeQry][0][t]; 
             for (int s = 0; s < qryLen; ++s) for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = util->profileFreq[subtreeQry][s][t]; 
             for (int s = 0; s < qryLen; ++s) hostGapEx[seqLen+s] = util->profileFreq[subtreeQry][s][5] / qryNum; 
-            // Clustalw's method
-            for (int s = 0; s < refLen; ++s) {
-                if (hostFreq[6*s+5] > 0) {
-                    hostGapOp[s] = param.gapOpen * 0.3 * ((refNum-hostFreq[6*s+5])*1.0 / refNum);
-                }
-                else {
-                    int backSites = 8;
-                    int distance_from_gap = 0;
-                    int increPenalty = false;
-                    for (int d = s-1; d > std::max(s-backSites, 0); --d) {
-                        ++distance_from_gap;
-                        if (hostFreq[6*d+5] > 0) {
-                            increPenalty = true;
-                            break;
-                        }
-                    }
-                    hostGapOp[s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
-                }
-            }
-            for (int s = 0; s < qryLen; ++s) {
-                if (hostFreq[6*(seqLen+s)+5] > 0) {
-                    hostGapOp[seqLen+s] = param.gapOpen * 0.3 * ((qryNum-hostFreq[6*(seqLen+s)+5]) * 1.0 / qryNum);
-                }
-                else {
-                    int backSites = 8;
-                    int distance_from_gap = 0;
-                    int increPenalty = false;
-                    for (int d = s-1; d > std::max(s-backSites, 0); --d) {
-                        ++distance_from_gap;
-                        if (hostFreq[6*(seqLen+d)+5] > 0) {
-                            increPenalty = true;
-                            break;
-                        }
-                    }
-                    hostGapOp[seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
-                }
-            }
+            calculatePSGOP(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, seqLen, 0, 0, param);
         }
-        if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
+        removeGappyColumns(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen, 0, 0);
         std::vector<int8_t> aln_old, aln;
         std::vector<std::vector<float>> freqRef (newRef, std::vector<float>(6, 0.0));
         std::vector<std::vector<float>> freqQry (newQry, std::vector<float>(6, 0.0));
@@ -415,50 +384,6 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
             }
             tree->allNodes[n.first->identifier]->msa.clear();
             return;
-            // else {
-            //     util->seqLen = seqLen;
-            //     if (util->seqNum != 0) {
-            //         for (auto id: tree->allNodes[n.first->identifier]->msa) {
-            //             std::vector<int8_t> aln = tree->allNodes[id]->msaAln;
-            //             for (auto sIdx: tree->allNodes[id]->msaIdx) {
-            //                 char* seq = new char[seqLen+1];
-            //                 int storage = util->seqsStorage[sIdx];
-            //                 int orgIdx = 0;
-            //                 for (int j = 0; j < seqLen+1; ++j) {
-            //                     if (j < aln.size()) {
-            //                         if ((aln[j] & 0xFFFF) == 0 || (aln[j] & 0xFFFF) == 2) {
-            //                             seq[j] = util->seqs[sIdx][orgIdx];
-            //                             orgIdx++;
-            //                         }
-            //                         else {
-            //                             seq[j] = '-';
-            //                         }
-            //                     }
-            //                     else {
-            //                         seq[j] = 0;
-            //                     }
-
-            //                 }
-            //                 util->seqsLen[id] = aln.size();
-            //                 // util->changeStorage(sIdx);
-            //                 delete [] util->seqs[sIdx];
-            //                 util->seqs[sIdx] = seq;
-            //             }
-            //         }
-            //         // });
-            //         for (auto id: tree->allNodes[n.first->identifier]->msa) {
-            //             if (id != tree->allNodes[n.first->identifier]->identifier) {
-            //                 for (auto Idx: tree->allNodes[id]->msaIdx) {
-            //                     tree->allNodes[n.first->identifier]->msaIdx.push_back(Idx);
-            //                 }
-            //             }
-            //         }
-            //         tree->allNodes[n.first->identifier]->msa.clear();
-                
-            //     }
-            //     continue;
-            // }
-            
         }
         int8_t refGap = (newtree->allNodes[n.first->identifier]->level == newtree->allNodes[n.second->identifier]->level) ? 2 : 1; 
         std::vector<std::vector<int8_t>> refAln, qryAln;
@@ -584,7 +509,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     if (util->nowProcess < 2) updateNode(tree, nodes, util);
     int32_t seqLen = 0;
     if (util->nowProcess < 2) {
-        for (auto n: tree->allNodes) seqLen = (util->seqsLen[n.first] > seqLen) ? util->seqsLen[n.first] : seqLen;
+        for (auto n: nodes) seqLen = std::max(seqLen, std::max(util->seqsLen[n.first->identifier], util->seqsLen[n.second->identifier]));
         seqLen *= 2;
     }
     else {
@@ -600,8 +525,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     hostParam[27] = param.gapClose;
     hostParam[28] = param.xdrop;
 
-    // tbb::mutex memMutex;
-
     tbb::spin_rw_mutex fallbackMutex;
     std::vector<int> fallbackPairs;
 
@@ -612,37 +535,25 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         float* hostFreq =  (float*)malloc(12 * seqLen * sizeof(float));
         float* hostGapOp = (float*)malloc( 2 * seqLen * sizeof(float));
         float* hostGapEx = (float*)malloc( 2 * seqLen * sizeof(float));
-        float* hostGapCl = (float*)malloc( 2 * seqLen * sizeof(float));
         std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>> gappyColumns;
         // initialize
         for (int n = 0; n < 12*seqLen; ++n) hostFreq[n] = 0;
         for (int n = 0; n <  2*seqLen; ++n) hostGapOp[n] = 0;
         for (int n = 0; n <  2*seqLen; ++n) hostGapEx[n] = 0;
-        for (int n = 0; n <  2*seqLen; ++n) hostGapCl[n] = 0;
-        
         int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
         int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
         int32_t newRef = refLen, newQry = qryLen;
         float refWeight = 0.0, qryWeight = 0.0;
         if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
         if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        calculateProfileFreq(hostFreq, hostGapOp, tree, nodes[nIdx], util, seqLen, param);
+        calculateProfileFreq(hostFreq, tree, nodes[nIdx], util,  seqLen, 0, 0);
+        calculatePSGOP(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, seqLen, 0, 0, param);         
         float refNum_f = 0, qryNum_f = 0;
         for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
         for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
         int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
         int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
-        
-        if (option->gappyHorizon > 0) removeGappyColumns(hostFreq, hostGapOp, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen);
-        // if (nodes.size() == 1) {
-        // for (int i = 0; i < 50; ++i) std::cout << hostFreq[6*(seqLen+i)+0] << ',';
-        // std::cout << '\n';
-        // for (int i = 0; i < 50; ++i) std::cout << hostGapEx[seqLen+i] << ',';
-        // std::cout << '\n';
-        // for (int i = 0; i < 50; ++i) std::cout << hostGapOp[seqLen+i] << ',';
-        // std::cout << '\n';
-        // }
-        
+        removeGappyColumns(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen, 0, 0);
         // Start alignment
         std::vector<int8_t> aln_old, aln;
         std::vector<std::vector<float>> freqRef (newRef, std::vector<float>(6, 0.0));
@@ -652,18 +563,17 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         for (int s = 0; s < newQry; s++) for (int t = 0; t < 6; ++t) freqQry[s][t] = hostFreq[6*(seqLen+s)+t];     
         for (int r = 0; r < newRef; ++r) {
             gapOp[0].push_back(hostGapOp[r]);
-            gapEx[0].push_back(freqRef[r][5] / refNum);
-            gapCl[0].push_back(hostGapCl[r]);
+            gapEx[0].push_back(hostGapEx[r]);
         }
         for (int q = 0; q < newQry; ++q) {
             gapOp[1].push_back(hostGapOp[seqLen+q]);
-            gapEx[1].push_back(freqQry[q][5] / qryNum);
-            gapCl[1].push_back(hostGapCl[seqLen+q]);
+            gapEx[1].push_back(hostGapEx[seqLen+q]);
         }                 
         std::pair<float, float> num = std::make_pair(static_cast<float>(refNum), static_cast<float>(qryNum));
         Talco_xdrop::Params talco_params(hostParam);
         while (aln_old.empty()) {
             int16_t errorType = 0;
+            aln_old.clear();
             Talco_xdrop::Align_freq (
                 talco_params,
                 freqRef,
@@ -692,25 +602,37 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 talco_params.updateFLen(talco_params.fLen << 1);
             }
         }
+        if (util->nowProcess == 1) std::cout << "No. " << nIdx << " " << nodes[nIdx].first->identifier << ':' << nodes[nIdx].second->identifier << '\n';
         if (!aln_old.empty()) {
             std::pair<int, int> debugIdx;
             addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
+            // if (nIdx == 11 && (refNum > 1 || qryNum > 1)) {
+            //     for (int lll = 0; lll < aln.size(); lll++) {
+            //         std::cout << (aln[lll] & 0xFFFF) << ',';
+            //     }
+            //     std::cout << '\n';
+            // }
             if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                 std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                 std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
                 std::cout << "Num: " << refNum << '-' << qryNum << '\n';
             }
             assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
+            
             updateAlignment(tree, nodes[nIdx], util, aln); 
-            if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
-                updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
-            }
+            updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
             assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
+            if (option->calSim) {
+                double colSim = calColumnSimilarity(tree, nodes[nIdx].first, util, param);
+                if (colSim < option->divTH) {
+                    option->redo = true;
+                    return;
+                }
+            }
         }
         free(hostFreq);
         free(hostGapOp);
         free(hostGapEx);
-        free(hostGapCl);
     }    
     });
     });
@@ -723,42 +645,8 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     }
     
     free(hostParam);
-    if (fallbackPairs.empty()) {
-        return;
-    }
-    int totalSeqs = 0;
-    for (int i = 0; i < fallbackPairs.size(); ++i) {
-        int nIdx = fallbackPairs[i];
-        int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
-        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
-        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
-        if (util->badSequences.find(grpID) == util->badSequences.end()) {
-            util->badSequences[grpID] = std::vector<std::string> (0);
-        }
-        if (refNum < qryNum) {
-            // proceed with qry and store ref as bad sequences
-            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
-            util->seqsLen[nodes[nIdx].second->identifier] = refLen;
-            util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
-            auto temp = nodes[nIdx].second->msaIdx;
-            tree->allNodes[nodes[nIdx].second->identifier]->msaIdx = nodes[nIdx].first->msaIdx;
-            tree->allNodes[nodes[nIdx].first->identifier]->msaIdx = temp;
-            totalSeqs += refNum;
-        }
-        else {
-            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
-            // std::cout << "Deferring the profile on " << nodes[nIdx].second->identifier << " (" << qryNum <<" seqeuences).\n";
-            totalSeqs += qryNum;
-        }
-    }
-    if (option->printDetail) {
-        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring 1 pair (1 sequence).\n";
-        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
-        else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
-    }
-    
+    if (fallbackPairs.empty()) return;
+    fallback2cpu(fallbackPairs, tree, nodes, util, option);
     return;
 }
 
@@ -806,7 +694,7 @@ void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::ut
     }
 }
 
-void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t seqLen, Params& param) {
+void calculateProfileFreq(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t seqLen, int32_t offsetf, int32_t offsetg) {
     int32_t refLen = util->seqsLen[nodes.first->identifier];
     int32_t qryLen = util->seqsLen[nodes.second->identifier];    
     int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
@@ -816,6 +704,7 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
         float refWeight = 0.0, qryWeight = 0.0;
         for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
         for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+        bool storeFreq = ((refNum >= numThreshold || qryNum > numThreshold) || (!tree->allNodes[nodes.first->identifier]->msaFreq.empty() || !tree->allNodes[nodes.second->identifier]->msaFreq.empty()));
         if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
             for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx) { 
                 int storage = util->seqsStorage[sIdx];
@@ -824,26 +713,27 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
                 tbb::this_task_arena::isolate( [&]{
                 tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
                 for (int s = r.begin(); s < r.end(); ++s) {
-                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*s+0]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*s+1]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*s+2]+=1.0*w;
+                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[offsetf+6*s+0]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[offsetf+6*s+1]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[offsetf+6*s+2]+=1.0*w;
                     else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*s+3]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*s+4]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*s+5]+=1.0*w;
+                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[offsetf+6*s+3]+=1.0*w;
+                    // else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[offsetf+6*s+4]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[offsetf+6*s+5]+=1.0*w;
+                    else                                                                                             hostFreq[offsetf+6*s+4]+=1.0*w;
                 }
                 });
                 });
             }
-            if (refNum >= numThreshold || qryNum > numThreshold) {
+            if (storeFreq) {
                 std::vector<std::vector<float>> freq (refLen, std::vector<float>(6,0.0));
                 tree->allNodes[nodes.first->identifier]->msaFreq = freq;
-                for (int s = 0; s < refLen; ++s) for (int t = 0; t < 6; ++t) tree->allNodes[nodes.first->identifier]->msaFreq[s][t] = hostFreq[6*s+t] / refNum * refWeight;
+                for (int s = 0; s < refLen; ++s) for (int t = 0; t < 6; ++t) tree->allNodes[nodes.first->identifier]->msaFreq[s][t] = hostFreq[offsetf+6*s+t] / refNum * refWeight;
             }
         }
         else {
             for (int s = 0; s < tree->allNodes[nodes.first->identifier]->msaFreq.size(); ++s) {
-                for (int t = 0; t < 6; ++t) hostFreq[6*s+t] = tree->allNodes[nodes.first->identifier]->msaFreq[s][t] / refWeight * refNum;
+                for (int t = 0; t < 6; ++t) hostFreq[offsetf+6*s+t] = tree->allNodes[nodes.first->identifier]->msaFreq[s][t] / refWeight * refNum;
             }
         }
         if (tree->allNodes[nodes.second->identifier]->msaFreq.empty()) { 
@@ -854,26 +744,27 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
                 tbb::this_task_arena::isolate( [&]{
                 tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
                 for (int s = r.begin(); s < r.end(); ++s) {
-                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[6*(seqLen+s)+0]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[6*(seqLen+s)+1]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[6*(seqLen+s)+2]+=1.0*w;
+                    if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') hostFreq[offsetf+6*(seqLen+s)+0]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') hostFreq[offsetf+6*(seqLen+s)+1]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') hostFreq[offsetf+6*(seqLen+s)+2]+=1.0*w;
                     else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
-                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[6*(seqLen+s)+3]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[6*(seqLen+s)+4]+=1.0*w;
-                    else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[6*(seqLen+s)+5]+=1.0*w;
+                             util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') hostFreq[offsetf+6*(seqLen+s)+3]+=1.0*w;
+                    // else if (util->alnStorage[storage][sIdx][s] == 'N' || util->alnStorage[storage][sIdx][s] == 'n') hostFreq[offsetf+6*(seqLen+s)+4]+=1.0*w;
+                    else if (util->alnStorage[storage][sIdx][s] == '-')                                              hostFreq[offsetf+6*(seqLen+s)+5]+=1.0*w;
+                    else                                                                                             hostFreq[offsetf+6*(seqLen+s)+4]+=1.0*w;
                 }
                 });
                 });
             }
-            if (qryNum >= numThreshold || refNum >= numThreshold) {
+            if (storeFreq) {
                 std::vector<std::vector<float>> freq (qryLen, std::vector<float>(6,0.0));
                 tree->allNodes[nodes.second->identifier]->msaFreq = freq;
-                for (int i = 0; i < qryLen; ++i) for (int j = 0; j < 6; ++j) tree->allNodes[nodes.second->identifier]->msaFreq[i][j] = hostFreq[6*(seqLen+i)+j] / qryNum * qryWeight;
+                for (int s = 0; s < qryLen; ++s) for (int t = 0; t < 6; ++t) tree->allNodes[nodes.second->identifier]->msaFreq[s][t] = hostFreq[offsetf+6*(seqLen+s)+t] / qryNum * qryWeight;
             }
         }
         else {
             for (int s = 0; s < tree->allNodes[nodes.second->identifier]->msaFreq.size(); ++s) {
-                for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = tree->allNodes[nodes.second->identifier]->msaFreq[s][t] / qryWeight * qryNum;
+                for (int t = 0; t < 6; ++t) hostFreq[offsetf+6*(seqLen+s)+t] = tree->allNodes[nodes.second->identifier]->msaFreq[s][t] / qryWeight * qryNum;
             }
         } 
     }
@@ -893,118 +784,92 @@ void calculateProfileFreq(float* hostFreq, float* hostGapOp, Tree* tree, std::pa
         qryNum = static_cast<int32_t>(round(qryNum_f));
         
         for (int s = 0; s < tree->allNodes[nodes.first->identifier]->msaFreq.size(); ++s) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*s+t] = tree->allNodes[nodes.first->identifier]->msaFreq[s][t];
+            for (int t = 0; t < 6; ++t) hostFreq[offsetf+6*s+t] = tree->allNodes[nodes.first->identifier]->msaFreq[s][t];
         }
         for (int s = 0; s < tree->allNodes[nodes.second->identifier]->msaFreq.size(); ++s) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+s)+t] = tree->allNodes[nodes.second->identifier]->msaFreq[s][t];
+            for (int t = 0; t < 6; ++t) hostFreq[offsetf+6*(seqLen+s)+t] = tree->allNodes[nodes.second->identifier]->msaFreq[s][t];
         }  
              
     }
-    // Clustalw's method
-    for (int s = 0; s < refLen; ++s) {
-        if (hostFreq[6*s+5] > 0) {
-            hostGapOp[s] = param.gapOpen * 0.3 * ((refNum-hostFreq[6*s+5])*1.0 / refNum);
+    return;
+}
+
+void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, int32_t seqLen, int32_t offsetf, int32_t offsetg, Params& param) {
+    int32_t refLen = util->seqsLen[nodes.first->identifier];
+    int32_t qryLen = util->seqsLen[nodes.second->identifier];    
+    int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
+    int32_t qryNum = tree->allNodes[nodes.second->identifier]->msaIdx.size();
+    if (util->nowProcess == 2) {
+        float refNum_f = 0, qryNum_f = 0;
+        int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
+        int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
+            tree->allNodes[nodes.first->identifier]->msaFreq = util->profileFreq[subtreeRef];
         }
-        else {
-            int backSites = 8;
-            int distance_from_gap = 0;
-            int increPenalty = false;
-            for (int d = s-1; d > std::max(s-backSites, 0); --d) {
-                ++distance_from_gap;
-                if (hostFreq[6*d+5] > 0) {
-                    increPenalty = true;
-                    break;
-                }
-            }
-            hostGapOp[s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+        if (tree->allNodes[nodes.second->identifier]->msaFreq.empty()) {
+            tree->allNodes[nodes.second->identifier]->msaFreq = util->profileFreq[subtreeQry];
         }
+        for (int t = 0; t < 6; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
+        for (int t = 0; t < 6; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
+        refNum = static_cast<int32_t>(round(refNum_f));
+        qryNum = static_cast<int32_t>(round(qryNum_f));
     }
-    for (int s = 0; s < qryLen; ++s) {
-        if (hostFreq[6*(seqLen+s)+5] > 0) {
-            hostGapOp[seqLen+s] = param.gapOpen * 0.3 * ((qryNum-hostFreq[6*(seqLen+s)+5]) * 1.0 / qryNum);
-        }
-        else {
-            int backSites = 8;
-            int distance_from_gap = 0;
-            int increPenalty = false;
-            for (int d = s-1; d > std::max(s-backSites, 0); --d) {
-                ++distance_from_gap;
-                if (hostFreq[6*(seqLen+d)+5] > 0) {
-                    increPenalty = true;
-                    break;
-                }
+    // Clustalw's method
+    if (option->psgop) {
+        for (int s = 0; s < refLen; ++s) {
+            if (hostFreq[offsetf+6*s+5] > 0) {
+                hostGapOp[offsetg+s] = param.gapOpen * 0.3 * ((refNum-hostFreq[offsetf+6*s+5])*1.0 / refNum);
             }
-            hostGapOp[seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+            else {
+                int backSites = 8;
+                int distance_from_gap = 0;
+                int increPenalty = false;
+                for (int d = s-1; d > std::max(s-backSites, 0); --d) {
+                    ++distance_from_gap;
+                    if (hostFreq[offsetf+6*d+5] > 0) {
+                        increPenalty = true;
+                        break;
+                    }
+                }
+                hostGapOp[offsetg+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+            }
+            hostGapEx[offsetg+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*s+5])/refNum);
+        }
+        for (int s = 0; s < qryLen; ++s) {
+            if (hostFreq[offsetf+6*(seqLen+s)+5] > 0) {
+                hostGapOp[offsetg+seqLen+s] = param.gapOpen * 0.3 * ((qryNum-hostFreq[offsetf+6*(seqLen+s)+5]) * 1.0 / qryNum);
+            }
+            else {
+                int backSites = 8;
+                int distance_from_gap = 0;
+                int increPenalty = false;
+                for (int d = s-1; d > std::max(s-backSites, 0); --d) {
+                    ++distance_from_gap;
+                    if (hostFreq[offsetf+6*(seqLen+d)+5] > 0) {
+                        increPenalty = true;
+                        break;
+                    }
+                }
+                hostGapOp[offsetg+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+            }
+            hostGapEx[offsetg+seqLen+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*(seqLen+s)+5])/qryNum);
+        }   
+    }
+    else {
+        for (int s = 0; s < refLen; ++s) {
+            hostGapOp[offsetg+s] = param.gapOpen;
+            hostGapEx[offsetg+s] = param.gapExtend;
+        }
+        for (int s = 0; s < qryLen; ++s) {
+            hostGapOp[offsetg+seqLen+s] = param.gapOpen;
+            hostGapEx[offsetg+seqLen+s] = param.gapExtend;
         }
     }   
     return;
 }
 
 /*
-void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen) {
-    float gappyVertical = option->gappyVertical;
-    int gappyHorizon = option->gappyHorizon, gappyLength;
-    int rawIdx = 0, newIdx = 0;
-    int gapRef = 0, gapQry = 0;
-    int32_t refLen = util->seqsLen[nodes.first->identifier];
-    int32_t qryLen = util->seqsLen[nodes.second->identifier];
-    float refNum_f = 0, qryNum_f = 0;
-    for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
-    for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
-    int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes.first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
-    int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes.second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
-    while (true) {
-        if (rawIdx >= refLen) {
-            for (int i = newIdx; i < refLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*i+j] = 0;
-            break;
-        }
-        for (gappyLength = rawIdx; gappyLength < refLen; ++gappyLength) if (hostFreq[6*gappyLength+5]/refNum <= gappyVertical) break;
-        if (gappyLength - rawIdx >= gappyHorizon) {
-            gappyColumns.first.push(std::make_pair(rawIdx, gappyLength-rawIdx)); 
-            gapRef += gappyLength-rawIdx;
-            rawIdx += gappyLength-rawIdx;
-        }
-        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, refLen); ++rawIdx) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*newIdx+t] = hostFreq[6*rawIdx+t];
-            hostGapOp[newIdx] = hostGapOp[rawIdx]; 
-            // hostGapEx[newIdx] = hostGapEx[rawIdx]; 
-            // hostGapCl[newIdx] = hostGapCl[rawIdx];
-            ++newIdx;
-        } 
-    }
-    newRef = newIdx;
-    rawIdx = 0; newIdx = 0;
-    while (true) {
-        if (rawIdx >= qryLen) {
-            for (int i = newIdx; i < qryLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*(seqLen+i)+j] = 0;
-            break;
-        }
-        for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) if (hostFreq[6*(seqLen+gappyLength)+5]/qryNum <= gappyVertical) break;
-        if (gappyLength - rawIdx >= gappyHorizon) {
-            gappyColumns.second.push(std::make_pair(rawIdx, gappyLength-rawIdx)); 
-            // if (alnPairs < 2) std::cout << "PUSHQ: " << rawIdx << '-' << gappyLength-rawIdx << '\n';
-            gapQry += gappyLength-rawIdx;
-            rawIdx += gappyLength-rawIdx;
-        }
-        // if (n == 0 && alnPairs == 3) std::cout << newIdx << ':' << newIdx + gapQry << ':' << rawIdx << ':' << qryLen << ':' << seqLen << '\n';
-        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, qryLen); ++rawIdx) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+newIdx)+t] = hostFreq[6*(seqLen+rawIdx)+t];
-            hostGapOp[seqLen+newIdx] = hostGapOp[seqLen+rawIdx]; 
-            // hostGapEx[seqLen+newIdx] = hostGapEx[seqLen+rawIdx]; 
-            // hostGapCl[seqLen+newIdx] = hostGapCl[seqLen+rawIdx];
-            ++newIdx;
-        } 
-    }
-    newQry = newIdx;
-    if (newRef + gapRef != refLen) std::cout << "REF:" << newRef << '+' << gapRef << " != " << refLen << '\n';
-    if (newQry + gapQry != qryLen) std::cout << "QRY:" << newQry << '+' << gapQry << " != " << qryLen << '\n';
-    assert(newRef + gapRef == refLen); assert(newQry + gapQry == qryLen);
-    return;
-}
-*/
-
-
-void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen) {
+void removeGappyColumns(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen) {
     float gappyVertical = option->gappyVertical;
     int gappyHorizon = option->gappyHorizon, gappyLength;
     int rawIdx = 0, newIdx = 0;
@@ -1064,8 +929,7 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
         for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, refLen); ++rawIdx) {
             for (int t = 0; t < 6; ++t) hostFreq[6*newIdx+t] = hostFreq[6*rawIdx+t];
             hostGapOp[newIdx] = hostGapOp[rawIdx]; 
-            // hostGapEx[newIdx] = hostGapEx[rawIdx]; 
-            // hostGapCl[newIdx] = hostGapCl[rawIdx];
+            hostGapEx[newIdx] = hostGapEx[rawIdx]; 
             ++newIdx;
         } 
     }
@@ -1080,7 +944,6 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
         bool onlyN = false;
         for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) {
             if ((hostFreq[6*(seqLen+gappyLength)+5])/qryNum <= gappyVertical) break;
-            // if ((hostFreq[6*(seqLen+gappyLength)+5]+hostFreq[6*(seqLen+gappyLength)+4])/qryNum <= gappyVertical) break;
             if (gappyLength == rawIdx) {
                 if (hostFreq[6*(seqLen+gappyLength)+0] == 0 && 
                     hostFreq[6*(seqLen+gappyLength)+1] == 0 &&
@@ -1115,11 +978,10 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
             gapQry += gappyLength-rawIdx;
             rawIdx += gappyLength-rawIdx;
         }
-        // if (n == 0 && alnPairs == 3) std::cout << newIdx << ':' << newIdx + gapQry << ':' << rawIdx << ':' << qryLen << ':' << seqLen << '\n';
         for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, qryLen); ++rawIdx) {
             for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+newIdx)+t] = hostFreq[6*(seqLen+rawIdx)+t];
             hostGapOp[seqLen+newIdx] = hostGapOp[seqLen+rawIdx]; 
-            // hostGapEx[seqLen+newIdx] = hostGapEx[seqLen+rawIdx]; 
+            hostGapEx[seqLen+newIdx] = hostGapEx[seqLen+rawIdx]; 
             // hostGapCl[seqLen+newIdx] = hostGapCl[seqLen+rawIdx];
             ++newIdx;
         } 
@@ -1130,60 +992,167 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, Tree* tree, std::pair
     assert(newRef + gapRef == refLen); assert(newQry + gapQry == qryLen);
     return;
 }
+*/
 
-/*
-void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, std::pair<int, int>& debugIdx, msa::option* option) {
-    int rIdx = 0, qIdx = 0, j = 0; 
-    while (j < aln_old.size() || (!gappyColumns.first.empty() || !gappyColumns.second.empty())) {
-        bool gapR = (gappyColumns.first.empty())  ? false : (rIdx == gappyColumns.first.front().first);
-        bool gapQ = (gappyColumns.second.empty()) ? false : (qIdx == gappyColumns.second.front().first);
-        int gapRLen = (!gapR) ? 0 : gappyColumns.first.front().second;
-        int gapQLen = (!gapQ) ? 0 : gappyColumns.second.front().second;
-        bool allNR = gapRLen < 0;
-        bool allNQ = gapQLen < 0;
-        gapRLen = std::abs(gapRLen);
-        gapQLen = std::abs(gapQLen);
-        if (gapR || gapQ) {
-            // if (option->alignGappy) {
-            //     if (gapRLen >= gapQLen) {
-            //         for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-            //         for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
-            //     }
-            //     else {
-            //         for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-            //         for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
-            //     }
-            // }
-            // else {
-            for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
-            for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
-            // }
-            if (gapR) gappyColumns.first.pop();
-            if (gapQ) gappyColumns.second.pop();
+void removeGappyColumns(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen, int32_t offsetf, int32_t offsetg) {
+    float gappyVertical = option->gappyVertical;
+    int gappyHorizon = option->gappyHorizon, gappyLength;
+    if (gappyVertical == 1 || gappyHorizon < 1) return;
+    int rawIdx = 0, newIdx = 0;
+    int gapRef = 0, gapQry = 0;
+    int32_t refLen = util->seqsLen[nodes.first->identifier];
+    int32_t qryLen = util->seqsLen[nodes.second->identifier];
+    float refNum_f = 0, qryNum_f = 0;
+    for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
+    for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
+    int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes.first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
+    int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes.second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
+    while (true) {
+        if (rawIdx >= refLen) {
+            for (int i = newIdx; i < refLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[offsetf+6*i+j] = 0;
+            break;
         }
-        else {
-            switch ((aln_old[j] & 0xFFFF)) {
-                case 0: ++rIdx; ++qIdx; aln.push_back(0); break;
-                case 1: ++qIdx;         aln.push_back(1); break;
-                case 2: ++rIdx;         aln.push_back(2); break;
+        int tempStart = rawIdx;
+        bool onlyN = false;
+        for (gappyLength = rawIdx; gappyLength < refLen; ++gappyLength) {
+            if ((hostFreq[offsetf+6*gappyLength+5])/refNum <= gappyVertical) break;
+            if (gappyLength == rawIdx) {
+                if (hostFreq[offsetf+6*gappyLength+0] == 0 && 
+                    hostFreq[offsetf+6*gappyLength+1] == 0 &&
+                    hostFreq[offsetf+6*gappyLength+2] == 0 &&
+                    hostFreq[offsetf+6*gappyLength+3] == 0) onlyN = true;
+                else onlyN = false;
             }
-            ++j;
+            if (onlyN) {
+                if (hostFreq[offsetf+6*gappyLength+0] > 0 || 
+                    hostFreq[offsetf+6*gappyLength+1] > 0 ||
+                    hostFreq[offsetf+6*gappyLength+2] > 0 ||
+                    hostFreq[offsetf+6*gappyLength+3] > 0) {
+                    gappyColumns.first.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+                    onlyN = false;
+                    tempStart = gappyLength;
+                }
+            }
+            else {
+                if (hostFreq[offsetf+6*gappyLength+0] == 0 && 
+                    hostFreq[offsetf+6*gappyLength+1] == 0 &&
+                    hostFreq[offsetf+6*gappyLength+2] == 0 &&
+                    hostFreq[offsetf+6*gappyLength+3] == 0) {
+                    gappyColumns.first.push(std::make_pair(tempStart, (gappyLength-tempStart))); 
+                    onlyN = true;
+                    tempStart = gappyLength;
+                }
+            }
+
         }
-        if (gappyColumns.first.empty() && gappyColumns.second.empty()) {
-            for (j = j; j < aln_old.size(); ++j) {
-                switch ((aln_old[j] & 0xFFFF)) {
-                    case 0: ++rIdx; ++qIdx; aln.push_back(0); break;
-                    case 1: ++qIdx;         aln.push_back(1); break;
-                    case 2: ++rIdx;         aln.push_back(2); break;
+        if (gappyLength - tempStart >= gappyHorizon) {
+            if (onlyN) gappyColumns.first.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+            else       gappyColumns.first.push(std::make_pair(tempStart, gappyLength-tempStart)); 
+            gapRef += gappyLength-rawIdx;
+            rawIdx += gappyLength-rawIdx;
+        }
+        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, refLen); ++rawIdx) {
+            for (int t = 0; t < 6; ++t) hostFreq[offsetf+6*newIdx+t] = hostFreq[offsetf+6*rawIdx+t];
+            hostGapOp[offsetg+newIdx] = hostGapOp[offsetg+rawIdx]; 
+            hostGapEx[offsetg+newIdx] = hostGapEx[offsetg+rawIdx]; 
+            ++newIdx;
+        } 
+    }
+    newRef = newIdx;
+    rawIdx = 0; newIdx = 0;
+    while (true) {
+        if (rawIdx >= qryLen) {
+            for (int i = newIdx; i < qryLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[offsetf+6*(seqLen+i)+j] = 0;
+            break;
+        }
+        int tempStart = rawIdx;
+        bool onlyN = false;
+        for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) {
+            if ((hostFreq[offsetf+6*(seqLen+gappyLength)+5])/qryNum <= gappyVertical) break;
+            if (gappyLength == rawIdx) {
+                if (hostFreq[offsetf+6*(seqLen+gappyLength)+0] == 0 && 
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+1] == 0 &&
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+2] == 0 &&
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+3] == 0) onlyN = true;
+                else onlyN = false;
+            }
+            if (onlyN) {
+                if (hostFreq[offsetf+6*(seqLen+gappyLength)+0] > 0 || 
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+1] > 0 ||
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+2] > 0 ||
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+3] > 0) {
+                    gappyColumns.second.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+                    onlyN = false;
+                    tempStart = gappyLength;
+                }
+            }
+            else {
+                if (hostFreq[offsetf+6*(seqLen+gappyLength)+0] == 0 && 
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+1] == 0 &&
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+2] == 0 &&
+                    hostFreq[offsetf+6*(seqLen+gappyLength)+3] == 0) {
+                    gappyColumns.second.push(std::make_pair(tempStart, (gappyLength-tempStart))); 
+                    onlyN = true;
+                    tempStart = gappyLength;
                 }
             }
         }
+        if (gappyLength - tempStart >= gappyHorizon) {
+            if (onlyN) gappyColumns.second.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
+            else       gappyColumns.second.push(std::make_pair(tempStart, gappyLength-tempStart)); 
+            gapQry += gappyLength-rawIdx;
+            rawIdx += gappyLength-rawIdx;
+        }
+        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, qryLen); ++rawIdx) {
+            for (int t = 0; t < 6; ++t) hostFreq[offsetf+6*(seqLen+newIdx)+t] = hostFreq[offsetf+6*(seqLen+rawIdx)+t];
+            hostGapOp[offsetg+seqLen+newIdx] = hostGapOp[offsetg+seqLen+rawIdx]; 
+            hostGapEx[offsetg+seqLen+newIdx] = hostGapEx[offsetg+seqLen+rawIdx]; 
+            ++newIdx;
+        } 
     }
-    debugIdx.first = rIdx; debugIdx.second = qIdx;
+    newQry = newIdx;
+    if (newRef + gapRef != refLen) std::cout << "REF:" << newRef << '+' << gapRef << " != " << refLen << '\n';
+    if (newQry + gapQry != qryLen) std::cout << "QRY:" << newQry << '+' << gapQry << " != " << qryLen << '\n';
+    assert(newRef + gapRef == refLen); assert(newQry + gapQry == qryLen);
     return;
 }
-*/
 
+void fallback2cpu(std::vector<int>& fallbackPairs, Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option) {
+    int totalSeqs = 0;
+    for (int i = 0; i < fallbackPairs.size(); ++i) {
+        int nIdx = fallbackPairs[i];
+        int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
+        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
+        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
+        if (util->badSequences.find(grpID) == util->badSequences.end()) {
+            util->badSequences[grpID] = std::vector<std::string> (0);
+        }
+        if (refNum < qryNum) {
+            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+            util->seqsLen[nodes[nIdx].second->identifier] = refLen;
+            util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
+            auto temp = nodes[nIdx].second->msaIdx;
+            tree->allNodes[nodes[nIdx].second->identifier]->msaIdx = nodes[nIdx].first->msaIdx;
+            tree->allNodes[nodes[nIdx].first->identifier]->msaIdx = temp;
+            auto tempFreq = nodes[nIdx].second->msaFreq;
+            tree->allNodes[nodes[nIdx].second->identifier]->msaFreq = nodes[nIdx].first->msaFreq;
+            tree->allNodes[nodes[nIdx].first->identifier]->msaFreq = tempFreq;
+            totalSeqs += refNum;
+        }
+        else {
+            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+            totalSeqs += qryNum;
+        }
+    }
+    if (option->printDetail) {
+        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring 1 pair (1 sequence).\n";
+        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
+        else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
+    }
+    return;
+}
 
 void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, std::pair<int, int>& debugIdx, msa::option* option) {
     int rIdx = 0, qIdx = 0, j = 0; 
@@ -1210,8 +1179,6 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
                         if ((aln_old[k] & 0xFFFF) != 1 || (qIdx+delLen) >= qTerminal) break;
                         ++delLen; 
                     }
-                    // if (delLen > 0) printf("R: delLen:%d, gapRLen:%d, rIdx: %d, qIdx: %d, terminal:%d\n", delLen, gapRLen, rIdx, qIdx, qTerminal);
-                    
                     if (delLen > gapRLen) {
                         for (int g = 0; g < gapRLen; ++g) {++rIdx; ++qIdx; ++j; aln.push_back(0);}
                         gappyColumns.first.pop();
@@ -1237,8 +1204,6 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
                         if ((aln_old[k] & 0xFFFF) != 2 || (rIdx+delLen) >= rTerminal) break;
                         ++delLen; 
                     }
-                    // if (delLen > 0) printf("Q: delLen:%d, gapQLen:%d, rIdx: %d, qIdx: %d, terminal:%d\n", delLen, gapQLen, rIdx, qIdx, rTerminal);
-                    
                     if (delLen > gapQLen) {
                         for (int g = 0; g < gapQLen; ++g) {++rIdx; ++qIdx; ++j; aln.push_back(0);}
                         gappyColumns.second.pop();
@@ -1251,21 +1216,9 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
                         preN = true;
                     }
                 }   
-                // for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
-                // gappyColumns.second.pop();
-                // preN = allNQ;
             }
             else if (gapR && gapQ) {
                 if (!allNR && !allNQ) {
-                    // if (gapRLen >= gapQLen) {
-                    //     for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-                    //     for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
-                    // }
-                    // else {
-                    //     for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-                    //     for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
-                    // }
-                    // printf("(%d,%d):(%d,%d)\n",gappyColumns.first.front().first, gappyColumns.second.front().first, gapRLen, gapQLen);
                     for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
                     for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
                     gappyColumns.first.pop();
@@ -1438,6 +1391,7 @@ void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
 void updateFrequency(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, std::vector<int8_t>& aln, float refWeight, float qryWeight, std::pair<int, int>& debugIdx) {
     int rIdx = 0, qIdx = 0;
     std::vector<std::vector<float>> mergeFreq(aln.size(), std::vector<float>(6,0.0));
+    if (tree->allNodes[nodes.first->identifier]->msaFreq.empty() || tree->allNodes[nodes.second->identifier]->msaFreq.empty()) return;
     if (util->nowProcess < 2) {
         for (int j = 0; j < aln.size(); ++j) {
             if (aln[j] == 0) {
@@ -1466,8 +1420,6 @@ void updateFrequency(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
     }
     else {
         float refNum_f = 0, qryNum_f = 0;
-        // int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
-        // int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
         for (int t = 0; t < 6; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
         for (int t = 0; t < 6; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
         int32_t refNum = static_cast<int32_t>(round(refNum_f));
@@ -1559,34 +1511,6 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
             children = nodeLeft;
         }
         NodeAlnOrder[node->identifier] = NodeAlnOrder[children[0]->identifier];
-        // children[0] = node;
-        // std::map<int, std::vector<Node*>> childrenIdx;
-        // for (int i = 0; i < children.size(); ++i) {
-        //     int idx  = (NodeAlnOrder.find(children[i]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[i]->identifier]+1 : 0;
-        //     if (childrenIdx.find(idx) == childrenIdx.end()) childrenIdx[idx] = std::vector<Node*> (0);
-        //     childrenIdx[idx].push_back(children[i]);
-        // }
-        // int start = childrenIdx.begin()->first, end = childrenIdx.rbegin()->first + 1;
-        // for (int idx = start; idx < end; ++idx) {
-        //     if (childrenIdx.find(idx+1) == childrenIdx.end()) childrenIdx[idx+1] = std::vector<Node*> (0);
-        //     for (int i = 0; i < childrenIdx[idx].size()-1; i+=2) {
-        //         alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), idx));
-        //         childrenIdx[idx+1].push_back(children[i]);
-        //     }
-        //     if (childrenIdx[idx].size()%2 == 1) childrenIdx[idx+1].push_back(children.back());
-        // }
-        // int idx = end - 1;
-        // while (true) {
-        //     if (childrenIdx[idx].size() < 2) break;
-        //     if (childrenIdx.find(idx+1) == childrenIdx.end()) childrenIdx[idx+1] = std::vector<Node*> (0);
-        //     for (int i = 0; i < childrenIdx[idx].size()-1; i+=2) {
-        //         alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), idx));
-        //         childrenIdx[idx+1].push_back(children[i]);
-        //     }
-        //     if (childrenIdx[idx].size()%2 == 1) childrenIdx[idx+1].push_back(children.back());
-        //     ++idx;
-        // }
-        // NodeAlnOrder[node->identifier] = idx - 1;
         postOrder.pop();
     }
 }
@@ -1606,3 +1530,61 @@ void getPostOrderList(Node* node, std::stack<Node*>& postStack) {
     } 
     return;
 }
+
+double calColumnSimilarity(Tree* tree, Node* node, msa::utility* util, Params& param) {
+    int len = util->seqsLen[node->identifier];
+    std::vector<std::vector<float>> freq;
+    int seqNum = tree->allNodes[node->identifier]->msaIdx.size();
+    float totalWeight = 0.0;
+    for (auto sIdx: tree->allNodes[node->identifier]->msaIdx)  totalWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+    if (tree->allNodes[node->identifier]->msaFreq.empty()) {
+        freq = std::vector<std::vector<float>> (len, std::vector<float>(6,0)); 
+        for (auto sIdx: tree->allNodes[node->identifier]->msaIdx) { 
+            int storage = util->seqsStorage[sIdx];
+            std::string name = util->seqsName[sIdx];
+            float w = tree->allNodes[name]->weight / totalWeight * seqNum;
+            tbb::this_task_arena::isolate( [&]{
+            tbb::parallel_for(tbb::blocked_range<int>(0, len), [&](tbb::blocked_range<int> r) {
+            for (int s = r.begin(); s < r.end(); ++s) {
+                if      (util->alnStorage[storage][sIdx][s] == 'A' || util->alnStorage[storage][sIdx][s] == 'a') freq[s][0]+=1.0*w;
+                else if (util->alnStorage[storage][sIdx][s] == 'C' || util->alnStorage[storage][sIdx][s] == 'c') freq[s][1]+=1.0*w;
+                else if (util->alnStorage[storage][sIdx][s] == 'G' || util->alnStorage[storage][sIdx][s] == 'g') freq[s][2]+=1.0*w;
+                else if (util->alnStorage[storage][sIdx][s] == 'T' || util->alnStorage[storage][sIdx][s] == 't' ||
+                         util->alnStorage[storage][sIdx][s] == 'U' || util->alnStorage[storage][sIdx][s] == 'u') freq[s][3]+=1.0*w;
+                else if (util->alnStorage[storage][sIdx][s] == '-')                                              freq[s][5]+=1.0*w;
+                else                                                                                             freq[s][4]+=1.0*w;
+            }
+            });
+            });
+        }
+    }
+    else {
+        freq = tree->allNodes[node->identifier]->msaFreq;
+        tbb::this_task_arena::isolate( [&]{
+        tbb::parallel_for(tbb::blocked_range<int>(0, len), [&](tbb::blocked_range<int> r) {
+        for (int s = r.begin(); s < r.end(); ++s) {
+            for (int t = 0; t < 6; ++t) freq[s][t] = freq[s][t] / totalWeight * seqNum;
+        }
+        });
+        });
+    }
+
+    std::vector<double> spscore (len, 0);
+    tbb::parallel_for(tbb::blocked_range<int>(0, len), [&](tbb::blocked_range<int> r) {
+    for (int s = r.begin(); s < r.end(); ++s) {
+        for (int l = 0; l < 5; l++) spscore[s] += param.scoringMatrix[l][l] * (freq[s][l] * (freq[s][l] - 1) / 2);
+        for (int l = 0; l < 5; l++) spscore[s] += param.gapExtend * (freq[s][l] * (freq[s][5]));
+        for (int l = 0; l < 5; l++) {
+            for (int m = l + 1; m < 5; m++) {
+                spscore[s] += param.scoringMatrix[l][m] * (freq[s][m] * freq[s][l]);
+            }
+        }  
+    }
+    });
+    double normScore = 0;
+    for (int i = 0; i < len; i++) normScore += spscore[i];
+    normScore /= ((seqNum * (seqNum-1)) / 2);
+    normScore /= len;
+    normScore /= param.scoringMatrix[0][0];
+    return normScore;
+}   

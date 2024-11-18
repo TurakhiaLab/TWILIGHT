@@ -9,7 +9,7 @@
 #include <fstream>
 #include <vector>
 #include <unordered_map>
-#include <cmath>
+#include <math.h>
 
 typedef float paramType;
 
@@ -37,7 +37,7 @@ namespace Talco_xdrop {
             this->gapClose = t_param[27];
             this->xdrop = static_cast<int32_t> (1000 * -1 * t_param[26]);
             this->fLen = (1 << 12);
-            this->marker = (1 << 10); //reduce this value to save memory
+            this->marker = (1 << 8); //reduce this value to save memory
         }
     };
     

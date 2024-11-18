@@ -14,6 +14,11 @@ Params::Params(po::variables_map& vm) {
     float trans = vm["trans"].as<float>();
     float xdrop = round(vm["xdrop"].as<float>());
     
+    if (gapOp > 0 || gapEx > 0) {
+        std::cerr << "ERROR: Gap penalties should be less or equal than 0.\n";
+        exit(1);
+    }
+    
     if (userDefine == 0) {
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
@@ -80,12 +85,13 @@ Params::Params(po::variables_map& vm) {
 
         float Nscore = vm.count("wildcard") ? std::round(pamx[0][0] / 10.0) : 0.0;
         
+        float scaler = 0.5;
         for (i = 0; i < 5; ++i) for (j = 0; j < 5; ++j) 
-            this->scoringMatrix[i][j] = (i == 4 || j == 4) ? Nscore : std::round(pamx[i][j] / 10.0);
+            this->scoringMatrix[i][j] = (i == 4 || j == 4) ? Nscore * scaler : std::round(pamx[i][j] / 10.0 * scaler);
         
         
         float gop = 1.53; float ge = 0.123;
-        this->gapOpen = std::round(-gop*100); this->gapExtend = std::round(-ge*100);
+        this->gapOpen = std::round(-gop*100*scaler); this->gapExtend = std::round(-ge*100*scaler);
         this->gapClose = this->gapOpen;
         this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
@@ -115,8 +121,8 @@ msa::option::option(po::variables_map& vm) {
         std::cerr << "ERROR: No input file.\n";
         exit(1);
     }
-    if (vm.count("sequences") && !vm.count("tree")) {
-        std::cerr << "ERROR: A tree file is required for building MSA from raw seqeunces.\n";
+    if (!vm.count("files") && (!vm.count("sequences") || !vm.count("tree"))) {
+        std::cerr << "ERROR: A tree file and a raw sequeunce file are required for building MSA from raw seqeunces.\n";
         exit(1);
     }
     if (vm.count("sequences") && vm.count("files")) {
@@ -195,6 +201,22 @@ msa::option::option(po::variables_map& vm) {
         }
         else std::cout << subtreeDir << " created for storing subtree files.\n";
     }
+    if (vm.count("psgop")) {
+        std::string psgop = vm["psgop"].as<std::string>();
+        if      (psgop == "y" || psgop == "Y" || psgop == "yes" || psgop == "YES" || psgop == "Yes") this->psgop = true;
+        else if (psgop == "n" || psgop == "N" || psgop == "no" || psgop == "NO" || psgop == "No")    this->psgop = false;
+        else {
+            std::cerr << "ERROR: Unrecognized option \"" << psgop <<"\" for position-specific gap open penalty.\n";
+            exit(1);
+        } 
+        this->psgopAuto = false;
+    }
+    else {
+        this->psgop = false;
+        this->psgopAuto = true;
+    }
+    this->redo = false;
+    this->calSim = false;
     this->cpuNum = cpuNum; 
     this->gpuNum = 0;
     this->gpuIdx = std::vector<int> (0);
@@ -209,6 +231,7 @@ msa::option::option(po::variables_map& vm) {
     this->merger = merger;
     this->printDetail = vm.count("print-detail");
     this->deleteTemp = vm.count("delete-temp");
+    
 }
 
 void msa::utility::changeStorage(int idx) {

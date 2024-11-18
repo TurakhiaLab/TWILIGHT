@@ -12,84 +12,43 @@ void Talco_xdrop::Align_freq (
     const std::pair<float, float>& num,
     std::vector<int8_t>& aln,
     int16_t& errorType
-    // size_t num_alignments
 ) {
         
-        // clock_t start, end;
-        // double time = 0;
-        // int count = 0;
-        // n -> alignment number
-        // for (size_t n = 0; n < num_alignments; n++) {
-        
-            // std::vector<int8_t> aln;
-            int8_t state = 0;
-            // int score;
-            // std::cout << reference[n] << " " << query[n] << " " << std::endl;
-
-            // initialising variables
-            int32_t reference_idx, query_idx;
-            reference_idx = 0; query_idx = 0;
-            bool last_tile = false;
-            
-            int tile = 0;
-            while (!last_tile) {
-                std::vector<int8_t> tile_aln;
-                // Talco_xdrop::Tile(reference, query, params, reference_idx, query_idx, tile_aln, state, last_tile, tile);
-                Talco_xdrop::Tile(
-                    freqRef, 
-                    freqQry, 
-                    gapOp,
-                    gapEx,
-                    gapCl,
-                    num,
-                    params, 
-                    reference_idx, 
-                    query_idx, 
-                    tile_aln, 
-                    state, 
-                    last_tile, 
-                    tile, 
-                    errorType
-                );
-                // printf("Tile: %d, (r,q) = (%d,%d), tile_aln_size: %d\n",tile, reference_idx, query_idx, tile_aln.size());
-                if (tile_aln.empty()) {
-                    aln.clear();
-                    return;
-                }
-                for (int i= tile_aln.size()-1; i>=0; i--){
-                    if (i == tile_aln.size()-1 && tile>0){
-                        continue;
-                    }
-                    aln.push_back(tile_aln[i]);
-                    // std::cout << (tile_aln[i] & 0xFFFF);
-                }
-                // std::cout << '\n';
-                
-                tile_aln.clear();
-                
-                tile++;
-                // aln.clear();
+        int8_t state = 0;
+        int32_t reference_idx, query_idx;
+        reference_idx = 0; query_idx = 0;
+        bool last_tile = false;
+        int tile = 0;
+        while (!last_tile) {
+            std::vector<int8_t> tile_aln;
+            Talco_xdrop::Tile(
+                freqRef, 
+                freqQry, 
+                gapOp,
+                gapEx,
+                gapCl,
+                num,
+                params, 
+                reference_idx, 
+                query_idx, 
+                tile_aln, 
+                state, 
+                last_tile, 
+                tile, 
+                errorType
+            );
+            if (tile_aln.empty()) {
+                aln.clear();
+                return;
             }
-            // score = Score(params, aln, reference[n], query[n], reference_idx, query_idx);
-            
-            // for (int i = 0; i < aln.size(); ++i) {
-            //     // std::cout << aln[i];
-            //     if (aln[i] & 0xFFFF != 0) 
-            // }
-        // int count = 0; 
-        // for (auto &a: aln){
-        //     if ((a & 0xFFFF) != 0) std::cout << "TB: " << (a & 0xFFFF) << " at " << count << '\n';
-        //     count += 1;
-        // }
-        // printf("Alignment (Length, Score): (%d, %d)\n ", aln.size(), score);
-        // break;
-
-        // }
-        
-        // printf("%f\n", time);
-        // printf("%d\n", count);
+            for (int i= tile_aln.size()-1; i>=0; i--){
+                if (i == tile_aln.size()-1 && tile>0) continue;
+                aln.push_back(tile_aln[i]);
+            }
+            tile_aln.clear();
+            tile++;
+        }
         return;
-
 }
 
 int32_t Talco_xdrop::Reduction_tree(const int32_t *C, const int32_t start, const int32_t length){
@@ -124,26 +83,12 @@ void Talco_xdrop::Traceback(
     int8_t  tb_value = 0;
 
     int8_t  dir = 0;
-    // bool checkpoint = false;
-    // int count = 0;
     while (ftr >= 0) {
-        // printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d\n", addr, (state & 0xFFFF), ftr, idx , ftr_lower_limit[ftr]);
         if (addr < 0) {
             fprintf(stderr, "ERROR: tb addr < 0!\n");
             // exit(1);
         }
-        // count++;
-        
         tb_value = tb[addr];
-        // if (DEBUG)
-        // {
-        //     std::cout << "Start Addr:" << addr << " state: " << (state & 0xFFFF) << " ,ftr: " << ftr << " ,idx: " << idx << " ,ll[ftr-1]: " <<  ftr_lower_limit[ftr];
-        //     std::cout << " fL[ftr - 1]: " << ftr_length[ftr - 1] << " ,ll[ftr-2]: " <<  ftr_lower_limit[ftr-2];
-        //     std::cout << " fL[ftr - 2]: " << ftr_length[ftr - 2];
-        //     std::cout << " Tb: " << ( tb_value&0xFFFF);
-        // }
-
-        
         if (state == 0) { // Current State M
             state = tb_value & 0x03;
             if (state == 0)
@@ -184,7 +129,6 @@ void Talco_xdrop::Traceback(
                 state = 0;
             }
         }
-        // printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d, tb_value: %d, dir: %d\n", addr, (state & 0xFFFF), ftr, idx , ftr_lower_limit[ftr], tb_value, dir);
         addr = addr - (idx  - ftr_lower_limit[ftr] + 1) - (ftr_length[ftr - 1]);
         if (dir == 0){
             addr = addr - (ftr_length[ftr - 2]) + (idx - ftr_lower_limit[ftr  - 2]);
@@ -202,44 +146,8 @@ void Talco_xdrop::Traceback(
             ftr -= 1;
             ref_idx--;
         }
-
-        // if (ref_idx==0 && query_idx==0)
-        // {
-        //     checkpoint = true;
-        // }
-        // printf("ftr: %d\n", ftr);
-        // printf("addr: %d\n", addr);
-        // printf("aln_idx: %d\n", aln.size());
-        // printf("%d", (dir&0xFFFF));
-        // printf("traceback_idx: %d\n", idx);
         aln.push_back(dir);   
-        // std::cout << "aln_idx:" << aln.size() << '\n'; 
-        // state = next_state;
-        // if (DEBUG)  std::cout << " Final State: " << (state&0xFF) << " End Addr: " << addr << " index:" << ref_idx << ", " << query_idx << std::endl;
     }
-    // std::cout << '\n';
-    // std::cout << count << std::endl;   
-    // if (DEBUG) std::cout << ref_idx << " " << query_idx << std::endl; 
-    // std::cout << "aln_idx:" << aln.size() << '\n'; 
-    // if (!checkpoint)
-    // {
-
-    //     while (ref_idx != -1)
-    //     {
-    //         state = 2;
-    //         aln.push_back(state);
-    //         ref_idx--;
-    //         std::cout << "Here";
-    //     }
-    //     while (query_idx != -1)
-    //     {
-    //         state = 1;
-    //         aln.push_back(state);
-    //         query_idx--;
-    //         std::cout << "Here";
-    //     }
-    // }
-
 }
 
 void Talco_xdrop::Tile (
@@ -385,26 +293,21 @@ void Talco_xdrop::Tile (
                             // denominator += reference[reference_idx+j][l]*query[query_idx+i][m];
                             if (m == 5 && l == 5)      numerator += 0;
                             else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
-                            else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[l*5+m];
+                            else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[m*5+l];
                         }
                     }  
-                    // denominator = refNum * qryNum;
-                    // if (i ==  (U[k%3]+1-L[k%3])/2 && refNum > 3000 && qryNum > 3000) {
-                    //     std::cout << refNum << '\t' << qryNum << '\t' << refNum*qryNum << '\n';
-                    // }
-                    
-                    similarScore = static_cast<int32_t>(std::round(numerator/denominator));
-                    // if (i ==  (U[k%3]+1-L[k%3])/2 && refNum > 3000 && qryNum > 3000) printf("%d, %f, %f\n",similarScore, numerator, denominator);
-                    
-                    if (offsetDiag < 0) match = similarScore + score_from_prev_tile;
-                    else                match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;
+
+                    similarScore = static_cast<int32_t>(roundeven(numerator/denominator));
+                    // if (reference.size() == 1558 && query.size() == 1552 && (refNum > 1 || qryNum > 1)) printf("%d: (%d,%d), %d, %f\n", k, i, j, similarScore, numerator/denominator);
+                    if (offsetDiag < 0) match = similarScore;
+                    else                match = S[(k+1)%3][offsetDiag] + similarScore;
                     // match = S[(k+1)%3][offsetDiag] + similarScore + score_from_prev_tile;
                 }
 
-                int32_t pos_gapOpen_ref = static_cast<int32_t>(gapOp[0][reference_idx+j]);
-                int32_t pos_gapOpen_qry = static_cast<int32_t>(gapOp[1][query_idx+i]);
-                int32_t pos_gapExtend_ref = static_cast<int32_t>(gapExtend*(1.0-reference[reference_idx+j][5] / refNum));
-                int32_t pos_gapExtend_qry = static_cast<int32_t>(gapExtend*(1.0-query[query_idx+i][5] / qryNum ));
+                int32_t pos_gapOpen_ref =   static_cast<int32_t>(roundeven(gapOp[0][reference_idx+j]));
+                int32_t pos_gapOpen_qry =   static_cast<int32_t>(roundeven(gapOp[1][query_idx+i]));
+                int32_t pos_gapExtend_ref = static_cast<int32_t>(roundeven(gapEx[0][reference_idx+j]));
+                int32_t pos_gapExtend_qry = static_cast<int32_t>(roundeven(gapEx[1][query_idx+i]));
                 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                     // delOp = S[(k+2)%3][offsetUp] + gapOpen;
@@ -421,10 +324,6 @@ void Talco_xdrop::Tile (
                 }
 
                 
-                
-                // I[k%2][offset] = (j > 0) ? insOp : param.gapOpen + (i-1) * param.gapExtend;
-                // D[k%2][offset] = (i > 0) ? delOp : param.gapOpen + (j-1) * param.gapExtend;
-
                 I[k%2][offset] = insOp;
                 D[k%2][offset] = delOp;
 
@@ -459,31 +358,16 @@ void Talco_xdrop::Tile (
                     ptr = 2;
                 }
                 
-                
-                
-                // if (tile > 0)
-                // {
-                //     if (i==0)
-                // }
-
-
                 if (S[k%3][offset] < max_score-param.xdrop) {
                     S[k%3][offset] = -inf;
                 }
 
-                // if (tile == 0 && i == (U[k%3]+1-L[k%3])/2) printf("%d, %d, %d, %d, %d, %d, %d\n", tile, i, L[k%3], U[k%3]+1, S[k%3][offset],  D[k%2][offset], I[k%2][offset]);
-
                 score = S[k%3][offset];
+
+                // if (reference.size() == 1558 && query.size() == 1552 && (refNum > 1 || qryNum > 1)) printf("%d: (%d,%d), H: %d, I: %d, D: %d, ptr: %d\n", k, i, j, S[k%3][offset], I[k%2][offset], D[k%2][offset], (ptr&0xFFFF));
 
                 if (max_score_prime < score) {
                     max_score_prime = score;
-                    // if (k <= marker) {
-                    //     // max_score_ref_idx = j;
-                    //     // max_score_query_idx = i;
-                    //     // max_score_start_addr = ftr_addr - (U[k%3] - L[k%3] + 1)  + (i - L[k%3]);
-                    //     // max_score_start_ftr = k;
-                    // }
-                    // if (i == U[k%3]) printf("max (%d, %d), %d",max_score_ref_idx, max_score_query_idx, max_score_start_addr);
                 }
                 
 

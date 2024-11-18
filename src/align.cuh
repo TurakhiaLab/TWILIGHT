@@ -5,6 +5,7 @@
 
 const int FRONT_WAVE_LEN = 1024+512;
 const int THREAD_NUM = 256;
+const int BLOCKSIZE = 2048;
 
 __global__ void alignGrpToGrp_freq
 (
@@ -18,8 +19,7 @@ __global__ void alignGrpToGrp_freq
     int32_t* alnLen,
     int32_t* seqInfo,
     float* gapOpen,
-    float* gapCont,
-    float* gapEnd,
+    float* gapExtend,
     float* param
 );
 
@@ -35,6 +35,7 @@ __global__ void alignGrpToGrp_seq
     int32_t* alnLen,
     int32_t* seqInfo,
     float* gapOpen,
+    float* gapExtend,
     float* weight,
     float* param
 );

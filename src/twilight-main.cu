@@ -30,14 +30,15 @@ void parseArguments(int argc, char** argv)
         ("mismatch",   po::value<paramType>()->default_value(-8), "Mismatch penalty")
         ("gap-open",   po::value<paramType>()->default_value(-50), "Gap open penalty")
         ("gap-extend", po::value<paramType>()->default_value(-5), "Gap extend penalty")
-        ("trans",      po::value<paramType>()->default_value(2), "The ratio of transitions to transversions")
         ("xdrop",      po::value<paramType>()->default_value(600), "X-drop value")
         ("scoring-matrix", po::value<int>()->default_value(0), "0: default, 1: kiruma, 2: user defined")
         ("pam-n",      po::value<int>()->default_value(200), "'n' in the PAM-n matrix. Should be used with kimura scoring matrix")
+        ("trans",      po::value<paramType>()->default_value(2), "The ratio of transitions to transversions")
         ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR, CIGAR stands for CIGAR-like compressed format")
         ("merge-subtrees", po::value<std::string>()->default_value("p"), "t: transitivity merger, p: profile alignment")
         ("gpu-index", po::value<std::string>(), "Specify the GPU index, separated by commas. Ex. 0,2,3")
         ("delete-temp", "delete temporary subtree folder and files.")
+        ("psgop", po::value<std::string>(), "'y' for enabling and 'n' for disabling position-specific gap open penalty. If not specified, it will be detected automatically.")
         ("output-subtrees", "writing the tree file of each subtree.")
         ("debug", "Enable debug on the final alignment")
         ("cpu-only", "Only using CPU to run the program")
@@ -90,72 +91,85 @@ int main(int argc, char** argv) {
         int proceeded = 0;
         auto alnSubtreeStart = std::chrono::high_resolution_clock::now();
         for (auto subRoot: P->partitionsRoot) {
+            bool redo = true;
             auto subtreeStart = std::chrono::high_resolution_clock::now();
             ++proceeded;
             int subtree = T->allNodes[subRoot.first]->grpID;
             if (P->partitionsRoot.size() > 1) std::cout << "Start processing subtree No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
-            Tree* subT = new Tree(subRoot.second.first);
-            readSequences(util, option, subT);
+            while (redo) {
+                Tree* subT = new Tree(subRoot.second.first);
+                readSequences(util, option, subT);
+                // // Generate MAFFT's files
+                // std::vector<std::pair<std::string, std::string>> seqs;
+                // for (auto s: util->rawSeqs) {
+                //     int sIdx = util->seqsIdx[s.first];
+                //     seqs.push_back(std::make_pair(std::to_string(sIdx), s.second));
+                //     T->allNodes[s.first]->identifier = std::to_string(sIdx);
+                // }
+                // outputSubtreeTrees(T, P, util, option);
+                // outputSubtreeSeqs("./subtrees/rnasim.raw.mafft.fa", seqs);
+                // // printTree(subT->root, -1);
+                // exit(1);
 
-            // // Generate MAFFT's files
-            // std::vector<std::pair<std::string, std::string>> seqs;
-            // for (auto s: util->rawSeqs) {
-            //     int sIdx = util->seqsIdx[s.first];
-            //     seqs.push_back(std::make_pair(std::to_string(sIdx), s.second));
-            //     T->allNodes[s.first]->identifier = std::to_string(sIdx);
-            // }
-            // outputSubtreeTrees(T, P, util, option);
-            // outputSubtreeSeqs("./subtrees/rnasim.raw.mafft.fa", seqs);
-            // // printTree(subT->root, -1);
-            // exit(1);
-
-            auto treeBuiltStart = std::chrono::high_resolution_clock::now();
-            partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
-            partitionTree(subT->root, subP);
-            auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
-            std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-            if (subP->partitionsRoot.size() > 1) std::cout << "Partition the subtree into " << subP->partitionsRoot.size() << " sub-subtrees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
-            // Progressive alignment on each sub-subtree
-            Tree* newSubT;
-            if (subP->partitionsRoot.size() > 1) newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
-            msaOnSubtreeGpu(subT, util, option, subP, *param);
-            // If -l option, merge sub-subtree with transitivity merger
-            if (subP->partitionsRoot.size() > 1) {
-                // Align adjacent sub-subtrees to create overlap alignment
-                auto alnStart = std::chrono::high_resolution_clock::now();
-                alignSubtrees(subT, newSubT, util, option, *param);
-                auto alnEnd = std::chrono::high_resolution_clock::now();
-                std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-                std::cout << "Aligned adjacent sub-subtree in " <<  alnTime.count() / 1000000 << " ms\n";
-                auto mergeStart = std::chrono::high_resolution_clock::now();
-                mergeSubtrees (subT, newSubT, util, option, *param);
-                auto mergeEnd = std::chrono::high_resolution_clock::now();
-                std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
-                int totalSeqs = subT->root->msaIdx.size();
-                std::cout << "Merge " << newSubT->allNodes.size() << " sub-subtrees (total " << totalSeqs << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
+                auto treeBuiltStart = std::chrono::high_resolution_clock::now();
+                partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
+                partitionTree(subT->root, subP);
+                auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
+                std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
+                if (subP->partitionsRoot.size() > 1) std::cout << "Partition the subtree into " << subP->partitionsRoot.size() << " sub-subtrees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
+                // Progressive alignment on each sub-subtree
+                Tree* newSubT;
+                if (subP->partitionsRoot.size() > 1) newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
+                msaOnSubtreeGpu(subT, util, option, subP, *param);
+                redo = option->redo;
+                if (redo) {
+                    util->seqsFree();
+                    util->clearAll();
+                    delete subP;
+                    delete subT;
+                    if (subP->partitionsRoot.size() > 1) delete newSubT;
+                    std::cout << "Switch to position-specific gap penalty and realign the subtree.\n";
+                    option->redo = false;
+                    continue;
+                }
+                // If -l option, merge sub-subtree with transitivity merger
+                if (subP->partitionsRoot.size() > 1) {
+                    // Align adjacent sub-subtrees to create overlap alignment
+                    auto alnStart = std::chrono::high_resolution_clock::now();
+                    alignSubtrees(subT, newSubT, util, option, *param);
+                    auto alnEnd = std::chrono::high_resolution_clock::now();
+                    std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+                    std::cout << "Aligned adjacent sub-subtree in " <<  alnTime.count() / 1000000 << " ms\n";
+                    auto mergeStart = std::chrono::high_resolution_clock::now();
+                    mergeSubtrees (subT, newSubT, util, option, *param);
+                    auto mergeEnd = std::chrono::high_resolution_clock::now();
+                    std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
+                    int totalSeqs = subT->root->msaIdx.size();
+                    std::cout << "Merge " << newSubT->allNodes.size() << " sub-subtrees (total " << totalSeqs << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
+                }
+                for (auto sIdx: subT->root->msaIdx) T->allNodes[subT->root->identifier]->msaIdx.push_back(sIdx);
+                // post-alignment debugging
+                if (option->debug) {
+                    auto dbgStart = std::chrono::high_resolution_clock::now();
+                    util->debug();
+                    auto dbgEnd = std::chrono::high_resolution_clock::now();
+                    std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
+                    std::cout << "Completed checking " << subT->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
+                }
+                if (P->partitionsRoot.size() > 1) {
+                    auto storeStart = std::chrono::high_resolution_clock::now();
+                    storeFreq(util, subT, subtree);
+                    util->storeCIGAR();
+                    util->seqsFree();
+                    util->clearAll();
+                    auto storeEnd = std::chrono::high_resolution_clock::now();
+                    std::chrono::nanoseconds storeTime = storeEnd - storeStart;
+                    std::cout << "Stored the subtree alignment in " << storeTime.count() / 1000000 << " ms.\n";
+                }
+                delete subP;
+                delete subT;
+                if (subP->partitionsRoot.size() > 1) delete newSubT;
             }
-            for (auto sIdx: subT->root->msaIdx) T->allNodes[subT->root->identifier]->msaIdx.push_back(sIdx);
-            // post-alignment debugging
-            if (option->debug) {
-                auto dbgStart = std::chrono::high_resolution_clock::now();
-                util->debug();
-                auto dbgEnd = std::chrono::high_resolution_clock::now();
-                std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
-                std::cout << "Completed checking " << subT->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
-            }
-            if (P->partitionsRoot.size() > 1) {
-                auto storeStart = std::chrono::high_resolution_clock::now();
-                storeFreq(util, subT, subtree);
-                util->storeCIGAR();
-                util->seqsFree();
-                util->clearAll();
-                auto storeEnd = std::chrono::high_resolution_clock::now();
-                std::chrono::nanoseconds storeTime = storeEnd - storeStart;
-                std::cout << "Stored the subtree alignment in " << storeTime.count() / 1000000 << " ms.\n";
-            }
-            delete subP;
-            delete subT;
-            if (subP->partitionsRoot.size() > 1) delete newSubT;
             auto subtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
             if (P->partitionsRoot.size() > 1) std::cout << "Finished the alignment on subtree No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";

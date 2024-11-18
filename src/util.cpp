@@ -639,8 +639,8 @@ void storeFreq(msa::utility* util, Tree* T, int grpID) {
             else if (util->alnStorage[storage][sIdx][j] == 'G' || util->alnStorage[storage][sIdx][j] == 'g') util->profileFreq[grpID][j][2]+=1.0*w;
             else if (util->alnStorage[storage][sIdx][j] == 'T' || util->alnStorage[storage][sIdx][j] == 't' ||
                      util->alnStorage[storage][sIdx][j] == 'U' || util->alnStorage[storage][sIdx][j] == 'u') util->profileFreq[grpID][j][3]+=1.0*w;
-            else if (util->alnStorage[storage][sIdx][j] == 'N' || util->alnStorage[storage][sIdx][j] == 'n') util->profileFreq[grpID][j][4]+=1.0*w;
-            else                                                                                             util->profileFreq[grpID][j][5]+=1.0*w;
+            else if (util->alnStorage[storage][sIdx][j] == '-')                                              util->profileFreq[grpID][j][5]+=1.0*w;
+            else                                                                                             util->profileFreq[grpID][j][4]+=1.0*w;
         }
         });
     }
@@ -711,9 +711,9 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     tbb::parallel_for(tbb::blocked_range<int>(0, alnLen), [&](tbb::blocked_range<int> r) {
     for (int s = r.begin(); s < r.end(); ++s) {
         for (int l = 0; l < 5; l++) spscore[s] += param->scoringMatrix[l][l] * (freq[s][l] * (freq[s][l] - 1) / 2);
-        for (int l = 0; l < 4; l++) spscore[s] += param->gapExtend * (freq[s][l] * (freq[s][5]));
-        for (int l = 0; l < 4; l++) {
-            for (int m = l + 1; m < 4; m++) {
+        for (int l = 0; l < 5; l++) spscore[s] += param->gapExtend * (freq[s][l] * (freq[s][5]));
+        for (int l = 0; l < 5; l++) {
+            for (int m = l + 1; m < 5; m++) {
                 spscore[s] += param->scoringMatrix[l][m] * (freq[s][m] * freq[s][l]);
             }
         }  
@@ -722,5 +722,8 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     double normScore = 0;
     for (int i = 0; i < alnLen; i++) normScore += spscore[i];
     normScore /= ((seqNum * (seqNum-1)) / 2);
+    normScore /= alnLen;
+    normScore /= param->scoringMatrix[0][0];
     return normScore;
 }   
+

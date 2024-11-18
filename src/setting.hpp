@@ -64,7 +64,13 @@ namespace msa
         int nowProcess;
         bool debug;
         bool cpuOnly;
+        // == Position-specific option control ==
         bool psgop;
+        bool psgopAuto;
+        bool calSim; // calculate column similarity
+        bool redo;
+        float divTH = 0.3;
+        // ======================================
         std::string treeFile;
         std::string seqFile;
         std::string outFile;

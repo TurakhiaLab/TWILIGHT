@@ -2,7 +2,7 @@
 #include "align.cuh"
 #endif
 
-__global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32_t* num, int32_t* alnLen, int32_t *seqInfo,  float* gapOpen, float* gapExtend, float* gapClose, float* param)
+__global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32_t* num, int32_t* alnLen, int32_t *seqInfo,  float* gapOpen, float* gapExtend, float* param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -184,13 +184,12 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         int32_t j= min(k, reference_length - 1) - (i-Lprime);
                         if (j < 0) { printf("tx: %d, ERROR: j less than 0.\n", tx);}
                         int16_t match = -inf, insExt = -inf, delExt = -inf;
-                        // int16_t insOp = -inf, delOp = -inf;
-                        int16_t insOp = (j > 0) ? -inf : p_gapOpen + (i-1) * p_gapExtend;
-                        int16_t delOp = (i > 0) ? -inf : p_gapOpen + (j-1) * p_gapExtend;
+                        int16_t insOp = -inf, delOp = -inf;
                         int32_t offset = i-L[k%3];
                         int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
                         int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
                         int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
+                        // float gapR = 0, gapQ = 0;
                         if ((k==0) || ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3]))) {
                             int16_t similarScore = 0;
                             float numerator = 0;
@@ -203,17 +202,19 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                                     else                       numerator = __fmaf_rn(__fmul_rn(freq[refFreqStart+6*(refFreqIdx)+l], freq[qryFreqStart+6*(qryFreqIdx)+m]), p_scoreMat[m*5+l], numerator);
                                 }
                             }
+                            // gapR = freq[refFreqStart+6*(refFreqIdx)+5]; gapQ = freq[qryFreqStart+6*(qryFreqIdx)+5];
                             similarScore = __float2int_rn(__fdiv_rn(numerator, denominator));
                             if (offsetDiag < 0) match = similarScore;
                             else                match = S[(k+1)%3*fLen+offsetDiag] + similarScore;
+                            // if (bx == 11 && k < 5) printf("%d: (%d,%d), %d, %f\n", k, i, j, similarScore, (numerator/denominator));
+                            
                             
                         }
-
-                        float ger = gapExtend[2*bx*seqLen+reference_idx+j], geq = gapExtend[(2*bx+1)*seqLen+query_idx+i];
+                        
                         int16_t pos_gapOpen_ref = __float2int_rn(gapOpen[2*bx*seqLen+reference_idx+j]);
                         int16_t pos_gapOpen_qry = __float2int_rn(gapOpen[(2*bx+1)*seqLen+query_idx+i]);
-                        int16_t pos_gapExtend_ref = __float2int_rn(p_gapExtend*(1-ger));
-                        int16_t pos_gapExtend_qry = __float2int_rn(p_gapExtend*(1-geq));
+                        int16_t pos_gapExtend_ref = __float2int_rn(gapExtend[2*bx*seqLen+reference_idx+j]);
+                        int16_t pos_gapExtend_qry = __float2int_rn(gapExtend[(2*bx+1)*seqLen+query_idx+i]);
                         
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                             // delOp =  S[(k+2)%3*fLen+offsetUp] + p_gapOpen;
@@ -234,6 +235,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         unsigned ExtOp = __vibmax_s16x2(Ext, Op, &Dptr, &Iptr);
                         tempD = (ExtOp >> 16) & 0xFFFF;
                         tempI = ExtOp & 0xFFFF;
+                        
                         D[(k%2)*fLen+offset] = tempD; 
                         I[(k%2)*fLen+offset] = tempI;
                         int32_t mat32 = (match << 16) | (0 & 0xFFFF);
@@ -242,16 +244,12 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         int32_t max32 = __vimax3_s32(mat32, ins32, del32);
                         tempH = (max32 >> 16) & 0xFFFF;
                         ptr = (max32) & 0xFF;
-                        // if (bx == 0 && tx == activeThread/2) printf("%d, %d, %d, %d, %d, %d, %d,\n", k, i, j, tempH, tempD, tempI, max_score);
-                        
-                        if (tempH < max_score-p_xdrop) {
-                            tempH = -inf;
-                        }
-                        // if (bx == 0 && tx == 0) printf("%d, %d, %d,%d, %d, %d, %d\n", k, i, j, tempH, tempD, tempI, max_score);
-                        
+                        if (tempH < max_score-p_xdrop) tempH = -inf;
                         S[(k%3)*fLen+offset] = tempH;
                         score = tempH;
                         sub_max_score_list[tx] = score;
+
+                        // if (bx == 11) printf("%d: (%d,%d), H: %d, I: %d, D: %d, ptr: %d\n", k, i, j, tempH, tempI, tempD, (ptr&0xFFFF));
 
                         if (k == p_marker - 1) { // Convergence algorithm
                             CS[(k%3)*fLen+offset] = (3 << 8) | (i & 0xFF); 
@@ -556,8 +554,8 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
             }
             if (tx == 0) {
                 if ((reference_idx == refLen-1 || query_idx == qryLen-1)) {
+                    alnStartIdx = bx * 2 * seqLen + alnLen[bx];
                     if (reference_idx == refLen-1 && query_idx < qryLen-1) { // dir == 1
-                        alnStartIdx = bx * 2 * seqLen + alnLen[bx];
                         for (int q = 0; q < qryLen-query_idx-1; ++q) {
                             aln[alnStartIdx+txNum+q] = 1;
                         }
@@ -585,7 +583,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
 
 }
 
-__global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t* num, int32_t* alnLen, int32_t *seqInfo,  float* gapOpen, float* weight, float* param)
+__global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t* num, int32_t* alnLen, int32_t *seqInfo,  float* gapOpen, float* gapExtend, float* weight, float* param)
 {
     int tx = threadIdx.x;
     int bx = blockIdx.x;
@@ -783,16 +781,16 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
                                 else if (seqs[(refStart+l)*seqLen+refFreqIdx] == 'C') refFreq[1] += 1.0 * weight[refStart+l];
                                 else if (seqs[(refStart+l)*seqLen+refFreqIdx] == 'G') refFreq[2] += 1.0 * weight[refStart+l];
                                 else if (seqs[(refStart+l)*seqLen+refFreqIdx] == 'T') refFreq[3] += 1.0 * weight[refStart+l];
-                                else if (seqs[(refStart+l)*seqLen+refFreqIdx] == 'N') refFreq[4] += 1.0 * weight[refStart+l];
                                 else if (seqs[(refStart+l)*seqLen+refFreqIdx] == '-') refFreq[5] += 1.0 * weight[refStart+l];
+                                else                                                  refFreq[4] += 1.0 * weight[refStart+l];
                             }
                             for (int m = 0; m < qryNum; ++m) {
                                 if      (seqs[(qryStart+m)*seqLen+qryFreqIdx] == 'A') qryFreq[0] += 1.0 * weight[qryStart+m];
                                 else if (seqs[(qryStart+m)*seqLen+qryFreqIdx] == 'C') qryFreq[1] += 1.0 * weight[qryStart+m];
                                 else if (seqs[(qryStart+m)*seqLen+qryFreqIdx] == 'G') qryFreq[2] += 1.0 * weight[qryStart+m];
                                 else if (seqs[(qryStart+m)*seqLen+qryFreqIdx] == 'T') qryFreq[3] += 1.0 * weight[qryStart+m];
-                                else if (seqs[(qryStart+m)*seqLen+qryFreqIdx] == 'N') qryFreq[4] += 1.0 * weight[qryStart+m];
                                 else if (seqs[(qryStart+m)*seqLen+qryFreqIdx] == '-') qryFreq[5] += 1.0 * weight[qryStart+m];
+                                else                                                  qryFreq[4] += 1.0 * weight[qryStart+m];
                             }
                             for (int l=0; l<6; l++) {
                                 for (int m=0; m<6; m++) {
@@ -809,8 +807,10 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
 
                         int16_t pos_gapOpen_ref = __float2int_rn(gapOpen[2*bx*seqLen+reference_idx+j]);
                         int16_t pos_gapOpen_qry = __float2int_rn(gapOpen[(2*bx+1)*seqLen+query_idx+i]);
-                        int16_t pos_gapExtend_ref = __float2int_rn(p_gapExtend*(refNum-refFreq[5])/refNum);
-                        int16_t pos_gapExtend_qry = __float2int_rn(p_gapExtend*(qryNum-qryFreq[5])/qryNum);
+                        int16_t pos_gapExtend_ref = __float2int_rn(gapExtend[2*bx*seqLen+reference_idx+j]);
+                        int16_t pos_gapExtend_qry = __float2int_rn(gapExtend[(2*bx+1)*seqLen+query_idx+i]);
+                        // int16_t pos_gapExtend_ref = __float2int_rn(p_gapExtend*(1-(refFreq[5]/refNum)));
+                        // int16_t pos_gapExtend_qry = __float2int_rn(p_gapExtend*(1-(qryFreq[5]/qryNum)));
                         
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                             // delOp =  S[(k+2)%3*fLen+offsetUp] + p_gapOpen;
@@ -833,12 +833,15 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
                         tempI = ExtOp & 0xFFFF;
                         D[(k%2)*fLen+offset] = tempD; 
                         I[(k%2)*fLen+offset] = tempI;
+
+                        
                         int32_t mat32 = (match << 16) | (0 & 0xFFFF);
                         int32_t ins32 = (tempI << 16) | (1 & 0xFFFF);
                         int32_t del32 = (tempD << 16) | (2 & 0xFFFF);
                         int32_t max32 = __vimax3_s32(mat32, ins32, del32);
                         tempH = (max32 >> 16) & 0xFFFF;
                         ptr = (max32) & 0xFF;
+
                         if (tempH < max_score-p_xdrop) {
                             tempH = -inf;
                         }
@@ -1150,8 +1153,8 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
             }
             if (tx == 0) {
                 if ((reference_idx == refLen-1 || query_idx == qryLen-1)) {
+                    alnStartIdx = bx * 2 * seqLen + alnLen[bx];
                     if (reference_idx == refLen-1 && query_idx < qryLen-1) { // dir == 1
-                        alnStartIdx = bx * 2 * seqLen + alnLen[bx];
                         for (int q = 0; q < qryLen-query_idx-1; ++q) {
                             aln[alnStartIdx+txNum+q] = 1;
                         }
