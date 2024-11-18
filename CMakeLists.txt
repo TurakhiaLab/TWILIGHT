@@ -5,12 +5,21 @@ project(msa LANGUAGES CXX)
 include(CheckLanguage)
 check_language(CUDA)
 if(CMAKE_CUDA_COMPILER)
+	message(STATUS "CUDA detected.")
 	# For CUDA
 	enable_language(CUDA)
 	set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
 	find_package(CUDA 10.0 REQUIRED)
-	set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_86 -lineinfo")
-	set(SRC_FILES src/twilight-main.cu
+	TRY_RUN(
+    	FIND_GPU_RESULT
+		FIND_GPU_COMPILE_RESULT
+		${CMAKE_CURRENT_BINARY_DIR}/
+		${CMAKE_CURRENT_BINARY_DIR}/../src/findgpu.cu
+	)
+	if("${FIND_GPU_COMPILE_RESULT}" AND ("${FIND_GPU_RESULT}" EQUAL 0))
+		message(STATUS "CUDA-capable GPU detected.")
+		set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=native -lineinfo")
+		set(SRC_FILES src/twilight-main.cu
 				  src/align.cu	
 				  src/msa-gpu.cu
 				  src/tree.cpp
@@ -20,8 +29,19 @@ if(CMAKE_CUDA_COMPILER)
 				  src/util.cpp
 				  src/msa-cpu.cpp
 				  )
+	else()
+	    message(WARNING "No CUDA-capable GPU found.")
+		set(SRC_FILES src/twilight-main.cpp
+				  src/tree.cpp
+				  src/setting.cpp
+				  src/treePartition.cpp
+				  src/TALCO-XDrop.cpp
+				  src/util.cpp
+				  src/msa-cpu.cpp
+	              )	
+	endif()
 else()
-  	message(STATUS "No CUDA support.")
+  	message(WARNING "No CUDA found.")
 	set(SRC_FILES src/twilight-main.cpp
 				  src/tree.cpp
 				  src/setting.cpp
