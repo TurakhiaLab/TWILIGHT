@@ -117,7 +117,7 @@ int main(int argc, char** argv) {
                 std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
                 if (subP->partitionsRoot.size() > 1) std::cout << "Partition the subtree into " << subP->partitionsRoot.size() << " sub-subtrees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
                 // Progressive alignment on each sub-subtree
-                Tree* newSubT;
+                Tree* newSubT = nullptr;
                 if (subP->partitionsRoot.size() > 1) newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
                 msaOnSubtree(subT, util, option, subP, *param);
                 redo = option->redo;
