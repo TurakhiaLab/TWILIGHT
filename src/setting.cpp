@@ -171,7 +171,7 @@ msa::option::option(po::variables_map& vm) {
         if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
         if (mkdir(tempDir.c_str(), 0777) == -1) {
             if( errno == EEXIST ) {
-                std::cout << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
+                std::cerr << "ERROR: " << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
                 exit(1);
             }
             else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
@@ -194,7 +194,7 @@ msa::option::option(po::variables_map& vm) {
         std::string subtreeDir = "./subtrees";
         if (mkdir(subtreeDir.c_str(), 0777) == -1) {
             if( errno == EEXIST ) {
-                std::cout << subtreeDir << " already exists. In order to prevent your file from being overwritten, please delete or move this folder to another directory.\n";
+                std::cerr << "ERROR: " << subtreeDir << " already exists. In order to prevent your file from being overwritten, please delete or move this folder to another directory.\n";
                 exit(1);
             }
             else { fprintf(stderr, "ERROR: Can't create directory: %s\n", subtreeDir.c_str()); exit(1); }
@@ -293,7 +293,7 @@ void msa::utility::seqMalloc(int seqNum, int seqLen, option* option){
         int adjustLen = static_cast<int>(seqLen * this->timesBigger); 
         this->alnStorage[0] = new char*[seqNum]; 
         this->alnStorage[1] = new char*[seqNum]; 
-        this->seqMemLen = new size_t[seqNum];
+        this->seqMemLen = new int[seqNum];
         for (int i = 0; i < seqNum; ++i) {
             this->alnStorage[0][i] = new char[adjustLen];
             this->alnStorage[1][i] = new char[adjustLen];
@@ -307,7 +307,7 @@ void msa::utility::seqMalloc(int seqNum, int seqLen, option* option){
         this->memNum = seqNum;
         this->memLen = adjustLen;
     }    
-    if (option->printDetail) printf("Allocate memory... Size = %lu x %lu\n", memNum, memLen);
+    if (option->printDetail) printf("Allocate memory... Size = %d x %d\n", memNum, memLen);
     return;
 }
 
@@ -352,7 +352,7 @@ void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pa
 
 void msa::utility::memCheck(int seqLen, option* option) {
     if (seqLen > this->memLen) {
-        if (option->printDetail) printf("Reallocate Memory. SeqLen (%d) > MemLen (%ld)\n", seqLen, this->memLen);
+        if (option->printDetail) printf("Reallocate Memory. SeqLen (%d) > MemLen (%d)\n", seqLen, this->memLen);
         seqMalloc(this->memNum, seqLen, option);
     }
     return;

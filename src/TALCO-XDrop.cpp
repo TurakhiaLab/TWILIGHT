@@ -187,8 +187,8 @@ void Talco_xdrop::Tile (
 
         // For xdrop
         // int32_t max_score_marker = -inf; int32_t max_score_marker_ref_idx = 0; int32_t max_score_marker_query_idx = 0;
-        int32_t max_score_marker_start_addr = 0; int32_t max_score_marker_start_ftr = 0;
-        int8_t tb_state_marker = 0;
+        // int32_t max_score_marker_start_addr = 0; int32_t max_score_marker_start_ftr = 0;
+        // int8_t tb_state_marker = 0;
 
         float denominator = refNum * qryNum;
                     
@@ -201,10 +201,10 @@ void Talco_xdrop::Tile (
         std::vector<int32_t> ftr_lower_limit;
         int32_t ftr_addr = 0;
         int32_t last_k = 0;
-        int32_t xdrop = false;
+        // int32_t xdrop = false;
         int32_t prev_conv_s = -1;
         paramType scoreMat [25];
-        paramType gapOpen = param.gapOpen;
+        // paramType gapOpen = param.gapOpen;
         paramType gapExtend = param.gapExtend;
         for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) scoreMat[i*5+j] = param.scoreMatrix[i][j];
         for (size_t sIndx=0; sIndx<3; sIndx++) { // Allocate memory for S, I, D, and CS array
@@ -279,7 +279,7 @@ void Talco_xdrop::Tile (
                 
 
                 
-                int score_from_prev_tile = 0;
+                // int score_from_prev_tile = 0;
                 if ((k==0) || ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3]))) {
                     // if (k==0 && tile>0)
                     // {

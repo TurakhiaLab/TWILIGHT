@@ -48,9 +48,9 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
         float qryNum =  __int2float_rn(num[2*bx+1]);
 
         
-        float p_gapOpen = param[25];
+        // float p_gapOpen = param[25];
         float p_gapExtend = param[26];
-        float p_gapClose = param[27];
+        // float p_gapClose = param[27];
         float p_xdrop = param[28];
         float p_scoreMat [25];
         float denominator = refNum * qryNum;
@@ -103,7 +103,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 conv_logic = false;
             }
             // __syncthreads();
-            int32_t conv_score = 0; 
+            // int32_t conv_score = 0; 
             int32_t conv_value = 0; 
             
             int8_t tb_state = 0;
@@ -630,9 +630,9 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
         qryStart = refStart + num[2*bx];
         // if (bx == 0) printf("%d, %d\n", refStart, qryStart);
 
-        float p_gapOpen = param[25];
+        // float p_gapOpen = param[25];
         float p_gapExtend = param[26];
-        float p_gapClose = param[27];
+        // float p_gapClose = param[27];
         float p_xdrop = param[28];
         float p_scoreMat [25];
         float denominator = __int2float_rn(refNum) * __int2float_rn(qryNum);
@@ -688,7 +688,7 @@ __global__ void alignGrpToGrp_seq(char* seqs, int8_t *aln, int32_t* len, int32_t
                 conv_logic = false;
             }
             // __syncthreads();
-            int32_t conv_score = 0; 
+            // int32_t conv_score = 0; 
             int32_t conv_value = 0; 
             
             int8_t tb_state = 0;

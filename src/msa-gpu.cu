@@ -16,8 +16,8 @@ void getGpuInfo (po::variables_map& vm, msa::option* option) {
     }
     if (option->cpuOnly) gpuNum = 0;
     else if (gpuNum > option->cpuNum) {
-        if (option->cpuNum == 1) std::cout << "WARNING: Requesting more GPUs than requested CPU threads, and will only execute on " << option->cpuNum << " GPU.\n";
-        else                     std::cout << "WARNING: Requesting more GPUs than requested CPU threads, and will only execute on " << option->cpuNum << " GPUs.\n";
+        if (option->cpuNum == 1) std::cerr << "WARNING: Requesting more GPUs than requested CPU threads, and will only execute on " << option->cpuNum << " GPU.\n";
+        else                     std::cerr << "WARNING: Requesting more GPUs than requested CPU threads, and will only execute on " << option->cpuNum << " GPUs.\n";
         gpuNum = option->cpuNum;
     }
     std::vector<int> gpuIdx;
@@ -319,7 +319,6 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
                     int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
                     int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
-                    int32_t numThreshold = 1000;
                     int32_t offsetf = 12*seqLen*n, offsetg = 2*seqLen*n;
                     calculateProfileFreq(hostFreq[gn], tree, nodes[nIdx], util, seqLen, offsetf, offsetg);
                     calculatePSGOP(hostFreq[gn], hostGapOp[gn], hostGapEx[gn], tree, nodes[nIdx], util, option, seqLen, offsetf, offsetg, param);

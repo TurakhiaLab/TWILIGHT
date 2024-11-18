@@ -97,12 +97,12 @@ namespace msa
         
         char** alnStorage[2] = {nullptr, nullptr};
         int nowProcess = 0;
-        size_t subtreeIdx = 0;
-        size_t memLen = 0;
-        size_t* seqMemLen = 0;
-        size_t memNum = 0;
-        size_t seqLen = 0;
-        size_t seqNum = 0;
+        int subtreeIdx = 0;
+        int memLen = 0;
+        int* seqMemLen = 0;
+        int memNum = 0;
+        int seqLen = 0;
+        int seqNum = 0;
         int nowStore = 0;
         const float timesBigger = 2.0;
         void changeStorage(int idx); 

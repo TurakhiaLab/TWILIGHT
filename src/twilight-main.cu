@@ -73,8 +73,8 @@ int main(int argc, char** argv) {
     msa::utility* util = new msa::utility;
     Params* param = new Params(vm);
 
-    Tree* T, * newT;
-    partitionInfo_t* P;
+    Tree* T = nullptr, * newT = nullptr;
+    partitionInfo_t* P = nullptr;
 
 
     if (option->alnMode == 0) { // Twilight

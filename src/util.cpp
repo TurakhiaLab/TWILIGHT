@@ -229,7 +229,6 @@ void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t*
 
 void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option)
 {
-    auto seqReadStart = std::chrono::high_resolution_clock::now();
     std::string tempDir = option->tempDir;
     for (auto subroot: partition->partitionsRoot) {
         int subtreeIdx = tree->allNodes[subroot.first]->grpID;
@@ -447,10 +446,15 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
     std::string fileName = option->outFile;
     if (util->nowProcess == 2) {
         std::string command = "cat " + option->tempDir + "/*.final.aln > " + fileName;
-        system(command.c_str());
-        if (option->deleteTemp) {
+        int catResult = system(command.c_str());
+        if (catResult != 0) {
+            if (option->deleteTemp) std::cerr << "ERROR: Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\". Temporary files will not be deleted.\n";
+            else                    std::cerr << "ERROR: Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\".\n";
+        }
+        if (catResult == 0 && option->deleteTemp) {
             command = "rm -rf " + option->tempDir;
-            system(command.c_str());
+            int delResult = system(command.c_str());
+            if (delResult != 0) std::cerr << "ERROR: Unable to delete temporary files.\n";
         }
         return;
     }
@@ -576,7 +580,7 @@ void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, 
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
         exit(1);
     }
-    int alnLen = seqs.begin()->second.size();
+    // int alnLen = seqs.begin()->second.size();
     for (auto it = seqs.begin(); it != seqs.end(); ++it) {
         // assert(it->second.size() == alnLen);
         outFile << ('>' + it->first + '\n');
@@ -677,8 +681,8 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     }
     kseq_t* kseq_rd = kseq_init(f_rd);
     std::vector<std::vector<int>> freq;
-    int seqNum = 0, alnLen;
-    uint64_t totalLen = 0;
+    int seqNum = 0, alnLen = 0;
+    // uint64_t totalLen = 0;
     while (kseq_read(kseq_rd) >= 0) {
         size_t seqLen = kseq_rd->seq.l;
         if (seqNum == 0) {
