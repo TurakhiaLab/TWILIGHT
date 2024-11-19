@@ -102,8 +102,6 @@ namespace msa
         int* seqMemLen = 0;
         int memNum = 0;
         int seqLen = 0;
-        int seqNum = 0;
-        int nowStore = 0;
         const float timesBigger = 2.0;
         void changeStorage(int idx); 
         void setSubtreeIdx(int idx); 

@@ -80,7 +80,7 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);
-        if (option->cpuOnly || m.size() < 300 || util->nowProcess == 2) msaCpu(T, m, util, option, param);
+        if (option->cpuOnly || m.size() < 100 || util->nowProcess == 2) msaCpu(T, m, util, option, param);
         else if (level < 5)                                             msaGpu_s(T, m, util, option, param);
         else                                                            msaGpu(T, m, util, option, param);
         // msaGpu(T, m, util, option, param);
@@ -273,7 +273,6 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             hostAlnLen[gn] = (int32_t*)malloc(            numBlocks * sizeof(int32_t));
             hostSeqInfo[gn] = (int32_t*)malloc(2                    * sizeof(int32_t));
             
-            
             cudaSetDevice(option->gpuIdx[gn]);
             cudaMalloc((void**)&deviceFreq[gn],  12 * seqLen * numBlocks * sizeof(float));
             cudaMalloc((void**)&deviceAln[gn],    2 * seqLen * numBlocks * sizeof(int8_t));
@@ -412,13 +411,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     else {
                         for (int j = 0; j < hostAlnLen[gn][n]; ++j) aln_old.push_back(hostAln[gn][n*2*seqLen+j]);
                         addGappyColumnsBack(aln_old, aln, gappyColumns[n], debugIdx, option);
-                        // if (nIdx == 11 && (refNum > 1 || qryNum > 1)) {
-                        //     for (int lll = 0; lll < aln.size(); lll++) {
-                        //         std::cout << (aln[lll] & 0xFFFF) << ',';
-                        //     }
-                        //     std::cout << '\n';
-                        // }
-                     
+                        
                         if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                             std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                             std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
