@@ -601,8 +601,14 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
                 talco_params.updateFLen(talco_params.fLen << 1);
             }
+            if (errorType == 3) {
+                std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
+                std::cout << "Len: " << refLen << '/' << qryLen << '\n';
+                std::cout << "Num: " << refNum << '-' << qryNum << '\n';
+                exit(1);
+            }
         }
-        if (util->nowProcess == 1) std::cout << "No. " << nIdx << " " << nodes[nIdx].first->identifier << ':' << nodes[nIdx].second->identifier << '\n';
+        // if (util->nowProcess == 1) std::cout << "No. " << nIdx << " " << nodes[nIdx].first->identifier << ':' << nodes[nIdx].second->identifier << '\n';
         if (!aln_old.empty()) {
             std::pair<int, int> debugIdx;
             addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
@@ -1583,8 +1589,11 @@ double calColumnSimilarity(Tree* tree, Node* node, msa::utility* util, Params& p
     });
     double normScore = 0;
     for (int i = 0; i < len; i++) normScore += spscore[i];
+    float matchAvg = 0;
+    for (int i = 0; i < 4; ++i) matchAvg += param.scoringMatrix[i][i];
+    matchAvg /= 4.0;
     normScore /= ((seqNum * (seqNum-1)) / 2);
     normScore /= len;
-    normScore /= param.scoringMatrix[0][0];
+    normScore /= matchAvg;
     return normScore;
 }   

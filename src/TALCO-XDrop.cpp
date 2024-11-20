@@ -236,7 +236,9 @@ void Talco_xdrop::Tile (
         if ((reference_length < 0) || (query_length < 0)) {
             std::cout << reference_length << " " << query_length << std::endl;
             fprintf(stderr, "ERROR: Reference/Query index exceeded limit!\n");
-            exit(1); 
+            errorType = 3;
+            aln.clear();
+            return;
         }
         for (int32_t k = 0; k < reference_length + query_length - 1; k++){
             // printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);

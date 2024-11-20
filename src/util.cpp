@@ -712,6 +712,7 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     }
     
     std::vector<double> spscore (alnLen, 0);
+    
     tbb::parallel_for(tbb::blocked_range<int>(0, alnLen), [&](tbb::blocked_range<int> r) {
     for (int s = r.begin(); s < r.end(); ++s) {
         for (int l = 0; l < 5; l++) spscore[s] += param->scoringMatrix[l][l] * (freq[s][l] * (freq[s][l] - 1) / 2);
@@ -725,9 +726,12 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     });
     double normScore = 0;
     for (int i = 0; i < alnLen; i++) normScore += spscore[i];
+    float matchAvg = 0;
+    for (int i = 0; i < 4; ++i) matchAvg += param->scoringMatrix[i][i];
+    matchAvg /= 4.0;
     normScore /= ((seqNum * (seqNum-1)) / 2);
     normScore /= alnLen;
-    normScore /= param->scoringMatrix[0][0];
+    normScore /= matchAvg;
     return normScore;
 }   
 
