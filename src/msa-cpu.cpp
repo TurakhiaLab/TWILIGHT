@@ -5,6 +5,7 @@
 void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionInfo_t* partition, Params& param) {
     
     auto progressiveStart = std::chrono::high_resolution_clock::now();
+    // Schedule the alignment pairs
     std::vector<std::vector<std::pair<Node*, Node*>>> hier;
     for (auto &p: partition->partitionsRoot) {
         std::stack<Node*> msaStack;
@@ -26,6 +27,7 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;
+    // Perform MSA
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);
@@ -153,6 +155,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         T->allNodes[n.first]->msa.clear();
         T->allNodes[n.first]->msa.push_back(n.first);
     }
+    // Get all the edges to be merged
     std::vector<std::pair<Node*, Node*>> mergePairs;
     for (auto n: newT->allNodes) {
         if (n.second->children.size() > 1) {
@@ -176,6 +179,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         ++totalLevels;
         addedNodes.clear();
         singleLevel.clear();
+        // A greeady approach to schedule merged pairs
         for (auto it = mergePairs.begin(); it != mergePairs.end();) {
             Node* a = it->first;
             Node* b = it->second;
@@ -322,8 +326,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
         free(hostGapEx);
         free(hostGapOp);        
     }
-    // });
-    
+   
     free(hostParam);
     return;
 }
@@ -388,8 +391,6 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
         int8_t refGap = (newtree->allNodes[n.first->identifier]->level == newtree->allNodes[n.second->identifier]->level) ? 2 : 1; 
         std::vector<std::vector<int8_t>> refAln, qryAln;
         std::vector<std::vector<int8_t>> refNewAln, qryNewAln;
-        // refAln.push_back(tree->allNodes[n.first->identifier]->msaAln);
-        // qryAln.push_back(tree->allNodes[n.second->identifier]->msaAln);
         for (auto id: tree->allNodes[n.first->identifier]->msa)  refAln.push_back(tree->allNodes[id]->msaAln);
         for (auto id: tree->allNodes[n.second->identifier]->msa) qryAln.push_back(tree->allNodes[id]->msaAln);
         
@@ -602,22 +603,16 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 talco_params.updateFLen(talco_params.fLen << 1);
             }
             if (errorType == 3) {
+                std::cout << "There might be some bugs in the code!\n";
                 std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                 std::cout << "Len: " << refLen << '/' << qryLen << '\n';
                 std::cout << "Num: " << refNum << '-' << qryNum << '\n';
                 exit(1);
             }
         }
-        // if (util->nowProcess == 1) std::cout << "No. " << nIdx << " " << nodes[nIdx].first->identifier << ':' << nodes[nIdx].second->identifier << '\n';
         if (!aln_old.empty()) {
             std::pair<int, int> debugIdx;
             addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
-            // if (nIdx == 11 && (refNum > 1 || qryNum > 1)) {
-            //     for (int lll = 0; lll < aln.size(); lll++) {
-            //         std::cout << (aln[lll] & 0xFFFF) << ',';
-            //     }
-            //     std::cout << '\n';
-            // }
             if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                 std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                 std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
@@ -693,10 +688,6 @@ void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::ut
                 }
             }
         }
-        // if (nodes.size() < 5) {
-        //     std::cout << n.first->identifier << '(' << util->seqsLen[n.first->identifier] << ')' <<  tree->allNodes[n.first->identifier]->msaIdx.size() << '\t';
-        //     std::cout << n.second->identifier << '(' << util->seqsLen[n.second->identifier] << ')'<< tree->allNodes[n.second->identifier]->msaIdx.size() << '\n';
-        // }
     }
 }
 
@@ -874,132 +865,6 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
     return;
 }
 
-/*
-void removeGappyColumns(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen) {
-    float gappyVertical = option->gappyVertical;
-    int gappyHorizon = option->gappyHorizon, gappyLength;
-    int rawIdx = 0, newIdx = 0;
-    int gapRef = 0, gapQry = 0;
-    int32_t refLen = util->seqsLen[nodes.first->identifier];
-    int32_t qryLen = util->seqsLen[nodes.second->identifier];
-    float refNum_f = 0, qryNum_f = 0;
-    for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
-    for (int t = 0; t < 6; ++t) qryNum_f += hostFreq[6*seqLen+t];       
-    int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes.first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
-    int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes.second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
-    while (true) {
-        if (rawIdx >= refLen) {
-            for (int i = newIdx; i < refLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*i+j] = 0;
-            break;
-        }
-        int tempStart = rawIdx;
-        bool onlyN = false;
-        for (gappyLength = rawIdx; gappyLength < refLen; ++gappyLength) {
-            if ((hostFreq[6*gappyLength+5])/refNum <= gappyVertical) break;
-            // if ((hostFreq[6*gappyLength+5]+hostFreq[6*gappyLength+4])/refNum <= gappyVertical) break;
-            if (gappyLength == rawIdx) {
-                if (hostFreq[6*gappyLength+0] == 0 && 
-                    hostFreq[6*gappyLength+1] == 0 &&
-                    hostFreq[6*gappyLength+2] == 0 &&
-                    hostFreq[6*gappyLength+3] == 0) onlyN = true;
-                else onlyN = false;
-            }
-            if (onlyN) {
-                if (hostFreq[6*gappyLength+0] > 0 || 
-                    hostFreq[6*gappyLength+1] > 0 ||
-                    hostFreq[6*gappyLength+2] > 0 ||
-                    hostFreq[6*gappyLength+3] > 0) {
-                    gappyColumns.first.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
-                    onlyN = false;
-                    tempStart = gappyLength;
-                }
-            }
-            else {
-                if (hostFreq[6*gappyLength+0] == 0 && 
-                    hostFreq[6*gappyLength+1] == 0 &&
-                    hostFreq[6*gappyLength+2] == 0 &&
-                    hostFreq[6*gappyLength+3] == 0) {
-                    gappyColumns.first.push(std::make_pair(tempStart, (gappyLength-tempStart))); 
-                    onlyN = true;
-                    tempStart = gappyLength;
-                }
-            }
-
-        }
-        if (gappyLength - tempStart >= gappyHorizon) {
-            if (onlyN) gappyColumns.first.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
-            else       gappyColumns.first.push(std::make_pair(tempStart, gappyLength-tempStart)); 
-            gapRef += gappyLength-rawIdx;
-            rawIdx += gappyLength-rawIdx;
-        }
-        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, refLen); ++rawIdx) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*newIdx+t] = hostFreq[6*rawIdx+t];
-            hostGapOp[newIdx] = hostGapOp[rawIdx]; 
-            hostGapEx[newIdx] = hostGapEx[rawIdx]; 
-            ++newIdx;
-        } 
-    }
-    newRef = newIdx;
-    rawIdx = 0; newIdx = 0;
-    while (true) {
-        if (rawIdx >= qryLen) {
-            for (int i = newIdx; i < qryLen; ++i) for (int j = 0; j < 6; ++j) hostFreq[6*(seqLen+i)+j] = 0;
-            break;
-        }
-        int tempStart = rawIdx;
-        bool onlyN = false;
-        for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) {
-            if ((hostFreq[6*(seqLen+gappyLength)+5])/qryNum <= gappyVertical) break;
-            if (gappyLength == rawIdx) {
-                if (hostFreq[6*(seqLen+gappyLength)+0] == 0 && 
-                    hostFreq[6*(seqLen+gappyLength)+1] == 0 &&
-                    hostFreq[6*(seqLen+gappyLength)+2] == 0 &&
-                    hostFreq[6*(seqLen+gappyLength)+3] == 0) onlyN = true;
-                else onlyN = false;
-            }
-            if (onlyN) {
-                if (hostFreq[6*(seqLen+gappyLength)+0] > 0 || 
-                    hostFreq[6*(seqLen+gappyLength)+1] > 0 ||
-                    hostFreq[6*(seqLen+gappyLength)+2] > 0 ||
-                    hostFreq[6*(seqLen+gappyLength)+3] > 0) {
-                    gappyColumns.second.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
-                    onlyN = false;
-                    tempStart = gappyLength;
-                }
-            }
-            else {
-                if (hostFreq[6*(seqLen+gappyLength)+0] == 0 && 
-                    hostFreq[6*(seqLen+gappyLength)+1] == 0 &&
-                    hostFreq[6*(seqLen+gappyLength)+2] == 0 &&
-                    hostFreq[6*(seqLen+gappyLength)+3] == 0) {
-                    gappyColumns.second.push(std::make_pair(tempStart, (gappyLength-tempStart))); 
-                    onlyN = true;
-                    tempStart = gappyLength;
-                }
-            }
-        }
-        if (gappyLength - tempStart >= gappyHorizon) {
-            if (onlyN) gappyColumns.second.push(std::make_pair(tempStart, -1*(gappyLength-tempStart))); 
-            else       gappyColumns.second.push(std::make_pair(tempStart, gappyLength-tempStart)); 
-            gapQry += gappyLength-rawIdx;
-            rawIdx += gappyLength-rawIdx;
-        }
-        for (rawIdx = rawIdx; rawIdx < std::min(gappyLength+1, qryLen); ++rawIdx) {
-            for (int t = 0; t < 6; ++t) hostFreq[6*(seqLen+newIdx)+t] = hostFreq[6*(seqLen+rawIdx)+t];
-            hostGapOp[seqLen+newIdx] = hostGapOp[seqLen+rawIdx]; 
-            hostGapEx[seqLen+newIdx] = hostGapEx[seqLen+rawIdx]; 
-            // hostGapCl[seqLen+newIdx] = hostGapCl[seqLen+rawIdx];
-            ++newIdx;
-        } 
-    }
-    newQry = newIdx;
-    if (newRef + gapRef != refLen) std::cout << "REF:" << newRef << '+' << gapRef << " != " << refLen << '\n';
-    if (newQry + gapQry != qryLen) std::cout << "QRY:" << newQry << '+' << gapQry << " != " << qryLen << '\n';
-    assert(newRef + gapRef == refLen); assert(newQry + gapQry == qryLen);
-    return;
-}
-*/
-
 void removeGappyColumns(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t& newRef, int32_t& newQry, int32_t seqLen, int32_t offsetf, int32_t offsetg) {
     float gappyVertical = option->gappyVertical;
     int gappyHorizon = option->gappyHorizon, gappyLength;
@@ -1120,43 +985,6 @@ void removeGappyColumns(float* hostFreq, float* hostGapOp, float* hostGapEx, Tre
     if (newRef + gapRef != refLen) std::cout << "REF:" << newRef << '+' << gapRef << " != " << refLen << '\n';
     if (newQry + gapQry != qryLen) std::cout << "QRY:" << newQry << '+' << gapQry << " != " << qryLen << '\n';
     assert(newRef + gapRef == refLen); assert(newQry + gapQry == qryLen);
-    return;
-}
-
-void fallback2cpu(std::vector<int>& fallbackPairs, Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option) {
-    int totalSeqs = 0;
-    for (int i = 0; i < fallbackPairs.size(); ++i) {
-        int nIdx = fallbackPairs[i];
-        int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
-        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
-        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
-        if (util->badSequences.find(grpID) == util->badSequences.end()) {
-            util->badSequences[grpID] = std::vector<std::string> (0);
-        }
-        if (refNum < qryNum) {
-            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
-            util->seqsLen[nodes[nIdx].second->identifier] = refLen;
-            util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
-            auto temp = nodes[nIdx].second->msaIdx;
-            tree->allNodes[nodes[nIdx].second->identifier]->msaIdx = nodes[nIdx].first->msaIdx;
-            tree->allNodes[nodes[nIdx].first->identifier]->msaIdx = temp;
-            auto tempFreq = nodes[nIdx].second->msaFreq;
-            tree->allNodes[nodes[nIdx].second->identifier]->msaFreq = nodes[nIdx].first->msaFreq;
-            tree->allNodes[nodes[nIdx].first->identifier]->msaFreq = tempFreq;
-            totalSeqs += refNum;
-        }
-        else {
-            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
-            totalSeqs += qryNum;
-        }
-    }
-    if (option->printDetail) {
-        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring 1 pair (1 sequence).\n";
-        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
-        else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
-    }
     return;
 }
 
@@ -1291,6 +1119,42 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
     return;
 }
 
+void fallback2cpu(std::vector<int>& fallbackPairs, Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option) {
+    int totalSeqs = 0;
+    for (int i = 0; i < fallbackPairs.size(); ++i) {
+        int nIdx = fallbackPairs[i];
+        int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
+        int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
+        int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
+        if (util->badSequences.find(grpID) == util->badSequences.end()) {
+            util->badSequences[grpID] = std::vector<std::string> (0);
+        }
+        if (refNum < qryNum) {
+            int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+            int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+            util->seqsLen[nodes[nIdx].second->identifier] = refLen;
+            util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
+            auto temp = nodes[nIdx].second->msaIdx;
+            tree->allNodes[nodes[nIdx].second->identifier]->msaIdx = nodes[nIdx].first->msaIdx;
+            tree->allNodes[nodes[nIdx].first->identifier]->msaIdx = temp;
+            auto tempFreq = nodes[nIdx].second->msaFreq;
+            tree->allNodes[nodes[nIdx].second->identifier]->msaFreq = nodes[nIdx].first->msaFreq;
+            tree->allNodes[nodes[nIdx].first->identifier]->msaFreq = tempFreq;
+            totalSeqs += refNum;
+        }
+        else {
+            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+            totalSeqs += qryNum;
+        }
+    }
+    if (option->printDetail) {
+        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring 1 pair (1 sequence).\n";
+        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
+        else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
+    }
+    return;
+}
 
 void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, std::vector<int8_t>& aln) {
     if (util->nowProcess < 2) {

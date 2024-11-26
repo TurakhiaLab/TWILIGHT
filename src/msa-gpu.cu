@@ -56,7 +56,6 @@ void getGpuInfo (po::variables_map& vm, msa::option* option) {
     return;
 }
 
-
 void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitionInfo_t* partition, Params& param) {
     
     auto progressiveStart = std::chrono::high_resolution_clock::now();

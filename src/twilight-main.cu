@@ -99,18 +99,7 @@ int main(int argc, char** argv) {
             while (redo) {
                 Tree* subT = new Tree(subRoot.second.first);
                 readSequences(util, option, subT);
-                // // Generate MAFFT's files
-                // std::vector<std::pair<std::string, std::string>> seqs;
-                // for (auto s: util->rawSeqs) {
-                //     int sIdx = util->seqsIdx[s.first];
-                //     seqs.push_back(std::make_pair(std::to_string(sIdx), s.second));
-                //     T->allNodes[s.first]->identifier = std::to_string(sIdx);
-                // }
-                // outputSubtreeTrees(T, P, util, option);
-                // outputSubtreeSeqs("./subtrees/rnasim.raw.mafft.fa", seqs);
-                // // printTree(subT->root, -1);
-                // exit(1);
-
+                
                 auto treeBuiltStart = std::chrono::high_resolution_clock::now();
                 partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
                 partitionTree(subT->root, subP);
