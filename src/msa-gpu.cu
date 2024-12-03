@@ -76,12 +76,13 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
     }
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;
+    int cpuThres = option->cpuNum * 2;
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);
-        if (option->cpuOnly || m.size() < 100 || util->nowProcess == 2) msaCpu(T, m, util, option, param);
-        else if (level < 5)                                             msaGpu_s(T, m, util, option, param);
-        else                                                            msaGpu(T, m, util, option, param);
+        if (option->cpuOnly || m.size() < cpuThres || util->nowProcess == 2) msaCpu(T, m, util, option, param);
+        else if (level < 5)                                                  msaGpu_s(T, m, util, option, param);
+        else                                                                 msaGpu(T, m, util, option, param);
         // msaGpu(T, m, util, option, param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
