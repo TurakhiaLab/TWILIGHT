@@ -132,9 +132,8 @@ msa::option::option(po::variables_map& vm) {
     if (vm.count("tree")) this->treeFile = vm["tree"].as<std::string>();
     if (vm.count("sequences")) {this->seqFile = vm["sequences"].as<std::string>(); this->alnMode = 0;}
     if (vm.count("files")) {this->msaDir = vm["files"].as<std::string>(); this->alnMode = 1;}
-    if (vm.count("output")) this->outFile = vm["output"].as<std::string>();
-    else this->outFile = "output.aln";
-
+    this->outFile = vm["output"].as<std::string>();
+    
     int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
@@ -166,7 +165,7 @@ msa::option::option(po::variables_map& vm) {
     }
     std::string tempDir;
     if (vm.count("max-subtree") || vm.count("files")) {
-        if (!vm.count("temp-dir")) tempDir =  "./temp";
+        if (!vm.count("temp-dir")) tempDir = "./" + this->seqFile + "_temp";
         else tempDir = vm["temp-dir"].as<std::string>();
         if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
         if (mkdir(tempDir.c_str(), 0777) == -1) {
@@ -191,7 +190,7 @@ msa::option::option(po::variables_map& vm) {
         exit(1);
     }
     if (vm.count("output-subtrees")) {
-        std::string subtreeDir = "./subtrees";
+        std::string subtreeDir = "./" + this->treeFile + "_subtrees";
         if (mkdir(subtreeDir.c_str(), 0777) == -1) {
             if( errno == EEXIST ) {
                 std::cerr << "ERROR: " << subtreeDir << " already exists. In order to prevent your file from being overwritten, please delete or move this folder to another directory.\n";
