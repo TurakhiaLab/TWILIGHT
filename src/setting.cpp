@@ -133,6 +133,10 @@ msa::option::option(po::variables_map& vm) {
     if (vm.count("sequences")) {this->seqFile = vm["sequences"].as<std::string>(); this->alnMode = 0;}
     if (vm.count("files")) {this->msaDir = vm["files"].as<std::string>(); this->alnMode = 1;}
     this->outFile = vm["output"].as<std::string>();
+    if (std::experimental::filesystem::exists(this->outFile)) {
+        std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
+        exit(1);
+    }
     
     int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT32_MAX;
@@ -161,21 +165,40 @@ msa::option::option(po::variables_map& vm) {
         }
     }
     else {
-        gappyHorizon = 0;
+        gappyHorizon = 1;
     }
-    std::string tempDir;
+    
     if (vm.count("max-subtree") || vm.count("files")) {
-        if (!vm.count("temp-dir")) tempDir = "./" + this->seqFile + "_temp";
-        else tempDir = vm["temp-dir"].as<std::string>();
-        if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
-        if (mkdir(tempDir.c_str(), 0777) == -1) {
-            if( errno == EEXIST ) {
-                std::cerr << "ERROR: " << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
-                exit(1);
+        std::string tempDir;
+        if (!vm.count("temp-dir")) {
+            int idx = 1;
+            std::string tempDir_org = "./twilight_temp";
+            tempDir = tempDir_org;
+            while (true) {
+                if (mkdir(tempDir.c_str(), 0777) == -1) {
+                    if( errno == EEXIST ) {
+                        tempDir = tempDir_org + '_' + std::to_string(idx);
+                        ++idx;
+                    }
+                    else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
+                }
+                else break;
             }
-            else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
+            
         }
-        else std::cout << tempDir << " created\n";
+        else {
+            tempDir = vm["temp-dir"].as<std::string>();
+            if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
+            if (mkdir(tempDir.c_str(), 0777) == -1) {
+                if( errno == EEXIST ) {
+                    std::cerr << "ERROR: " << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
+                    exit(1);
+                }
+                else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
+            }
+        }
+        std::cout << tempDir << " created for storing temporary alignments\n";
+        this->tempDir = tempDir;
     }
     std::string outType = vm["output-type"].as<std::string>();
     if (outType != "FASTA" && outType != "CIGAR") {
@@ -190,15 +213,25 @@ msa::option::option(po::variables_map& vm) {
         exit(1);
     }
     if (vm.count("output-subtrees")) {
-        std::string subtreeDir = "./" + this->treeFile + "_subtrees";
-        if (mkdir(subtreeDir.c_str(), 0777) == -1) {
-            if( errno == EEXIST ) {
-                std::cerr << "ERROR: " << subtreeDir << " already exists. In order to prevent your file from being overwritten, please delete or move this folder to another directory.\n";
-                exit(1);
+        std::string subtreeDir_org = "./twilight_subtrees";
+        std::string subtreeDir = subtreeDir_org;
+        int idx = 1;
+        while (true) {
+            if (mkdir(subtreeDir.c_str(), 0777) == -1) {
+                if( errno == EEXIST ) {
+                    // std::cerr << "ERROR: " << subtreeDir << " already exists. In order to prevent your file from being overwritten, please delete or move this folder to another directory.\n";
+                    // exit(1);
+                    subtreeDir = subtreeDir_org + '_' + std::to_string(idx);
+                    ++idx;
+                }
+                else { fprintf(stderr, "ERROR: Can't create directory: %s\n", subtreeDir.c_str()); exit(1); }
             }
-            else { fprintf(stderr, "ERROR: Can't create directory: %s\n", subtreeDir.c_str()); exit(1); }
+            else {
+                std::cout << subtreeDir << " created for storing subtree files.\n";
+                break;
+            }
         }
-        else std::cout << subtreeDir << " created for storing subtree files.\n";
+        this->subtreeDir = subtreeDir;
     }
     if (vm.count("psgop")) {
         std::string psgop = vm["psgop"].as<std::string>();
@@ -224,7 +257,6 @@ msa::option::option(po::variables_map& vm) {
     this->debug = vm.count("debug");
     this->gappyHorizon = gappyHorizon;
     this->gappyVertical = gappyVertical;
-    this->tempDir = tempDir;
     this->cpuOnly = vm.count("cpu-only");
     this->outType = outType;
     this->merger = merger;
@@ -327,7 +359,6 @@ void msa::utility::seqMalloc(int seqLen, int idx){
     return;
 }
 
-
 void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap, option* option){
     this->seqMalloc(seqsMap.size(), seqLen, option);
     int s = 0;
@@ -366,7 +397,6 @@ void msa::utility::memCheck(int seqLen, int idx) {
 }
 
 void msa::utility::storeCIGAR() {
-
     tbb::mutex writeMutex;
     tbb::parallel_for(tbb::blocked_range<int>(0, this->seqsIdx.size()), [&](tbb::blocked_range<int> range){ 
     for (int n = range.begin(); n < range.end(); ++n) {

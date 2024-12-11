@@ -173,60 +173,6 @@ void readFrequency(msa::utility* util, msa::option* option) {
     return;
 }
 
-/*
-void readSequencesNoutputTemp(po::variables_map& vm, Tree* tree, paritionInfo_t* partition, msa::utility* util, msa::option* option)
-{
-    auto seqReadStart = std::chrono::high_resolution_clock::now();
-    std::string tempDir = option->tempDir;
-    // std::cout << "Total " <<  partition->partitionsRoot.size() << " subtrees.\n";
-    std::string seqFileName = vm["sequences"].as<std::string>();
-    int maxLen = 0, totalLen = 0, seqNum = 0, minLen = INT_MAX;
-    bool storeRaw = false;
-    for (auto subroot: partition->partitionsRoot) {
-        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
-        Tree* subT = new Tree(subroot.second.first);
-        gzFile f_rd = gzopen(seqFileName.c_str(), "r");
-        if (!f_rd) { fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str()); exit(1);}
-        kseq_t* kseq_rd = kseq_init(f_rd);
-        std::map<std::string, std::string> seqs;
-        while (kseq_read(kseq_rd) >= 0) {
-            int seqLen = kseq_rd->seq.l;
-            std::string seqName = kseq_rd->name.s;
-            if (!storeRaw && option->debug) util->rawSeqs[seqName] = std::string(kseq_rd->seq.s, seqLen);
-            if (subT->allNodes.find(seqName) != subT->allNodes.end()) {
-                seqs[seqName] = std::string(kseq_rd->seq.s, seqLen);
-                if (seqLen > maxLen) maxLen = seqLen;
-                if (seqLen < minLen) minLen = seqLen;
-                totalLen += seqLen;
-                ++seqNum;
-            }
-        }
-        std::string subtreeFileName = "subtree-" + std::to_string(subtreeIdx);
-        std::string subtreeTreeFile = tempDir + '/' + subtreeFileName + ".nwk";
-        outputSubtree(subT, option, subtreeIdx);
-        std::string subtreeSeqFile = tempDir + '/' + subtreeFileName + ".raw.fa";
-        outputSubtreeSeqs(subtreeSeqFile, seqs);
-        seqs.clear();
-        delete subT;
-        kseq_destroy(kseq_rd);
-        gzclose(f_rd);
-        if (!util->rawSeqs.empty()) storeRaw = true;
-    }
-
-    uint32_t avgLen = totalLen/seqNum;
-    auto seqReadEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
-    // std::cout << "Seqences: (Num, MaxLen, AvgLen) = (" << seqNum << ", " << maxLen << ", " << avgLen << ")\n";
-    std::cout << "=== Sequence information ===\n";
-    std::cout << "Number : " << seqNum << '\n';
-    std::cout << "Max. Length: " << maxLen << '\n';
-    std::cout << "Min. Length: " << minLen << '\n';
-    std::cout << "Avg. Length: " << avgLen << '\n';
-    std::cout << "============================\n";
-    std::cout << "Created " << partition->partitionsRoot.size() << " subtree files in " << tempDir << " in " <<  seqReadTime.count() / 1000000 << " ms\n";
-}
-*/
-
 void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option)
 {
     std::string tempDir = option->tempDir;
@@ -234,7 +180,7 @@ void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* ut
         int subtreeIdx = tree->allNodes[subroot.first]->grpID;
         Tree* subT = new Tree(subroot.second.first);
         std::string subtreeName = "subtree-" + std::to_string(subtreeIdx);
-        std::string subtreeTreeFile = "./subtrees/" + subtreeName + ".nwk";
+        std::string subtreeTreeFile = option->subtreeDir + '/' + subtreeName + ".nwk";
         std::string out_str = "";
 	    getSubtreeNewick(subT->root, out_str);
 	    out_str += ";\n";

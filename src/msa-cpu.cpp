@@ -547,7 +547,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         float refWeight = 0.0, qryWeight = 0.0;
         if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
         if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        calculateProfileFreq(hostFreq, tree, nodes[nIdx], util,  seqLen, 0, 0);
+        calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, seqLen, 0, 0);
         calculatePSGOP(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, seqLen, 0, 0, param);         
         float refNum_f = 0, qryNum_f = 0;
         for (int t = 0; t < 6; ++t) refNum_f += hostFreq[t]; 
@@ -619,11 +619,10 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 std::cout << "Num: " << refNum << '-' << qryNum << '\n';
             }
             assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-            
             updateAlignment(tree, nodes[nIdx], util, aln); 
             updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
             assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-            if (option->calSim) {
+            if (option->calSim && util->nowProcess < 2) {
                 double colSim = calColumnSimilarity(tree, nodes[nIdx].first, util, param);
                 if (colSim < option->divTH) {
                     option->redo = true;

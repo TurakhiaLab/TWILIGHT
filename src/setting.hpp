@@ -16,6 +16,7 @@
 #include <tbb/parallel_for.h>
 #include <tbb/mutex.h>
 
+#include <experimental/filesystem>
 
 namespace po = boost::program_options;
 
@@ -75,9 +76,10 @@ namespace msa
         std::string seqFile;
         std::string outFile;
         std::string msaDir;
-        std::string outType;
         std::string tempDir;
+        std::string subtreeDir;
         std::string merger;
+        std::string outType;
         bool printDetail;
         bool deleteTemp;
         option(po::variables_map& vm);
