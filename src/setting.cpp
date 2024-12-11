@@ -153,13 +153,13 @@ msa::option::option(po::variables_map& vm) {
     
     if (vm.count("psgop")) {
         std::string psgop = vm["psgop"].as<std::string>();
-        if      (psgop == "y" || psgop == "Y" || psgop == "yes" || psgop == "YES" || psgop == "Yes") this->psgop = true;
-        else if (psgop == "n" || psgop == "N" || psgop == "no" || psgop == "NO" || psgop == "No")    this->psgop = false;
+        if      (psgop == "y" || psgop == "Y" || psgop == "yes" || psgop == "YES" || psgop == "Yes") {this->psgopAuto = false; this->psgop = true;}
+        else if (psgop == "n" || psgop == "N" || psgop == "no" || psgop == "NO" || psgop == "No")    {this->psgopAuto = false; this->psgop = false;}
+        else if (psgop == "auto" || psgop == "Auto" || psgop == "AUTO")                              {this->psgopAuto = true;  this->psgop = false;}
         else {
             std::cerr << "ERROR: Unrecognized option \"" << psgop <<"\" for position-specific gap open penalty.\n";
             exit(1);
         } 
-        this->psgopAuto = false;
     }
     else {
         this->psgop = false;
