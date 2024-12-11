@@ -39,9 +39,7 @@ bool nodeWithNoLeafTraversal(Node* node);
 void internalNodeResolution(Node* node, partitionInfo_t* partition);
 void updateCentroidEdge (Node* node, Node* root, size_t halfTaxa, size_t& Imbalance, Node*& breakEdge);
 Node* getCentroidEdge(Node* node, int rootID);
-void updateLongestEdge (Node* node, Node* root, size_t totalLeaves, size_t minSize, float& longestLen, Node*& breakEdge);
 Node* getLowestChild(Node* node, std::string identifier);
-Node* getLongestEdge(Node* node, int rootID, int minSize);
 Node* getBreakingEdge(Node* root, std::string option, int minSize);
 void setChildrenGrpID(Node*& node, int ID_org, int ID);
 void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root, partitionInfo_t*& partition);
@@ -50,7 +48,7 @@ void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::unordered_map<st
 Tree* reconsturctTree(Node* root, std::unordered_map<std::string, std::pair<Node*, size_t>>& partitionRoots); 
 
 
-void preOrderTraversal(Node* parent, Node* node, Tree*& T, std::map<std::string, std::string>& nodes);
-Tree* reconsturctTree(Node* root, std::map<std::string, std::string>& partitionRoots); 
+Node* getLongestEdge(Node* node, int rootID, int minSize);
+void updateLongestEdge (Node* node, Node* root, size_t totalLeaves, size_t minSize, float& longestLen, Node*& breakEdge);
 
 #endif

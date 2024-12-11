@@ -3,99 +3,33 @@
 #endif
 
 Params::Params(po::variables_map& vm) {
-    int userDefine = vm["scoring-matrix"].as<int>();
-    this->userDefine = userDefine;
-    // Kimura
+    bool userDefine = vm.count("user-defined");
     float gapOp = vm["gap-open"].as<float>();
-    float gapCl = gapOp;
     float gapEx = vm["gap-extend"].as<float>();
     float mat = vm["match"].as<float>();
     float mis = vm["mismatch"].as<float>();
-    float trans = vm["trans"].as<float>();
+    float trans = vm["transition"].as<float>();
     float xdrop = round(vm["xdrop"].as<float>());
+    float gapCl = gapOp;
     
     if (gapOp > 0 || gapEx > 0) {
         std::cerr << "ERROR: Gap penalties should be less or equal than 0.\n";
         exit(1);
     }
     
-    if (userDefine == 0) {
+    if (!userDefine) {
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
                 if (i == 4 || j == 4)        this->scoringMatrix[i][j] = vm.count("wildcard") ? mat : 0.0;
                 else if (i == j)             this->scoringMatrix[i][j] = mat;
-                else if (std::abs(i-j) == 2) this->scoringMatrix[i][j] = mis+(trans-1)*(mat-mis)/(trans);
+                else if (std::abs(i-j) == 2) this->scoringMatrix[i][j] = trans;
                 else                         this->scoringMatrix[i][j] = mis;
             }
-            // std::cout << '\n';
         }
         this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapClose = gapCl;
         this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
-    else if (userDefine == 1) {
-        int i, j;
-        // generatenuc1pam from MAFFT
-        float R[4][4], mut[4], total = 0.0, temp;
-        float pam1[4][4];
-        float freq [4] = {0.25, 0.25, 0.25, 0.25};
-        for (i = 0; i < 4; ++i) {
-            for (j = 0; j < 4; ++j) {
-                if (i == j)                  R[i][j] = 0.0;
-                else if (std::abs(i-j) == 2) R[i][j] = trans;
-                else                         R[i][j] = 1.0;
-            }
-        }
-	    for(i = 0; i < 4; ++i ) {
-            temp = 0.0;
-            for(j = 0; j < 4; ++j ) temp += R[i][j] * freq[j];
-            mut[i] = temp;
-	    	total += temp * freq[i];
-        }
-	    for (i = 0; i < 4; ++i) {
-            for (j = 0; j < 4; ++j) {
-                if (i != j) pam1[i][j] = 0.01 / total * R[i][j] * freq[j];
-                else        pam1[i][j] = 1.0 - 0.01 / total * mut[i];
-            }
-        }
-        // MtxmltDouble from MAFFT
-        float pamx [4][4];
-        for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] = (i == j) ? 1.0 : 0.0;
-        int PAM_N = vm["pam-n"].as<int>();
-        for (int t = 0; t < PAM_N; ++t) {
-            int k;
-            float temp [4], s;
-            for (i = 0; i < 4; ++i) {
-                for (k = 0; k < 4; ++k) temp[k] = pamx[i][k];
-                for (j = 0; j < 4; ++j) {
-                    s = 0;
-                    for (k = 0; k < 4; ++k) s += temp[k] * pam1[k][j];
-                    pamx[i][j] = s;
-                }
-            }
-        }
-        for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] /= freq[j];
-        for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] = (pamx[i][j] == 0.0) ? std::log10(0.00001) * 1000.0 : std::log10( pamx[i][j] ) * 1000.0;
-        double avg1 = 0, avg2 = 0;
-        for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) avg2 += freq[i]*freq[j]*pamx[i][j];
-        for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] -= avg2;
-        for (i = 0; i < 4; ++i) avg1 += 0.25*pamx[i][i];
-        int offset = 59;
-        for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] *= 600 / avg1;
-        for (i = 0; i < 4; ++i) for (j = 0; j < 4; ++j) pamx[i][j] -= offset;
-
-        float Nscore = vm.count("wildcard") ? std::round(pamx[0][0] / 10.0) : 0.0;
-        
-        float scaler = 0.5;
-        for (i = 0; i < 5; ++i) for (j = 0; j < 5; ++j) 
-            this->scoringMatrix[i][j] = (i == 4 || j == 4) ? Nscore * scaler : std::round(pamx[i][j] / 10.0 * scaler);
-        
-        
-        float gop = 1.53; float ge = 0.123;
-        this->gapOpen = std::round(-gop*100*scaler); this->gapExtend = std::round(-ge*100*scaler);
-        this->gapClose = this->gapOpen;
-        this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
-    }
-    else if (userDefine == 2) {
+    else {
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
                 this->scoringMatrix[i][j] = this->userMatrix[i][j];
@@ -132,14 +66,18 @@ msa::option::option(po::variables_map& vm) {
     if (vm.count("tree")) this->treeFile = vm["tree"].as<std::string>();
     if (vm.count("sequences")) {this->seqFile = vm["sequences"].as<std::string>(); this->alnMode = 0;}
     if (vm.count("files")) {this->msaDir = vm["files"].as<std::string>(); this->alnMode = 1;}
+    if (!vm.count("output")) {
+        std::cerr << "ERROR: An output file name is required.\n";
+        exit(1);
+    }
     this->outFile = vm["output"].as<std::string>();
-    if (std::experimental::filesystem::exists(this->outFile)) {
+    if (fs::exists(this->outFile)) {
         std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
         exit(1);
     }
     
-    int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
-    int maxSubSubtreeSize = (vm.count("max-leaves")) ? vm["max-leaves"].as<int>() : INT32_MAX;
+    int maxSubtreeSize = (vm.count("max-subalign")) ? vm["max-subalign"].as<int>() : INT32_MAX;
+    int maxSubSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
     if (cpuNum <= 0) {
@@ -151,10 +89,10 @@ msa::option::option(po::variables_map& vm) {
         exit(1);
     }
     printf("Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
-    float gappyVertical = vm["gappy-vertical"].as<float>();
+    float gappyVertical = vm["gappy"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
-        std::cerr << "ERROR: The value of gappy-vertical should be (0,1]\n";
+        std::cerr << "ERROR: The value of gappy should be in (0,1]\n";
         exit(1);
     }
     if (vm.count("gappy-horizon")) {
@@ -168,7 +106,7 @@ msa::option::option(po::variables_map& vm) {
         gappyHorizon = 1;
     }
     
-    if (vm.count("max-subtree") || vm.count("files")) {
+    if (vm.count("max-subalign") || vm.count("files")) {
         std::string tempDir;
         if (!vm.count("temp-dir")) {
             int idx = 1;
@@ -212,27 +150,7 @@ msa::option::option(po::variables_map& vm) {
         std::cerr << "ERROR: Unrecognized method to merge subtrees \"" << merger <<"\"\n";
         exit(1);
     }
-    if (vm.count("output-subtrees")) {
-        std::string subtreeDir_org = "./twilight_subtrees";
-        std::string subtreeDir = subtreeDir_org;
-        int idx = 1;
-        while (true) {
-            if (mkdir(subtreeDir.c_str(), 0777) == -1) {
-                if( errno == EEXIST ) {
-                    // std::cerr << "ERROR: " << subtreeDir << " already exists. In order to prevent your file from being overwritten, please delete or move this folder to another directory.\n";
-                    // exit(1);
-                    subtreeDir = subtreeDir_org + '_' + std::to_string(idx);
-                    ++idx;
-                }
-                else { fprintf(stderr, "ERROR: Can't create directory: %s\n", subtreeDir.c_str()); exit(1); }
-            }
-            else {
-                std::cout << subtreeDir << " created for storing subtree files.\n";
-                break;
-            }
-        }
-        this->subtreeDir = subtreeDir;
-    }
+    
     if (vm.count("psgop")) {
         std::string psgop = vm["psgop"].as<std::string>();
         if      (psgop == "y" || psgop == "Y" || psgop == "yes" || psgop == "YES" || psgop == "Yes") this->psgop = true;
@@ -260,9 +178,8 @@ msa::option::option(po::variables_map& vm) {
     this->cpuOnly = vm.count("cpu-only");
     this->outType = outType;
     this->merger = merger;
-    this->printDetail = vm.count("print-detail");
+    this->printDetail = vm.count("verbose");
     this->deleteTemp = vm.count("delete-temp");
-    
 }
 
 void msa::utility::changeStorage(int idx) {
@@ -397,7 +314,7 @@ void msa::utility::memCheck(int seqLen, int idx) {
 }
 
 void msa::utility::storeCIGAR() {
-    tbb::mutex writeMutex;
+    tbb::spin_rw_mutex writeMutex;
     tbb::parallel_for(tbb::blocked_range<int>(0, this->seqsIdx.size()), [&](tbb::blocked_range<int> range){ 
     for (int n = range.begin(); n < range.end(); ++n) {
         auto seq = std::make_pair(this->seqsName[n], n);
@@ -428,7 +345,7 @@ void msa::utility::storeCIGAR() {
         }
         cigar += (std::to_string(num) + type);
         {
-            tbb::mutex::scoped_lock lock(writeMutex);
+            tbb::spin_rw_mutex::scoped_lock lock(writeMutex);
             this->seqsCIGAR[seqName] = cigar;
         }
         // this->seqsCIGAR[seqName] = cigar;

@@ -31,15 +31,6 @@ void printTree(Node* node, int grpID)
     
 }
 
-void printLeaves(Node* node)
-{
-    if (node->children.size() == 0) {
-        std::cout << std::setw(7) << node->identifier << ": " << node->branchLength << "\t" << node->parent->identifier << '\t' << node->grpID << std::endl;
-        return;
-    }
-    for (auto &c: node->children) printLeaves(c);
-}
-
 // read
 void readSequences(msa::utility* util, msa::option* option, Tree* tree)
 {
@@ -173,43 +164,6 @@ void readFrequency(msa::utility* util, msa::option* option) {
     return;
 }
 
-void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option)
-{
-    std::string tempDir = option->tempDir;
-    for (auto subroot: partition->partitionsRoot) {
-        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
-        Tree* subT = new Tree(subroot.second.first);
-        std::string subtreeName = "subtree-" + std::to_string(subtreeIdx);
-        std::string subtreeTreeFile = option->subtreeDir + '/' + subtreeName + ".nwk";
-        std::string out_str = "";
-	    getSubtreeNewick(subT->root, out_str);
-	    out_str += ";\n";
-        std::ofstream outFile(subtreeTreeFile);
-        if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", subtreeTreeFile.c_str());
-            exit(1);
-        }
-	    outFile << out_str;
-	    outFile.close();
-    }
-    return;
-}
-
-Tree* readNewick(po::variables_map& vm)
-{
-    auto treeBuiltStart = std::chrono::high_resolution_clock::now();
-    std::string treeFileName = vm["tree"].as<std::string>();
-    std::ifstream inputStream(treeFileName);
-    if (!inputStream) { fprintf(stderr, "Error: Can't open file: %s\n", treeFileName.c_str()); exit(1); }
-    std::string newick; inputStream >> newick;
-    Tree *T = new Tree(newick);
-    auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-    std::cout << "Newick string read in: " <<  treeBuiltTime.count() / 1000000 << " ms\n";
-
-    return T;
-}
-
 Tree* readNewick(std::string treeFileName)
 {
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
@@ -224,15 +178,25 @@ Tree* readNewick(std::string treeFileName)
     return T;
 }
 
-void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util) {
-    for (auto subroot:  partition->partitionsRoot) {
-        int subtree = tree->allNodes[subroot.first]->grpID;
-        int seqLen = util->profileFreq[subtree].size();
-        util->seqsLen[subroot.first] = seqLen;
-        util->seqsIdx[subroot.first] = subtree;
-        util->seqsName[subtree] = subroot.first;
-        tree->allNodes[subroot.first]->msaAln = std::vector<int8_t> (seqLen, 0);
-        if (seqLen > util->seqLen) util->seqLen = seqLen;
+// Output 
+void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option)
+{
+    std::string tempDir = option->tempDir;
+    for (auto subroot: partition->partitionsRoot) {
+        int subtreeIdx = tree->allNodes[subroot.first]->grpID;
+        Tree* subT = new Tree(subroot.second.first);
+        std::string subtreeName = "subtree-" + std::to_string(subtreeIdx);
+        std::string subtreeTreeFile = option->tempDir + '/' + subtreeName + ".nwk";
+        std::string out_str = "";
+	    getSubtreeNewick(subT->root, out_str);
+	    out_str += ";\n";
+        std::ofstream outFile(subtreeTreeFile);
+        if (!outFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", subtreeTreeFile.c_str());
+            exit(1);
+        }
+	    outFile << out_str;
+	    outFile.close();
     }
     return;
 }
@@ -570,6 +534,41 @@ void outputSubtreeCIGAR(std::string fileName, std::vector<std::pair<std::string,
     outFile.close();
 }
 
+
+// auxiliary
+bool cmp(std::string a, std::string b) {
+    if (a.size() != b.size()) return a.size() < b.size();
+    return a < b;
+}
+
+void getSubtreeNewick(Node* root, std::string& outputString) {
+	if(root->children.size() != 0) {
+		outputString += "(";
+		for(int n = 0; n < root->children.size(); ++n) {
+			if(n != 0) outputString += ",";
+			getSubtreeNewick(root->children[n], outputString);
+		}
+		if (root->parent != nullptr) outputString += ("):" + std::to_string(root->branchLength));
+        else outputString += ")";
+    }
+	else {
+		outputString += (root->identifier + ':' + std::to_string(root->branchLength));
+    }
+}
+
+void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util) {
+    for (auto subroot:  partition->partitionsRoot) {
+        int subtree = tree->allNodes[subroot.first]->grpID;
+        int seqLen = util->profileFreq[subtree].size();
+        util->seqsLen[subroot.first] = seqLen;
+        util->seqsIdx[subroot.first] = subtree;
+        util->seqsName[subtree] = subroot.first;
+        tree->allNodes[subroot.first]->msaAln = std::vector<int8_t> (seqLen, 0);
+        if (seqLen > util->seqLen) util->seqLen = seqLen;
+    }
+    return;
+}
+
 void storeFreq(msa::utility* util, Tree* T, int grpID) {
     int seqLen = util->seqsLen[T->root->identifier];
     std::cout << "Alignment Length: " << seqLen << '\n';
@@ -595,27 +594,6 @@ void storeFreq(msa::utility* util, Tree* T, int grpID) {
         });
     }
     return;
-}
-
-// auxiliary
-bool cmp(std::string a, std::string b) {
-    if (a.size() != b.size()) return a.size() < b.size();
-    return a < b;
-}
-
-void getSubtreeNewick(Node* root, std::string& outputString) {
-	if(root->children.size() != 0) {
-		outputString += "(";
-		for(int n = 0; n < root->children.size(); ++n) {
-			if(n != 0) outputString += ",";
-			getSubtreeNewick(root->children[n], outputString);
-		}
-		if (root->parent != nullptr) outputString += ("):" + std::to_string(root->branchLength));
-        else outputString += ")";
-    }
-	else {
-		outputString += (root->identifier + ':' + std::to_string(root->branchLength));
-    }
 }
 
 double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
@@ -664,8 +642,8 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
         for (int l = 0; l < 5; l++) spscore[s] += param->scoringMatrix[l][l] * (freq[s][l] * (freq[s][l] - 1) / 2);
         for (int l = 0; l < 5; l++) spscore[s] += param->gapExtend * (freq[s][l] * (freq[s][5]));
         for (int l = 0; l < 5; l++) {
-            for (int m = l + 1; m < 5; m++) {
-                spscore[s] += param->scoringMatrix[l][m] * (freq[s][m] * freq[s][l]);
+            for (int m = 0; m < 5; m++) {
+                if (l != m) spscore[s] += param->scoringMatrix[l][m] * (freq[s][m] * freq[s][l]);
             }
         }  
     }
@@ -676,7 +654,7 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     for (int i = 0; i < 4; ++i) matchAvg += param->scoringMatrix[i][i];
     matchAvg /= 4.0;
     normScore /= ((seqNum * (seqNum-1)) / 2);
-    normScore /= alnLen;
+    // normScore /= alnLen;
     normScore /= matchAvg;
     return normScore;
 }   

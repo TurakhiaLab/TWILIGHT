@@ -1,14 +1,12 @@
 #ifndef TREE_HPP
 #define TREE_HPP
 
+#include <iostream>
 #include <string>
 #include <vector>
 #include <queue>
 #include <stack>
 #include <unordered_map>
-#include <iostream>
-#include <chrono>
-#include <map>
 
 
 class Node 

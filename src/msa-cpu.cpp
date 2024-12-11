@@ -145,7 +145,7 @@ void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
     }
     // for (auto n: type1Aln) std::cout << n.first->identifier << ':' << util->seqsLen[n.first->identifier] << 
     //                              ',' << n.second->identifier << ':' << util->seqsLen[n.second->identifier] <<'\n';
-    if (option->printDetail) std::cout << "Align sub-subtrees, total " << type1Aln.size() << " pairs.\n"; 
+    // if (option->printDetail) std::cout << "Align sub-subtrees, total " << type1Aln.size() << " pairs.\n"; 
     createOverlapAlnCpu(T, type1Aln, util, option, param);
     return;
 }
@@ -235,7 +235,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     else {
         for (auto pf: util->profileFreq) if (pf.second.size() > seqLen) seqLen = pf.second.size();
     }
-    paramType* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
+    float* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
     hostParam[25] = param.gapOpen;
     hostParam[26] = param.gapExtend;
@@ -827,7 +827,7 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                         break;
                     }
                 }
-                hostGapOp[offsetg+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+                hostGapOp[offsetg+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
             hostGapEx[offsetg+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*s+5])/refNum);
         }
@@ -846,7 +846,7 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                         break;
                     }
                 }
-                hostGapOp[offsetg+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+                hostGapOp[offsetg+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
             hostGapEx[offsetg+seqLen+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*(seqLen+s)+5])/qryNum);
         }   
@@ -1444,8 +1444,8 @@ double calColumnSimilarity(Tree* tree, Node* node, msa::utility* util, Params& p
         for (int l = 0; l < 5; l++) spscore[s] += param.scoringMatrix[l][l] * (freq[s][l] * (freq[s][l] - 1) / 2);
         for (int l = 0; l < 5; l++) spscore[s] += param.gapExtend * (freq[s][l] * (freq[s][5]));
         for (int l = 0; l < 5; l++) {
-            for (int m = l + 1; m < 5; m++) {
-                spscore[s] += param.scoringMatrix[l][m] * (freq[s][m] * freq[s][l]);
+            for (int m = 0; m < 5; m++) {
+                if (m != l) spscore[s] += param.scoringMatrix[l][m] * (freq[s][m] * freq[s][l]);
             }
         }  
     }

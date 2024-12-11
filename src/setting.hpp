@@ -14,13 +14,12 @@
 #include <boost/program_options.hpp> 
 #include <tbb/task_scheduler_init.h>
 #include <tbb/parallel_for.h>
-#include <tbb/mutex.h>
+#include <tbb/spin_rw_mutex.h>
 
 #include <experimental/filesystem>
 
+namespace fs = std::experimental::filesystem;
 namespace po = boost::program_options;
-
-typedef float paramType;
 
 struct Params 
 {
@@ -28,7 +27,6 @@ struct Params
     float gapExtend; //for gap-affine
     float gapClose;
     float xdrop; //optional for now
-    int userDefine; //0: simple match/mismatch, 1: kimura, 2: userdefined
     // hoxd70
     // float userMatrix [5][5] = { {  91, -114,  -31, -123, -100},
     //                                 {-114,  100, -125,  -31, -100},
@@ -43,7 +41,7 @@ struct Params
                                 { -8, 18, -8,  5,  0},  // c
                                 {  5, -8, 18, -8,  0},  // g
                                 { -8,  5, -8, 18,  0}, // t
-                                {  0,  0,  0,  0, 18}};
+                                {  0,  0,  0,  0,  0}};
     float userGapOpen = -50;
     float userGapClose = -50;
     float userGapExtend = -5;
