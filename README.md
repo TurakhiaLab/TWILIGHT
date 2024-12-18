@@ -21,12 +21,12 @@ make twilight
 ```
 ### Run with transitivity merger
 ```
-./twilight -t <tree file> -i <sequence file> -o <output file> -l <maximum subtree size>
+./twilight -t <tree file> -i <sequence file> -o <output file> -m <maximum subtree size>
 ```
 
 ### For large dataset, align subtrees sequentially to reduce memory usage
 ```
-./twilight -t <tree file> -i <sequence file> -o <output file> -d <directory for storing temporary files> -m <maximum subtree size> --merge-subtree <merger method>
+./twilight -t <tree file> -i <sequence file> -o <output file> -d <directory for storing temporary files> -a <maximum sub-alignment size> --merge-subtree <merger method>
 ```
 
 ### Merge multiple MSA files
@@ -41,10 +41,10 @@ make twilight
 ```
 ### Run with transitivity merger
 ```
-./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -l 1000
+./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -m 1000
 ```
 
 ### For large dataset, align subtrees sequentially to reduce memory usage
 ```
-./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -m 1000
+./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -a 1000
 ```
