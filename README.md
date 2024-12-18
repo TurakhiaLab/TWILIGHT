@@ -1,10 +1,14 @@
 # TWILIGHT
 
 ## Build Instructions
+#### Please make sure if you have the below libraries installed
 ```
-# Please make sure if you have the below libraries installed
-# BOOST: sudo apt-get install libboost-all-dev
-# TBB2: sudo apt-get install libtbb2
+sudo apt-get install libboost-all-dev // BOOST
+sudo apt-get install libtbb2 // TBB 2.0
+```
+#### Install and compile
+```
+git clone https://github.com/TurakhiaLab/msa-accel.git
 mkdir build
 cd build
 wget https://github.com/oneapi-src/oneTBB/archive/2019_U9.tar.gz
