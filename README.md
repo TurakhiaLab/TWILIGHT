@@ -47,5 +47,5 @@ make twilight
 ```
 #### Divide into multiple subalignments and align sequentially
 ```
-./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -a 1000 --psgop y
+./twilight -t ../dataset/RNASim_10000.nwk -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -a 3000 --psgop y
 ```

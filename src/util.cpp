@@ -51,8 +51,12 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     
     while (kseq_read(kseq_rd) >= 0) {
         int seqLen = kseq_rd->seq.l;
-        std::string seqName = kseq_rd->name.s;
-        if (tree->allNodes.find(seqName) != tree->allNodes.end()) {
+        std::string seqName_full = kseq_rd->name.s;
+        std::string seqName_noblank = seqName_full.substr(0, seqName_full.find(' '));
+        std::string seqName = "";
+        if (tree->allNodes.find(seqName_full) != tree->allNodes.end()) seqName = seqName_full;
+        else if (tree->allNodes.find(seqName_noblank) != tree->allNodes.end()) seqName = seqName_noblank;
+        if (seqName != "") {
             if (seqs.find(seqName) != seqs.end()) {
                 fprintf(stderr, "Sequence %s already exists.\n", seqName.c_str());
                 exit(1);

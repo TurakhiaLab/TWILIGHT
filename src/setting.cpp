@@ -172,7 +172,7 @@ msa::option::option(po::variables_map& vm) {
     this->gpuIdx = std::vector<int> (0);
     this->maxSubtree = maxSubtreeSize;
     this->maxSubSubtree = maxSubSubtreeSize;
-    this->debug = vm.count("debug");
+    this->debug = vm.count("check");
     this->gappyHorizon = gappyHorizon;
     this->gappyVertical = gappyVertical;
     this->cpuOnly = vm.count("cpu-only");
