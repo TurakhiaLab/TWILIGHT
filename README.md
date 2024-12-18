@@ -18,33 +18,34 @@ make twilight
 ```
 
 ## Run Instructions
-### Please see 'Help' for more details
+#### See Help for more details
 ```
 ./twilight -h
 ```
-### Build MSA from raw sequences
+#### Build MSA from raw sequences
 ```
 ./twilight -t <tree file> -i <sequence file> -o <output file>
 ```
-### Merge multiple MSA files
+#### Merge multiple MSA files
 ```
 ./twilight -f <directory containing all MSA files> -o <output file>
 ```
-### For large dataset, divide into multiple subalignments and align sequentially to reduce memory usage
+#### For large dataset, divide into multiple subalignments and align sequentially to reduce memory usage
 ```
 ./twilight -t <tree file> -i <sequence file> -o <output file> -d <temporary directory> -a <max subalignment size> --merge-subtree <merger method>
 ```
 
-## Example command
-### Build MSA on difficult alignment (more gappy) 
+
+## Sample commands for the provided test data
+#### Build MSA on difficult alignment (more gappy) 
 ```
 ./twilight -t ../dataset/RNASim_10000.nwk -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln --psgop y
 ```
-### Build MSA on short-branched sequences
+#### Build MSA on short-branched sequences
 ```
 ./twilight -t ../dataset/sars_2000.nwk -i ../dataset/sars_2000.fa -o sars_2000.aln --gappy 1 --psgop n
 ```
-### Divide into multiple subalignments and align sequentially
+#### Divide into multiple subalignments and align sequentially
 ```
 ./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -a 1000 --psgop y
 ```
