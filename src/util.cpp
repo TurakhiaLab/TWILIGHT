@@ -87,12 +87,11 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
         for (auto node: tree->allNodes) {
             if (node.second->is_leaf()) {
                 if (seqs.find(node.second->identifier) == seqs.end()) {
-                    std::cout << node.second->identifier << '\n';
+                    std::cout << "Missing " << node.second->identifier << '\n';
                     ++kk;
                 }
             }
         }
-        std::cout << kk << '\n';
         exit(1);
     }
     util->seqsMallocNStore(maxLen, seqs, option);
