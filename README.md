@@ -3,8 +3,8 @@
 ## Build Instructions
 #### Please make sure if you have the below libraries installed
 ```
-sudo apt-get install libboost-all-dev // BOOST
-sudo apt-get install libtbb2 // TBB 2.0
+sudo apt-get install libboost-all-dev # BOOST
+sudo apt-get install libtbb2 # TBB 2.0
 ```
 #### Install and compile
 ```
