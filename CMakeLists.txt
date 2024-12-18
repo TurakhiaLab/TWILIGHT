@@ -1,48 +1,65 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(msa LANGUAGES CXX CUDA)
+project(msa LANGUAGES CXX)
 
-# For CUDA
-set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
-find_package(CUDA 10.0 REQUIRED)
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+	message(STATUS "CUDA detected.")
+	# For CUDA
+	enable_language(CUDA)
+	set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")
+	find_package(CUDA 10.0 REQUIRED)
+	TRY_RUN(
+    	FIND_GPU_RESULT
+		FIND_GPU_COMPILE_RESULT
+		${CMAKE_CURRENT_BINARY_DIR}/
+		${CMAKE_CURRENT_BINARY_DIR}/../src/findgpu.cu
+	)
+	if("${FIND_GPU_COMPILE_RESULT}" AND ("${FIND_GPU_RESULT}" EQUAL 0))
+		message(STATUS "CUDA-capable GPU detected.")
+		set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=native -lineinfo")
+		set(SRC_FILES src/twilight-main.cu
+				  src/align.cu	
+				  src/msa-gpu.cu
+				  src/tree.cpp
+				  src/setting.cpp
+				  src/treePartition.cpp
+				  src/TALCO-XDrop.cpp
+				  src/util.cpp
+				  src/msa-cpu.cpp
+				  )
+	else()
+	    message(WARNING "No CUDA-capable GPU found.")
+		set(SRC_FILES src/twilight-main.cpp
+				  src/tree.cpp
+				  src/setting.cpp
+				  src/treePartition.cpp
+				  src/TALCO-XDrop.cpp
+				  src/util.cpp
+				  src/msa-cpu.cpp
+	              )	
+	endif()
+else()
+  	message(WARNING "No CUDA found.")
+	set(SRC_FILES src/twilight-main.cpp
+				  src/tree.cpp
+				  src/setting.cpp
+				  src/treePartition.cpp
+				  src/TALCO-XDrop.cpp
+				  src/util.cpp
+				  src/msa-cpu.cpp
+	              )	
+endif()
 
-
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g")
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_86")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable")
 
 find_package(Boost COMPONENTS program_options REQUIRED)
-
 find_package(ZLIB REQUIRED)
 find_path(ZLIB_INCLUDE_DIR zlib.h)
 include_directories(${ZLIB_INCLUDE_DIR})
-
 include(${TBB_DIR}/cmake/TBBBuild.cmake)
 tbb_build(TBB_ROOT ${TBB_DIR} CONFIG_DIR TBB_DIR MAKE_ARGS tbb_cpf=1)
 find_package(TBB REQUIRED tbbmalloc tbbmalloc_proxy tbb_preview)
-
-add_executable (msa
-                src/msa.cpp
-                src/tree.cpp
-                src/align.cpp)
-
-add_executable (test-align
-                test/test_align.cpp
-                src/tree.cpp
-                src/align.cpp)
-
-add_executable (test-msa
-                test/test_msa.cpp
-                src/tree.cpp
-                src/align.cpp)
-
-add_executable (msa-gpu
-	        test/test_msa.cu
-		src/tree.cpp
-		src/align.cu
-		src/TALCO-XDrop.cpp
-                src/util.cu)
-
-target_link_libraries(msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
-target_link_libraries(test-align PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
-target_link_libraries(test-msa PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
-target_link_libraries(msa-gpu PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS})
+add_executable (twilight ${SRC_FILES})
+target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} ${TBB_IMPORTED_TARGETS} stdc++fs)

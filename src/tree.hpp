@@ -1,13 +1,13 @@
 #ifndef TREE_HPP
 #define TREE_HPP
 
+#include <iostream>
 #include <string>
 #include <vector>
 #include <queue>
 #include <stack>
 #include <unordered_map>
-#include <iostream>
-#include <chrono>
+#include <algorithm>
 
 
 class Node 
@@ -16,23 +16,23 @@ public:
     Node(std::string id, float len);
     Node(std::string id, Node* par, float len);
     size_t getNumLeaves();
+    size_t getNumNodes();
     bool is_leaf() {return !(identifier.substr(0,4) == "node");}
     void setNumleaves() {numLeaves = getNumLeaves();};
+    void setLongestDescendant(Node* n) {longestDescendant = n;};
 
     float branchLength;
     size_t level;
-
-
     std::string identifier;
     Node* parent;
+    Node* longestDescendant;
     std::vector< Node* > children;
     std::vector<std::string> msa; //use this to store identifier
     std::vector<int> msaIdx;
     std::vector<int8_t> msaAln;
-    std::vector<int> addGapPos;
-    // std::vector<std::vector<uint16_t>> freq;
-    size_t refStartPos = {0};
+    std::vector<std::vector<float>> msaFreq;
     size_t numLeaves = {0};
+    float weight = {0};
 
     /*Partition*/
     int grpID;
@@ -51,8 +51,14 @@ public:
 
     Node* root;
     std::unordered_map< std::string, Node* > allNodes;
+    void calLeafNum();
+    void calSeqWeight();
     Tree(std::string newick);
+    Tree(Node* node);
+    Tree(std::unordered_map<std::string,int>& seqsLen, std::unordered_map<std::string,int>& seqsIdx);
     Tree() {root = nullptr;}
+    ~Tree();
 };
+
 
 #endif

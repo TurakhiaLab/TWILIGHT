@@ -1,14 +1,9 @@
 #ifndef ALIGN_HPP
 #define ALIGN_HPP
 
-#include <string>
-#include <vector>
-#include <thrust/device_vector.h>
-#include <iostream>
-#include <cmath>
 #include <bits/stdc++.h>
-#include <tbb/parallel_for.h>
 
+<<<<<<< HEAD
 const int FRONT_WAVE_LEN = 512;
 
 typedef float paramType;
@@ -51,14 +46,22 @@ struct Params
 // );
 
 __global__ void alignGrpToGrp_talco
+=======
+const int FRONT_WAVE_LEN = 1024+512;
+const int THREAD_NUM = 256;
+const int BLOCKSIZE = 2048;
+
+// General Usage
+__global__ void alignGrpToGrp_freq
+>>>>>>> 3eea4f208434ec5fef8f9e150c042140efb8ba22
 (
-    // char* seqs,
-    uint16_t* freq,
+    float* freq,
     int8_t* aln,
-    // int32_t* seqIdx,
     int32_t* len,
+    int32_t* num,
     int32_t* alnLen,
     int32_t* seqInfo,
+<<<<<<< HEAD
     paramType* param
 );
 
@@ -70,32 +73,28 @@ void alignGrpToGrp_traditional
     int32_t qryLen,
     Params& param,
     std::vector<int8_t>& aln
+=======
+    float* gapOpen,
+    float* gapExtend,
+    float* param
+>>>>>>> 3eea4f208434ec5fef8f9e150c042140efb8ba22
 );
 
-
-enum STATE 
-{
-    HH = 0,
-    HI = 1,
-    HD = 2,
-    IH = 3,
-    II = 4,
-    DH = 5,
-    DD = 6
-};
-
-void tracebackGrpToGrp
+// Specify for small profiles (< 24 sequences)
+// The only difference with alignGrpToGrp_freq 
+// is that the sequence is copied instead of 
+// the frequency and the frequency is calculated on the device
+__global__ void alignGrpToGrp_seq
 (
-    int8_t state,
-    std::vector<int8_t>& TB,
-    std::vector<int32_t>& wfLL,
-    std::vector<int32_t>& wfLen,
-    std::vector<int8_t>& aln,
-    int32_t ref,
-    int32_t query
+    char* seqs,
+    int8_t* aln,
+    int32_t* len,
+    int32_t* num,
+    int32_t* alnLen,
+    int32_t* seqInfo,
+    float* gapOpen,
+    float* gapExtend,
+    float* weight,
+    float* param
 );
-
-int8_t updateState(STATE& currentHState, STATE& currentIState, STATE& currentDState);
-
-
 #endif
