@@ -113,9 +113,17 @@ void readFrequency(msa::utility* util, msa::option* option) {
     std::vector<int> msaLens;
     int subtreeIdx = 0;
     int totalFile = 0;
-    for (const auto & msaFile : fs::directory_iterator(path)) {
-        totalFile += 1;
-        files.push_back(msaFile.path());
+    boost::system::error_code ec;
+    fs::path msaFolder(path);
+    for (fs::recursive_directory_iterator it(msaFolder, ec), eit; it != eit; it.increment(ec)) {
+        if (ec) {
+            it.pop();
+            continue;
+        }
+        if (!fs::is_directory(it->path())) {
+            files.push_back(it->path().string());
+            totalFile += 1;
+        }
     }
     // for (const auto & msaFile : fs::directory_iterator(path)) {
     for (auto msaFileName: files) {
@@ -312,9 +320,22 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
         std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->children[0]->identifier]->msaAln.size() << '\n';
         int subtreeIdx = 0;
         int totalFile = 0;
-        for (const auto & msaFile : fs::directory_iterator(path)) totalFile += 1;
-        for (const auto & msaFile : fs::directory_iterator(path)) {
-            std::string msaFileName = msaFile.path();
+        std::vector<std::string> files;
+        boost::system::error_code ec;
+        fs::path msaFolder(path);
+        for (fs::recursive_directory_iterator it(msaFolder, ec), eit; it != eit; it.increment(ec)) {
+            if (ec) {
+                it.pop();
+                continue;
+            }
+            if (!fs::is_directory(it->path())) {
+                totalFile += 1;
+                files.push_back(it->path().string());
+            }
+        }
+        // for (const auto & msaFile : fs::directory_iterator(path)) totalFile += 1;
+        for (auto msaFile : files) {
+            std::string msaFileName = msaFile;
             gzFile f_rd = gzopen(msaFileName.c_str(), "r");
             if (!f_rd) {
                 fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());

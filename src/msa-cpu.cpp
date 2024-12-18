@@ -237,7 +237,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     else {
         for (auto pf: util->profileFreq) if (pf.second.size() > seqLen) seqLen = pf.second.size();
     }
-    float* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
+    float* hostParam = (float*)malloc(29 * sizeof(float)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
     hostParam[25] = param.gapOpen;
     hostParam[26] = param.gapExtend;
@@ -521,7 +521,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             if (tree->allNodes[n.second->identifier]->msaAln.size() > seqLen) seqLen = tree->allNodes[n.second->identifier]->msaAln.size();
         }
     }
-    paramType* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
+    float* hostParam = (float*)malloc(29 * sizeof(float)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
     hostParam[25] = param.gapOpen;
     hostParam[26] = param.gapExtend;

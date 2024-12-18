@@ -16,9 +16,8 @@
 #include <tbb/parallel_for.h>
 #include <tbb/spin_rw_mutex.h>
 
-#include <experimental/filesystem>
-
-namespace fs = std::experimental::filesystem;
+#include <boost/filesystem.hpp>
+namespace fs = boost::filesystem;
 namespace po = boost::program_options;
 
 struct Params 

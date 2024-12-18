@@ -206,7 +206,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     if (roundGPU < gpuNum) gpuNum = roundGPU;
             
     
-    paramType* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
+    float* hostParam = (float*)malloc(29 * sizeof(float)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
     hostParam[25] = param.gapOpen;
     hostParam[26] = param.gapExtend;
@@ -265,11 +265,11 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             cudaMalloc((void**)&deviceGapOp[gn],  2 * seqLen * numBlocks * sizeof(float));
             cudaMalloc((void**)&deviceGapEx[gn],  2 * seqLen * numBlocks * sizeof(float));
 
-            cudaMalloc((void**)&deviceParam[gn],  29 * sizeof(paramType));
+            cudaMalloc((void**)&deviceParam[gn],  29 * sizeof(float));
             
             std::string error = cudaGetErrorString(cudaGetLastError()); // printf("CUDA error Malloc: %s\n",cudaGetErrorString(error)); 
             if (error != "no error") printf("ERROR: Cuda malloc %s!\n", error.c_str());
-            cudaMemcpy(deviceParam[gn], hostParam, 29 * sizeof(paramType), cudaMemcpyHostToDevice);
+            cudaMemcpy(deviceParam[gn], hostParam, 29 * sizeof(float), cudaMemcpyHostToDevice);
             error = cudaGetErrorString(cudaGetLastError()); // printf("CUDA error Malloc: %s\n",cudaGetErrorString(error)); 
             if (error != "no error") printf("ERROR: Cuda copy param %s!\n", error.c_str());
             std::vector<std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>> gappyColumns;
@@ -505,7 +505,7 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
     for (auto n: nodes) totalSeqNum += (tree->allNodes[n.first->identifier]->msaIdx.size() + tree->allNodes[n.second->identifier]->msaIdx.size());
     for (int g = 0; g < gpuNum; ++g) avgSeqNum[g] = (totalSeqNum % (nodes.size()) == 0) ? totalSeqNum / (nodes.size()) : totalSeqNum / (nodes.size()) + 1;
     
-    paramType* hostParam = (paramType*)malloc(29 * sizeof(paramType)); 
+    float* hostParam = (float*)malloc(29 * sizeof(float)); 
     for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) hostParam[i*5+j] = param.scoringMatrix[i][j];
     hostParam[25] = param.gapOpen;
     hostParam[26] = param.gapExtend;
@@ -534,7 +534,7 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
     float** deviceGapOp = new float* [gpuNum];
     float** deviceGapEx = new float* [gpuNum];
     float** deviceWeight = new float* [gpuNum];
-    paramType**  deviceParam = new paramType* [gpuNum];
+    float**  deviceParam = new float* [gpuNum];
 
     std::atomic<int> nowRound;
     nowRound.store(0);
@@ -570,11 +570,11 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
             cudaMalloc((void**)&deviceGapEx[gn],                 2 * seqLen * numBlocks * sizeof(float));
             cudaMalloc((void**)&deviceWeight[gn], avgSeqNum[gn]              * numBlocks * sizeof(float));
             
-            cudaMalloc((void**)&deviceParam[gn],  29 * sizeof(paramType));
+            cudaMalloc((void**)&deviceParam[gn],  29 * sizeof(float));
             
             std::string error = cudaGetErrorString(cudaGetLastError()); // printf("CUDA error Malloc: %s\n",cudaGetErrorString(error)); 
             if (error != "no error") printf("ERROR: Cuda malloc %s!\n", error.c_str());
-            cudaMemcpy(deviceParam[gn], hostParam, 29 * sizeof(paramType), cudaMemcpyHostToDevice);
+            cudaMemcpy(deviceParam[gn], hostParam, 29 * sizeof(float), cudaMemcpyHostToDevice);
             error = cudaGetErrorString(cudaGetLastError()); // printf("CUDA error Malloc: %s\n",cudaGetErrorString(error)); 
             if (error != "no error") printf("ERROR: Cuda copy param %s!\n", error.c_str());
             while (nowRound < roundGPU) {
@@ -687,7 +687,7 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                                         break;
                                     }
                                 }
-                                hostGapOp[gn][2*seqLen*n+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+                                hostGapOp[gn][2*seqLen*n+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
                             }
                             hostGapEx[gn][2*seqLen*n+s] = param.gapExtend * (1-(gapRatioRef[s]/refNum));
                         }
@@ -706,7 +706,7 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                                         break;
                                     }
                                 }
-                                hostGapOp[gn][2*seqLen*n+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<paramType>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
+                                hostGapOp[gn][2*seqLen*n+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
                             }
                             hostGapEx[gn][2*seqLen*n+seqLen+s] = param.gapExtend * (1-(gapRatioQry[s]/qryNum));
                         }
