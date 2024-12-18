@@ -12,31 +12,31 @@ void parseArguments(int argc, char** argv)
 {
     // Setup boost::program_options
     mainDesc.add_options()
-        ("tree,t", po::value<std::string>(), "Guide Tree - Newick format (required if building MSA from raw sequences)")
-        ("sequences,i", po::value<std::string>(), "Input tip sequences - Fasta format (required if building MSA from raw sequences)")
-        ("files,f", po::value<std::string>(), "Path to the directory containing all MSA files. MSA files should be in Fasta format")
-        ("output,o", po::value<std::string>(), "Output file name (required)")
-        ("cpu-num,c",  po::value<int>(), "Number of CPU cores. Default: use all available cores.")
-        ("max-subtree,m",  po::value<int>(), "Maximum number of leaves per subtree, used for transitivity merger")
-        ("max-subalign,a", po::value<int>(), "Maximum number of leaves per sub-alignment")
-        ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files")
+        ("tree,t", po::value<std::string>(), "Guide Tree - Newick format (required if building MSA from raw sequences).")
+        ("sequences,i", po::value<std::string>(), "Input tip sequences - Fasta format (required if building MSA from raw sequences).")
+        ("files,f", po::value<std::string>(), "Path to the directory containing all MSA files. MSA files - Fasta format.")
+        ("output,o", po::value<std::string>(), "Output file name (required).")
+        ("cpu-num,c",  po::value<int>(), "Number of CPU cores. Default: all available cores.")
+        ("max-subtree,m",  po::value<int>(), "Maximum number of leaves in a subtree within a subalignment, used for transitivity merger.")
+        ("max-subalign,a", po::value<int>(), "Maximum number of leaves in a subalignment.")
+        ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files. Used when merging MSAs (-f option) or specifying the maximum subalignment size (-a option).")
         ("gappy", po::value<float>()->default_value(0.95), "If the proportion of gaps in a column exceeds this value, the column will be defined as a gappy column. Set to 1 to disable this feature.")
         // ("gappy-horizon,z", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
-        ("wildcard,w", "Treat unknown 'N' as a wildcard and aligned to usual letters")
-        ("verbose,v", "Print out every detail")
-        ("match",      po::value<paramType>()->default_value(18), "Match score")
-        ("mismatch",   po::value<paramType>()->default_value(-8), "Mismatch penalty for transversions")
+        ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
+        ("verbose,v", "Print out every detail process.")
+        ("match",      po::value<paramType>()->default_value(18), "Match score.")
+        ("mismatch",   po::value<paramType>()->default_value(-8), "Mismatch penalty for transversions.")
         ("transition", po::value<paramType>()->default_value(5), "Score for transitions")
-        ("gap-open",   po::value<paramType>()->default_value(-50), "Gap open penalty")
-        ("gap-extend", po::value<paramType>()->default_value(-5), "Gap extend penalty")
-        ("xdrop",      po::value<paramType>()->default_value(600), "X-drop value")
+        ("gap-open",   po::value<paramType>()->default_value(-50), "Gap-Open penalty")
+        ("gap-extend", po::value<paramType>()->default_value(-5), "Gap-Extend penalty")
+        ("xdrop",      po::value<paramType>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the Gap-Extend penalty.")
         ("user-defined", "Use a user-defined scoring matrix. Please modify the userMatrix in setting.hpp.")
-        ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR, CIGAR stands for CIGAR-like compressed format")
-        ("merge-subtrees", po::value<std::string>()->default_value("p"), "t: transitivity merger, p: profile alignment")
-        ("psgop", po::value<std::string>(), "'y' for enabling and 'n' for disabling position-specific gap open penalty. If not specified, it will be detected automatically.")
-        ("delete-temp", "delete temporary subtree folder and files.")
+        ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR, CIGAR stands for CIGAR-like compressed format.")
+        ("merge-subtrees", po::value<std::string>()->default_value("p"), "t: Transitivity merger, p: Profile-Profile alignment. Used when specifying the maximum subalignment size. (-a option)")
+        ("psgop", po::value<std::string>(), "y: Enable, n: Disable position-specific gap open penalty. If not specified, it will be detected automatically.")
+        ("delete-temp", "Delete the temporary directory.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment, have to be used with -o option")
-        ("debug", "Enable debug on the final alignment")
+        ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("help,h", "Print help messages");
 }
 
@@ -89,7 +89,7 @@ int main(int argc, char** argv) {
             auto subtreeStart = std::chrono::high_resolution_clock::now();
             ++proceeded;
             int subtree = T->allNodes[subRoot.first]->grpID;
-            if (P->partitionsRoot.size() > 1) std::cout << "Start processing sub-alignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
+            if (P->partitionsRoot.size() > 1) std::cout << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             while (redo) {
                 Tree* subT = new Tree(subRoot.second.first);
                 readSequences(util, option, subT);
@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
                 partitionTree(subT->root, subP);
                 auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-                if (subP->partitionsRoot.size() > 1) std::cout << "Partition the sub-alignment into " << subP->partitionsRoot.size() << " subtrees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
+                if (subP->partitionsRoot.size() > 1) std::cout << "Partition the subalignment into " << subP->partitionsRoot.size() << " subtrees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
                 // Progressive alignment on each sub-subtree
                 Tree* newSubT = nullptr;
                 if (subP->partitionsRoot.size() > 1) newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
@@ -154,7 +154,7 @@ int main(int argc, char** argv) {
             }
             auto subtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
-            if (P->partitionsRoot.size() > 1) std::cout << "Finished sub-alignment No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
+            if (P->partitionsRoot.size() > 1) std::cout << "Finished subalignment No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
             else                              std::cout << "Finished the alignment in " << subtreeTime.count() / 1000000000 << " s\n";
         }
         if (P->partitionsRoot.size() > 1) {

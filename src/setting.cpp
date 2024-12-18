@@ -379,17 +379,17 @@ void msa::utility::debug() {
         }
         if (theFirst) {alnLen = offset; theFirst = false;}
         else {
-            if (alnLen != offset) printf("seq: %s, the sequence length (%d) did not match (%d)\n", s.first.c_str(), offset, alnLen);
+            if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", s.first.c_str(), offset, alnLen);
         }
         if (r != s.second) {
-            printf("seq: %s, the sequence did not match\n", s.first.c_str());
-            if (r.size() != s.second.size()) printf("Wrong length. %lu/%lu.\n",r.size(), s.second.size());
-            for (int i = 0; i < s.second.size(); ++i) {
-                if (r[i] != s.second[i]) {
-                    printf("Mismatch at position %d.\n", i);
-                    break;
-                }
-            }                
+            printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());
+            // if (r.size() != s.second.size()) printf("Wrong length. %lu/%lu.\n",r.size(), s.second.size());
+            // for (int i = 0; i < s.second.size(); ++i) {
+            //     if (r[i] != s.second[i]) {
+            //         printf("Mismatch at position %d.\n", i);
+            //         break;
+            //     }
+            // }                
         }
         
     }
