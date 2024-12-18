@@ -1,3 +1,27 @@
+/*
+    MIT License
+
+    Copyright (c) 2023 Turakhia Lab
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE.
+*/
+
 #ifndef TALCO_HPP
 #define TALCO_HPP
 
@@ -11,14 +35,13 @@
 #include <unordered_map>
 #include <math.h>
 
-typedef float paramType;
 
 namespace Talco_xdrop {
     struct Params {
-        paramType scoreMatrix [5][5];
-        paramType gapOpen;
-        paramType gapClose;
-        paramType gapExtend;
+        float scoreMatrix [5][5];
+        float gapOpen;
+        float gapClose;
+        float gapExtend;
         int32_t xdrop;
         int32_t fLen;
         int32_t marker;
@@ -28,7 +51,7 @@ namespace Talco_xdrop {
         }
         void updateFLen(int32_t new_flen) { this->fLen = new_flen;}
 
-        Params(paramType* t_param) {
+        Params(float* t_param) {
             for (int i = 0; i < 5; ++i) {
                 for (int j = 0; j < 5; ++j) {
                     this->scoreMatrix[i][j] = t_param[i*5+j];
@@ -45,8 +68,6 @@ namespace Talco_xdrop {
     
     void Align_freq (
         Params params,
-        // const std::vector<std::string>& reference,
-        // const std::vector<std::string>& query,
         const std::vector<std::vector<float>>& freqRef,
         const std::vector<std::vector<float>>& freqQry,
         const std::vector<std::vector<float>>& gapOp,
@@ -55,12 +76,9 @@ namespace Talco_xdrop {
         const std::pair<float, float>& num,
         std::vector<int8_t>& aln,
         int16_t& errorType
-        // size_t num_alignments
     );
 
     void Tile (
-        // const std::vector<std::string>& reference,
-        // const std::vector<std::string>& query,
         const std::vector<std::vector<float>>& reference, 
         const std::vector<std::vector<float>>& query, 
         const std::vector<std::vector<float>>& gapOp,
