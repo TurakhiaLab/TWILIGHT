@@ -2,6 +2,9 @@
 
 ## Build Instructions
 ```
+# Please make sure if you have the below libraries installed
+# BOOST: sudo apt-get install libboost-all-dev
+# TBB2: sudo apt-get install libtbb2
 mkdir build
 cd build
 wget https://github.com/oneapi-src/oneTBB/archive/2019_U9.tar.gz
@@ -15,36 +18,29 @@ make twilight
 ```
 ./twilight -h
 ```
-### Run with the default setting
+### Build MSA from raw sequences
 ```
 ./twilight -t <tree file> -i <sequence file> -o <output file>
 ```
-### Run with transitivity merger
-```
-./twilight -t <tree file> -i <sequence file> -o <output file> -m <maximum subtree size>
-```
-
-### For large dataset, align subtrees sequentially to reduce memory usage
-```
-./twilight -t <tree file> -i <sequence file> -o <output file> -d <directory for storing temporary files> -a <maximum sub-alignment size> --merge-subtree <merger method>
-```
-
 ### Merge multiple MSA files
 ```
-./twilight -f <directory that stores all MSA files> -o <output file>
+./twilight -f <directory containing all MSA files> -o <output file>
+```
+### For large dataset, divide into multiple subalignments and align sequentially to reduce memory usage
+```
+./twilight -t <tree file> -i <sequence file> -o <output file> -d <temporary directory> -a <max subalignment size> --merge-subtree <merger method>
 ```
 
 ## Example command
-### Run with the default setting
+### Build MSA on difficult alignment (more gappy) 
 ```
-./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln
+./twilight -t ../dataset/RNASim_10000.nwk -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln --psgop y
 ```
-### Run with transitivity merger
+### Build MSA on short-branched sequences
 ```
-./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -m 1000
+./twilight -t ../dataset/sars_2000.nwk -i ../dataset/sars_2000.fa -o sars_2000.aln --gappy 1 --psgop n
 ```
-
-### For large dataset, align subtrees sequentially to reduce memory usage
+### Divide into multiple subalignments and align sequentially
 ```
-./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -a 1000
+./twilight -t ../dataset/RNASim_10000.tre -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -a 1000 --psgop y
 ```
