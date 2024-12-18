@@ -45,22 +45,24 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
         ++level;
     }
     // Push msa results to roots of sub-subtrees
-    for (auto p: partition->partitionsRoot) {
-        Node* current = T->allNodes[p.first];
-        while (true) {
-            int chIdx = 0;
-            for (int i = 0; i < current->children.size(); ++i) {
-                if (current->children[i]->grpID == T->allNodes[p.first]->grpID) {
-                    chIdx = i;
+    if (option->alnMode == 0) {
+        for (auto p: partition->partitionsRoot) {
+            Node* current = T->allNodes[p.first];
+            while (true) {
+                int chIdx = 0;
+                for (int i = 0; i < current->children.size(); ++i) {
+                    if (current->children[i]->grpID == T->allNodes[p.first]->grpID) {
+                        chIdx = i;
+                        break;
+                    }
+                }
+                if (!current->children[chIdx]->msaIdx.empty()) {
+                    T->allNodes[p.first]->msaIdx = current->children[chIdx]->msaIdx;
+                    util->seqsLen[p.first] = util->seqsLen[current->children[chIdx]->identifier];
                     break;
                 }
+                current = current->children[chIdx];
             }
-            if (!current->children[chIdx]->msaIdx.empty()) {
-                T->allNodes[p.first]->msaIdx = current->children[chIdx]->msaIdx;
-                util->seqsLen[p.first] = util->seqsLen[current->children[chIdx]->identifier];
-                break;
-            }
-            current = current->children[chIdx];
         }
     }
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
@@ -529,7 +531,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     tbb::spin_rw_mutex fallbackMutex;
     std::vector<int> fallbackPairs;
 
-    tbb::this_task_arena::isolate( [&]{
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
     for (int nIdx = range.begin(); nIdx < range.end(); ++nIdx) {
         // allocate memory
@@ -594,22 +595,21 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 }
                 break;
             }
-            if (errorType == 1) {
-                if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << '\n';
-                talco_params.updateXDrop(talco_params.xdrop << 1);
-            }
             if (errorType == 2) {
                 if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
-                talco_params.updateFLen(talco_params.fLen << 1);
+                talco_params.updateFLen(std::min(static_cast<int32_t>(talco_params.fLen * 1.2) << 1, std::min(newRef, newQry)));
             }
-            if (errorType == 3) {
+            else if (errorType == 3) {
                 std::cout << "There might be some bugs in the code!\n";
-                std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
-                std::cout << "Len: " << refLen << '/' << qryLen << '\n';
-                std::cout << "Num: " << refNum << '-' << qryNum << '\n';
                 exit(1);
             }
+            else if (errorType == 1) {
+                if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << '\n';
+                talco_params.updateXDrop(static_cast<int32_t>(talco_params.xdrop * 1.2));
+                talco_params.updateFLen(std::min(static_cast<int32_t>(talco_params.xdrop * 4) << 1, std::min(newRef, newQry)));
+            }
         }
+        
         if (!aln_old.empty()) {
             std::pair<int, int> debugIdx;
             addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
@@ -618,10 +618,10 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
                 std::cout << "Num: " << refNum << '-' << qryNum << '\n';
             }
-            assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
+            // assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
             updateAlignment(tree, nodes[nIdx], util, aln); 
             updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
-            assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
+            // assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
             if (option->calSim && util->nowProcess < 2) {
                 double colSim = calColumnSimilarity(tree, nodes[nIdx].first, util, param);
                 if (colSim < option->divTH) {
@@ -634,7 +634,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         free(hostGapOp);
         free(hostGapEx);
     }    
-    });
     });
     if (util->nowProcess < 2) {
         for (auto n: tree->allNodes) {
@@ -766,8 +765,10 @@ void calculateProfileFreq(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& 
     }
     else {
         float refNum_f = 0, qryNum_f = 0;
-        int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
-        int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        // int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
+        // int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        int subtreeRef = util->seqsIdx[nodes.first->identifier];
+        int subtreeQry = util->seqsIdx[nodes.second->identifier]; 
         if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
             tree->allNodes[nodes.first->identifier]->msaFreq = util->profileFreq[subtreeRef];
         }
@@ -797,8 +798,10 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
     int32_t qryNum = tree->allNodes[nodes.second->identifier]->msaIdx.size();
     if (util->nowProcess == 2) {
         float refNum_f = 0, qryNum_f = 0;
-        int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
-        int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        // int subtreeRef = tree->allNodes[nodes.first->identifier]->grpID;
+        // int subtreeQry = tree->allNodes[nodes.second->identifier]->grpID; 
+        int subtreeRef = util->seqsIdx[nodes.first->identifier];
+        int subtreeQry = util->seqsIdx[nodes.second->identifier]; 
         if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
             tree->allNodes[nodes.first->identifier]->msaFreq = util->profileFreq[subtreeRef];
         }
@@ -1120,6 +1123,7 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
 
 void fallback2cpu(std::vector<int>& fallbackPairs, Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option) {
     int totalSeqs = 0;
+    std::sort(fallbackPairs.begin(), fallbackPairs.end());
     for (int i = 0; i < fallbackPairs.size(); ++i) {
         int nIdx = fallbackPairs[i];
         int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;

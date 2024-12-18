@@ -40,12 +40,29 @@ size_t Node::getNumNodes(){
 }
 
 void stringSplit (std::string const& s, char delim, std::vector<std::string>& words) {
-    size_t start_pos = 0, end_pos = 0;
+    size_t start_pos = 0, end_pos = 0, temp_pos = 0;
     while ((end_pos = s.find(delim, start_pos)) != std::string::npos) {
         if (end_pos >= s.length()) {
             break;
         }
-        words.emplace_back(s.substr(start_pos, end_pos-start_pos));
+        std::string sub;
+        if (temp_pos == 0) {
+            sub = s.substr(start_pos, end_pos-start_pos);
+            if (std::count(sub.begin(), sub.end(), '\'') % 2 == 1) {
+                temp_pos = start_pos;
+            }
+            else {
+                words.emplace_back(sub);
+            }
+        }
+        else {
+            sub = s.substr(temp_pos, end_pos-temp_pos);
+            if (std::count(sub.begin(), sub.end(), '\'') % 2 == 0) {
+                temp_pos = 0;
+                words.emplace_back(sub);
+            }
+        }
+        // words.emplace_back(s.substr(start_pos, end_pos-start_pos));
         start_pos = end_pos+1;
     }
     auto last = s.substr(start_pos, s.size()-start_pos);
@@ -91,11 +108,20 @@ Tree::Tree(std::string newickString) {
 
         bool stop = false;
         bool branchStart = false;
+        bool nameZone = false;
+        bool hasApo = false;
         std::string leaf = "";
         std::string branch = "";
 
         for (auto c: s) {
-            if (c == ':') {
+            if (nameZone) {
+                leaf += c;
+                if (c == '\'') nameZone = false;
+            } else if (c == '\'' && !nameZone) {
+                nameZone = true;
+                hasApo = true;
+                leaf += c;
+            } else if (c == ':') {
                 stop = true;
                 branch = "";
                 branchStart = true;
@@ -125,6 +151,7 @@ Tree::Tree(std::string newickString) {
                 }
             }
         }
+        if (hasApo && leaf[0] == '\'' && leaf[leaf.length()-1] == '\'') leaf = leaf.substr(1, leaf.length()-2);
         leaves.push_back(std::move(leaf));
         numOpen.push_back(no);
         numClose.push_back(nc);
@@ -234,7 +261,8 @@ Tree::Tree(std::unordered_map<std::string,int>& seqsLen, std::unordered_map<std:
     this->root->grpID = -1;
     this->allNodes["node_1"] = treeRoot;
     for (auto seq: seqsIdx) {
-        int grpID = seq.second;
+        // int grpID = seq.second;
+        int grpID = this->root->grpID;
         std::string nodeName = seq.first;
         int msaLen = seqsLen[nodeName];
         Node* newNode = new Node(nodeName, this->root, 1.0);

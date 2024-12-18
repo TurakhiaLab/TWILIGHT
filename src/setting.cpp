@@ -39,7 +39,7 @@ Params::Params(po::variables_map& vm) {
         this->gapClose = this->userGapClose;
         this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
-    if (vm.count("print-detail")) {
+    if (vm.count("verbose")) {
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
                 std::cout << std::setw(5) << this->scoringMatrix[i][j];

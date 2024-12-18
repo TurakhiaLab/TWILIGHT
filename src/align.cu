@@ -72,7 +72,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
         __syncthreads();
         
         while (!last_tile) {
-            int16_t inf = p_xdrop + 1;
+            int16_t inf = 2 * p_xdrop + 1;
             int32_t reference_idx = idx[0];
             int32_t query_idx = idx[1];
             int32_t reference_length = refLen - reference_idx; 

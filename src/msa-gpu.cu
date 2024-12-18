@@ -74,6 +74,10 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
             hier[h.second].push_back(h.first);
         }
     }
+    auto scheduleEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds scheduleTime = scheduleEnd - progressiveStart;
+    if (option->printDetail) std::cout << "Scheduled alignment in " <<  scheduleTime.count() / 1000 << " us\n";
+
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;
     int cpuThres = option->cpuNum * 3;
@@ -81,7 +85,7 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
         auto alnStart = std::chrono::high_resolution_clock::now();
         option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);
         if (option->cpuOnly || m.size() < cpuThres || util->nowProcess == 2) msaCpu(T, m, util, option, param);
-        else if (level < 5)                                                  msaGpu_s(T, m, util, option, param);
+        else if (level < 4)                                                  msaGpu_s(T, m, util, option, param);
         else                                                                 msaGpu(T, m, util, option, param);
         // msaGpu(T, m, util, option, param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
@@ -97,29 +101,6 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
         ++level;
     }
     // Push msa results to roots of sub-subtrees
-    // for (auto p: partition->partitionsRoot) {
-    //     std::stack<Node*> msaStack;
-    //     getPostOrderList(p.second.first, msaStack);
-    //     std::vector<Node*> msaArray;
-    //     while (!msaStack.empty()) {
-    //         msaArray.push_back(msaStack.top());
-    //         msaStack.pop();
-    //     }
-    //     if (msaArray.back()->msaIdx.size() == 0 && msaArray.size() > 1) {
-    //         if (msaArray.size() == 2) {
-    //             T->allNodes[msaArray.back()->identifier]->msaIdx = msaArray[0]->msaIdx;
-    //             util->seqsLen[msaArray.back()->identifier] = util->seqsLen[msaArray[0]->identifier];
-    //             break;
-    //         }
-    //         for (int m = msaArray.size()-2; m >=0; --m) {
-    //             if (msaArray[m]->msaIdx.size()>0) {
-    //                 T->allNodes[msaArray.back()->identifier]->msaIdx = msaArray[m]->msaIdx;
-    //                 util->seqsLen[msaArray.back()->identifier] = util->seqsLen[msaArray[m]->identifier];
-    //                 break;
-    //             }
-    //         }
-    //     }
-    // }
     for (auto p: partition->partitionsRoot) {
         Node* current = T->allNodes[p.first];
         while (true) {
@@ -155,6 +136,7 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
             auto badSeqName = util->badSequences[p.second.first->grpID];
             std::vector<Node*> badSeqNode;
             for (auto name: badSeqName) badSeqNode.push_back(T->allNodes[name]);
+            std::sort(badSeqNode.begin(), badSeqNode.end(), comp);
             badSeqName.clear();
             for (auto node: badSeqNode) badSeqName.push_back(node->identifier);
             badProfileBefore += badSeqNode.size();
@@ -411,13 +393,17 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     else {
                         for (int j = 0; j < hostAlnLen[gn][n]; ++j) aln_old.push_back(hostAln[gn][n*2*seqLen+j]);
                         addGappyColumnsBack(aln_old, aln, gappyColumns[n], debugIdx, option);
-                        
                         if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                             std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                             std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
                             std::cout << "Num: " << refNum << '-' << qryNum << '\n';
+                            aln.clear();
+                            {
+                                tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex);
+                                fallbackPairs.push_back(nIdx);
+                            }
                         }
-                        assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
+                        // assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
                     }
                     // Update alignment & frequency
                     if (!aln.empty()) {
@@ -811,7 +797,6 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                     int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
                     int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
                     std::vector<int8_t> aln_old, aln;
-                    std::pair<int, int> debugIdx;
                     float refWeight = 0, qryWeight = 0; // , totalWeight = 0;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
@@ -822,14 +807,26 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                         }
                     }
                     else {
-                        for (int j = 0; j < hostAlnLen[gn][n]; ++j) aln.push_back(hostAln[gn][n*2*seqLen+j]);
+                        int lenR = 0, lenQ = 0;
+                        for (int j = 0; j < hostAlnLen[gn][n]; ++j) {
+                            if (hostAln[gn][n*2*seqLen+j] == 0 || hostAln[gn][n*2*seqLen+j] == 2) lenR++;
+                            if (hostAln[gn][n*2*seqLen+j] == 0 || hostAln[gn][n*2*seqLen+j] == 1) lenQ++;
+                            aln.push_back(hostAln[gn][n*2*seqLen+j]);
+                        }
+                        if (lenR != refLen || lenQ != qryLen) {
+                            std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
+                            std::cout << "Len: " << lenR << '/' << refLen << '-' << lenQ << '/' << qryLen << '\n';
+                            std::cout << "Num: " << refNum << '-' << qryNum << '\n';
+                            aln.clear();
+                            {
+                                tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex);
+                                fallbackPairs.push_back(nIdx);
+                            }
+                        }
                     }   
-                    // Update alignment & frequency
                     if (!aln.empty()) {
                         updateAlignment(tree, nodes[nIdx], util, aln);
-                        if (!tree->allNodes[nodes[nIdx].first->identifier]->msaFreq.empty()) {
-                            updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
-                        }
+                        // updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
                     }
                 }
                 });
@@ -908,4 +905,8 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
     }
     fallback2cpu(fallbackPairs, tree, nodes, util, option);
     return;
+}
+
+bool comp (Node* A, Node* B) {
+    return (A->msaIdx.size() > B->msaIdx.size());
 }

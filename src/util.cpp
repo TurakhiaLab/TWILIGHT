@@ -83,6 +83,16 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
 
     if (tree->m_numLeaves != seqNum) {
         fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
+        int kk = 0;
+        for (auto node: tree->allNodes) {
+            if (node.second->is_leaf()) {
+                if (seqs.find(node.second->identifier) == seqs.end()) {
+                    std::cout << node.second->identifier << '\n';
+                    ++kk;
+                }
+            }
+        }
+        std::cout << kk << '\n';
         exit(1);
     }
     util->seqsMallocNStore(maxLen, seqs, option);
@@ -96,12 +106,17 @@ void readFrequency(msa::utility* util, msa::option* option) {
     std::string path = option->msaDir;
     std::vector<std::string> seqs (0);
     std::vector<std::string> subroots;
+    std::vector<std::string> files;
     std::vector<int> msaLens;
     int subtreeIdx = 0;
     int totalFile = 0;
-    for (const auto & msaFile : fs::directory_iterator(path)) totalFile += 1;
     for (const auto & msaFile : fs::directory_iterator(path)) {
-        std::string msaFileName = msaFile.path();
+        totalFile += 1;
+        files.push_back(msaFile.path());
+    }
+    // for (const auto & msaFile : fs::directory_iterator(path)) {
+    for (auto msaFileName: files) {
+        // std::string msaFileName = msaFile.path();
         gzFile f_rd = gzopen(msaFileName.c_str(), "r");
         if (!f_rd) {
             fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
@@ -133,6 +148,7 @@ void readFrequency(msa::utility* util, msa::option* option) {
         gzclose(f_rd);
         util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
         for (auto seq: seqs) {
+            tbb::this_task_arena::isolate( [&]{
             tbb::parallel_for(tbb::blocked_range<int>(0, msaLen), [&](tbb::blocked_range<int> r) {
             for (int j = r.begin(); j < r.end(); ++j) {
                 if      (seq[j] == 'A' || seq[j] == 'a') util->profileFreq[subtreeIdx][j][0]+=1.0;
@@ -140,9 +156,10 @@ void readFrequency(msa::utility* util, msa::option* option) {
                 else if (seq[j] == 'G' || seq[j] == 'g') util->profileFreq[subtreeIdx][j][2]+=1.0;
                 else if (seq[j] == 'T' || seq[j] == 't' ||
                          seq[j] == 'U' || seq[j] == 'u') util->profileFreq[subtreeIdx][j][3]+=1.0;
-                else if (seq[j] == 'N' || seq[j] == 'n') util->profileFreq[subtreeIdx][j][4]+=1.0;
-                else                                     util->profileFreq[subtreeIdx][j][5]+=1.0;
+                else if (seq[j] == '-')                  util->profileFreq[subtreeIdx][j][5]+=1.0;
+                else                                     util->profileFreq[subtreeIdx][j][4]+=1.0;
             }
+            });
             });
         }
         if (option->printDetail) {
@@ -169,7 +186,9 @@ Tree* readNewick(std::string treeFileName)
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
     std::ifstream inputStream(treeFileName);
     if (!inputStream) { fprintf(stderr, "Error: Can't open file: %s\n", treeFileName.c_str()); exit(1); }
-    std::string newick; inputStream >> newick;
+    std::string newick; 
+    // inputStream >> std::noskipws >> newick;
+    std::getline(inputStream, newick);
     Tree *T = new Tree(newick);
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
@@ -298,7 +317,9 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
                 exit(1);
             }
-            std::cout << "Start writing " << msaFileName << " (" << subtreeIdx+1 << '/' << totalFile << ")\n";
+            msaFileName = msaFileName.substr(option->msaDir.size()+1, msaFileName.size());
+            std::string subtreeSeqFile = option->tempDir + '/' + msaFileName + ".final.aln";
+            std::cout << "Start writing " << subtreeSeqFile << " (" << subtreeIdx+1 << '/' << totalFile << ")\n";
             kseq_t* kseq_rd = kseq_init(f_rd);
             int seqNum = 0, msaLen;
             std::string seqName;
@@ -340,8 +361,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 seqs[n].second = alnSeq;
             }
             });
-            msaFileName = msaFileName.substr(option->msaDir.size()+1, msaFileName.size());
-            std::string subtreeSeqFile = option->tempDir + '/' + msaFileName + ".final.aln";
+            
             if (option->outType == "FASTA") outputSubtreeSeqs(subtreeSeqFile, seqs);   
             else if (option->outType == "CIGAR") outputSubtreeCIGAR(subtreeSeqFile, seqs);  
             totalSeqs += seqs.size(); 
@@ -552,7 +572,13 @@ void getSubtreeNewick(Node* root, std::string& outputString) {
         else outputString += ")";
     }
 	else {
-		outputString += (root->identifier + ':' + std::to_string(root->branchLength));
+        auto name = root->identifier;
+        bool specialChar = (name.find(',') != std::string::npos)  || \
+                           (name.find(':') != std::string::npos)  || \
+                           (name.find('(') != std::string::npos)  || \
+                           (name.find(')') != std::string::npos);
+        if (specialChar) name = '\'' + name + '\'';
+        outputString += (name + ':' + std::to_string(root->branchLength));
     }
 }
 

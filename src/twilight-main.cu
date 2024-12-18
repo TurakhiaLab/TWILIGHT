@@ -198,7 +198,9 @@ int main(int argc, char** argv) {
         T = new Tree(util->seqsLen, util->seqsIdx);
         util->nowProcess = 2; // merge subtrees
         auto alnStart = std::chrono::high_resolution_clock::now();
-        mergeSubtrees (T, T, util, option, *param);
+        P = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
+        partitionTree(T->root, P);
+        msaOnSubtree(T, util, option, P, *param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
         std::cout << "Profile alignment on " << T->allNodes.size() << " MSAs in " << alnTime.count() / 1000000 << " ms\n";

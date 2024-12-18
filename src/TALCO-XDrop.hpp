@@ -23,7 +23,9 @@ namespace Talco_xdrop {
         int32_t fLen;
         int32_t marker;
 
-        void updateXDrop(int32_t new_xdrop) { this->xdrop = new_xdrop;}
+        void updateXDrop(int32_t new_xdrop) { 
+            this->xdrop = new_xdrop;
+        }
         void updateFLen(int32_t new_flen) { this->fLen = new_flen;}
 
         Params(paramType* t_param) {
@@ -37,7 +39,7 @@ namespace Talco_xdrop {
             this->gapClose = t_param[27];
             this->xdrop = static_cast<int32_t> (1000 * -1 * t_param[26]);
             this->fLen = (1 << 12);
-            this->marker = (1 << 8); //reduce this value to save memory
+            this->marker = (1 << 10); //reduce this value to save memory
         }
     };
     
@@ -92,16 +94,6 @@ namespace Talco_xdrop {
         std::vector<int8_t> &aln,
         bool firstTile
     );
-
-    int Score (
-        Params params,
-        const std::vector<int8_t> &aln,
-        const std::string &reference,
-        const std::string &query,
-        const int ref_idx,
-        const int query_idx
-    );
-
     
 }
 
