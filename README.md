@@ -1,5 +1,7 @@
 # TWILIGHT
 
+## Introduction
+TWILIGHT is a tool designed for ultrafast and ultralarge multiple sequence alignment. It utilizes the TALCO method to efficiently perform global alignments with high accuracy. TWILIGHT is compatible with Linux systems and is able to take advantage of CUDA-capable GPUs for further acceleration.
 ## Build Instructions
 #### Please make sure if you have the below libraries installed
 ```
@@ -38,13 +40,13 @@ make twilight
 ## Sample commands for the provided test data
 #### Build MSA on difficult alignment (more gappy) 
 ```
-./twilight -t ../dataset/RNASim_10000.nwk -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln --psgop y
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --psgop y
 ```
 #### Build MSA on short-branched sequences
 ```
-./twilight -t ../dataset/sars_2000.nwk -i ../dataset/sars_2000.fa -o sars_2000.aln --gappy 1 --psgop n
+./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln --gappy 1 --psgop n
 ```
 #### Divide into multiple subalignments and align sequentially
 ```
-./twilight -t ../dataset/RNASim_10000.nwk -i ../dataset/RNASim_10000.fa -o RNASim_10000.aln -d RNASim_10000_temp -a 3000 --psgop y
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -d RNASim_temp -a 200 --psgop y
 ```
