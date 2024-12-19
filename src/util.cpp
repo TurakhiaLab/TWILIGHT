@@ -48,6 +48,8 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     uint64_t totalLen = 0;
     
     std::map<std::string, std::pair<std::string, int>> seqs;
+
+    std::vector<std::pair<std::string, std::string>> seqsOut;
     
     while (kseq_read(kseq_rd) >= 0) {
         int seqLen = kseq_rd->seq.l;
