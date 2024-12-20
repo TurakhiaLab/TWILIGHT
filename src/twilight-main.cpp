@@ -78,7 +78,7 @@ int main(int argc, char** argv) {
         partitionTree(T->root, P);
         newT = reconsturctTree(T->root, P->partitionsRoot);
         if (P->partitionsRoot.size() > 1) {
-            std::cout << "Decomposed the tree into " << P->partitionsRoot.size() << " sub-alignments.\n";
+            std::cout << "Decomposed the tree into " << P->partitionsRoot.size() << " subalignments.\n";
             outputSubtreeTrees(T, P, util, option);
         }
         // Start alignmnet on subtrees
