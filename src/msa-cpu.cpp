@@ -1055,8 +1055,18 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
             }
             else if (gapR && gapQ) {
                 if (!allNR && !allNQ) {
-                    for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
-                    for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                    // for (int g = 0; g < gapRLen; ++g) {++rIdx; aln.push_back(2);}
+                    // for (int g = 0; g < gapQLen; ++g) {++qIdx; aln.push_back(1);}
+                    // gappyColumns.first.pop();
+                    // gappyColumns.second.pop();
+                    if (gapRLen >= gapQLen) {
+                        for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+                        for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
+                    }
+                    else {
+                        for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+                        for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
+                    }
                     gappyColumns.first.pop();
                     gappyColumns.second.pop();
                     preN = false;
