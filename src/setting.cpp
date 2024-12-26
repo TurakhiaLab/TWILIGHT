@@ -70,12 +70,19 @@ msa::option::option(po::variables_map& vm) {
         std::cerr << "ERROR: An output file name is required.\n";
         exit(1);
     }
+    
     this->outFile = vm["output"].as<std::string>();
     if (fs::exists(this->outFile)) {
         std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
         exit(1);
     }
-    
+    std::ofstream outFile(this->outFile);
+    if (!outFile) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", this->outFile.c_str());
+        exit(1);
+    }
+    outFile.close();
+
     int maxSubtreeSize = (vm.count("max-subalign")) ? vm["max-subalign"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();

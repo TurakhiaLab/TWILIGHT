@@ -219,7 +219,7 @@ int main(int argc, char** argv) {
     outputAln(util, option, T);
     auto outEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds outTime = outEnd - outStart;
-    std::cout << "Output file in " <<  outTime.count() / 1000000 << " ms\n";
+    std::cout << "Output file to " << option->outFile << " in " <<  outTime.count() / 1000000 << " ms\n";
     // Calculate sum-of-pairs score
     if (vm.count("sum-of-pairs-score")) {
         auto spStart = std::chrono::high_resolution_clock::now();
