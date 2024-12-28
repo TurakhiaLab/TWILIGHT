@@ -1,23 +1,35 @@
 # TWILIGHT
 
 ## Introduction
-TWILIGHT is a tool designed for ultrafast and ultralarge multiple sequence alignment. It utilizes the TALCO method to efficiently perform global alignments with high accuracy. TWILIGHT is compatible with Linux systems and is able to take advantage of CUDA-capable GPUs for further acceleration.
-## Build Instructions
+TWILIGHT is a tool designed for ultrafast and ultralarge multiple sequence alignment. It is able to scale to millions of long nucleotide sequences (>10000 bases). TWILIGHT can run on CPU-only platforms (Linux/Mac) or take advantage of CUDA-capable GPUs for further acceleration.
+## Install
+### From source code (only tested on Linux)
 #### Please make sure if you have the below libraries installed
 ```
 sudo apt-get install libboost-all-dev # BOOST
 sudo apt-get install libtbb2 # TBB 2.0
 ```
-#### Install and compile
+#### Clone the repository and compile
 ```
 git clone https://github.com/TurakhiaLab/TWILIGHT.git
 mkdir TWILIGHT/build && cd TWILIGHT/build
 wget https://github.com/oneapi-src/oneTBB/archive/2019_U9.tar.gz
 tar -xvzf 2019_U9.tar.gz
 cmake  -DTBB_DIR=${PWD}/oneTBB-2019_U9  -DCMAKE_PREFIX_PATH=${PWD}/oneTBB-2019_U9/cmake  ..
-make twilight
+make
 ```
-
+### Using Docker locally (recommanded for MAC users)
+This docker image only supports the CPU version of TWILIGHT. If you would like to use the GPU-accelerated version, please build it from source code.
+#### Clone the repository
+```
+git clone https://github.com/TurakhiaLab/TWILIGHT.git
+cd TWILIGHT
+```
+#### Build the image and run the container
+```
+docker build -t twilight_image .
+docker run -it twilight_image
+```
 ## Run Instructions
 #### See Help for more details
 ```
