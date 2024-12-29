@@ -128,6 +128,7 @@ void readFrequency(msa::utility* util, msa::option* option) {
         }
     }
     // for (const auto & msaFile : fs::directory_iterator(path)) {
+    std::sort(files.begin(), files.end());
     for (auto msaFileName: files) {
         // std::string msaFileName = msaFile.path();
         gzFile f_rd = gzopen(msaFileName.c_str(), "r");
@@ -146,6 +147,8 @@ void readFrequency(msa::utility* util, msa::option* option) {
                 seqName = kseq_rd->name.s;
                 subroots.push_back(seqName);
                 msaLens.push_back(msaLen);
+                util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
+        
             }
             else {
                 if (seqLen != msaLen) {
@@ -154,15 +157,8 @@ void readFrequency(msa::utility* util, msa::option* option) {
                 }
             }
             std::string seq = std::string(kseq_rd->seq.s, seqLen);
-            seqs.push_back(seq);
-            ++seqNum;
-        }
-        kseq_destroy(kseq_rd);
-        gzclose(f_rd);
-        util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
-        for (auto seq: seqs) {
             tbb::this_task_arena::isolate( [&]{
-            tbb::parallel_for(tbb::blocked_range<int>(0, msaLen), [&](tbb::blocked_range<int> r) {
+            tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
             for (int j = r.begin(); j < r.end(); ++j) {
                 if      (seq[j] == 'A' || seq[j] == 'a') util->profileFreq[subtreeIdx][j][0]+=1.0;
                 else if (seq[j] == 'C' || seq[j] == 'c') util->profileFreq[subtreeIdx][j][1]+=1.0;
@@ -174,7 +170,27 @@ void readFrequency(msa::utility* util, msa::option* option) {
             }
             });
             });
+            // seqs.push_back(seq);
+            ++seqNum;
         }
+        kseq_destroy(kseq_rd);
+        gzclose(f_rd);
+        // util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
+        // for (auto seq: seqs) {
+        //     tbb::this_task_arena::isolate( [&]{
+        //     tbb::parallel_for(tbb::blocked_range<int>(0, msaLen), [&](tbb::blocked_range<int> r) {
+        //     for (int j = r.begin(); j < r.end(); ++j) {
+        //         if      (seq[j] == 'A' || seq[j] == 'a') util->profileFreq[subtreeIdx][j][0]+=1.0;
+        //         else if (seq[j] == 'C' || seq[j] == 'c') util->profileFreq[subtreeIdx][j][1]+=1.0;
+        //         else if (seq[j] == 'G' || seq[j] == 'g') util->profileFreq[subtreeIdx][j][2]+=1.0;
+        //         else if (seq[j] == 'T' || seq[j] == 't' ||
+        //                  seq[j] == 'U' || seq[j] == 'u') util->profileFreq[subtreeIdx][j][3]+=1.0;
+        //         else if (seq[j] == '-')                  util->profileFreq[subtreeIdx][j][5]+=1.0;
+        //         else                                     util->profileFreq[subtreeIdx][j][4]+=1.0;
+        //     }
+        //     });
+        //     });
+        // }
         if (option->printDetail) {
             std::cout << "File " << subtreeIdx << '(' << msaFileName << ") Num: " << seqNum << ", Length: " << msaLen << '\n';
         }
@@ -336,6 +352,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             }
         }
         // for (const auto & msaFile : fs::directory_iterator(path)) totalFile += 1;
+        std::sort(files.begin(), files.end());
         for (auto msaFile : files) {
             std::string msaFileName = msaFile;
             gzFile f_rd = gzopen(msaFileName.c_str(), "r");
@@ -343,7 +360,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
                 exit(1);
             }
-            msaFileName = msaFileName.substr(option->msaDir.size()+1, msaFileName.size());
+            msaFileName = msaFileName.substr(option->msaDir.size(), msaFileName.size());
             std::string subtreeSeqFile = option->tempDir + '/' + msaFileName + ".final.aln";
             std::cout << "Start writing " << subtreeSeqFile << " (" << subtreeIdx+1 << '/' << totalFile << ")\n";
             kseq_t* kseq_rd = kseq_init(f_rd);
