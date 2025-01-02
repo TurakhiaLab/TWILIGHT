@@ -186,7 +186,7 @@ msa::option::option(po::variables_map& vm) {
     this->outType = outType;
     this->merger = merger;
     this->printDetail = vm.count("verbose");
-    this->deleteTemp = vm.count("delete-temp");
+    this->deleteTemp = !vm.count("keep-temp");
 }
 
 void msa::utility::changeStorage(int idx) {

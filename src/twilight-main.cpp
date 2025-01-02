@@ -34,7 +34,7 @@ void parseArguments(int argc, char** argv)
         ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR, CIGAR stands for CIGAR-like compressed format.")
         ("merge-subtrees", po::value<std::string>()->default_value("p"), "t: Transitivity merger, p: Profile-Profile alignment. Used when specifying the maximum subalignment size. (-a option)")
         ("psgop", po::value<std::string>(), "y: Enable, n: Disable position-specific gap open penalty. If not specified, it will be detected automatically.")
-        ("delete-temp", "Delete the temporary directory.")
+        ("keep-temp", "Keep the temporary directory.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment, have to be used with -o option")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("help,h", "Print help messages");
