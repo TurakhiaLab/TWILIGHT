@@ -45,20 +45,20 @@ docker run -it twilight_image
 ```
 #### For large dataset, divide into multiple subalignments and align sequentially to reduce memory usage
 ```
-./twilight -t <tree file> -i <sequence file> -o <output file> -d <temporary directory> -a <max subalignment size> --merge-subtree <merger method>
+./twilight -t <tree file> -i <sequence file> -o <output file> -d <temporary directory> -a <max subalignment size>
 ```
 
 
 ## Sample commands for the provided test data
 #### Build MSA on difficult alignment (more gappy) 
 ```
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --psgop y
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y
 ```
 #### Build MSA on short-branched sequences
 ```
-./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln --gappy 1 --psgop n
+./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n
 ```
 #### Divide into multiple subalignments and align sequentially
 ```
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -d RNASim_temp -a 200 --psgop y
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -d RNASim_temp -a 200 -p y
 ```
