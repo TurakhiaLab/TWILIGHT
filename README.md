@@ -18,7 +18,7 @@ tar -xvzf 2019_U9.tar.gz
 cmake  -DTBB_DIR=${PWD}/oneTBB-2019_U9  -DCMAKE_PREFIX_PATH=${PWD}/oneTBB-2019_U9/cmake  ..
 make
 ```
-### Using Docker locally (recommanded for MAC users)
+### Using Docker locally (recommended for MAC users)
 This docker image only supports the CPU version of TWILIGHT. If you would like to use the GPU-accelerated version, please build it from source code.
 #### Clone the repository
 ```
@@ -35,30 +35,29 @@ docker run -it twilight_image
 ```
 ./twilight -h
 ```
-#### Build MSA from raw sequences
+#### Fast mode
 ```
 ./twilight -t <tree file> -i <sequence file> -o <output file>
 ```
-#### Merge multiple MSA files
+#### Memory-friendly mode
+```
+./twilight -t <tree file> -i <sequence file> -o <output file> -d <temporary directory> -a <maximum subalignment size>
+```
+#### Merge mode
 ```
 ./twilight -f <directory containing all MSA files> -o <output file>
 ```
-#### For large dataset, divide into multiple subalignments and align sequentially to reduce memory usage
-```
-./twilight -t <tree file> -i <sequence file> -o <output file> -d <temporary directory> -a <max subalignment size>
-```
-
 
 ## Sample commands for the provided test data
-#### Build MSA on difficult alignment (more gappy) 
+#### Fast mode on gappy alignments
 ```
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y
 ```
-#### Build MSA on short-branched sequences
+#### Fast mode on short-branched sequences
 ```
 ./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n
 ```
-#### Divide into multiple subalignments and align sequentially
+#### Memory-friendly mode
 ```
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -d RNASim_temp -a 200 -p y
 ```
