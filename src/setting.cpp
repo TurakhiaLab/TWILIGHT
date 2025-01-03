@@ -40,6 +40,7 @@ Params::Params(po::variables_map& vm) {
         this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     if (vm.count("verbose")) {
+        std::cout << "======== Paremeters ========\n";
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
                 std::cout << std::setw(5) << this->scoringMatrix[i][j];
@@ -48,6 +49,7 @@ Params::Params(po::variables_map& vm) {
         }
         std::cout << "GapOpen: " << this->gapOpen << " / GapExtend: " << this->gapExtend << " / Xdrop: " << this->xdrop << '\n';
     }
+    std::cout << "============================\n";
 }
 
 msa::option::option(po::variables_map& vm) {
@@ -86,7 +88,7 @@ msa::option::option(po::variables_map& vm) {
     int maxSubtreeSize = (vm.count("max-subalign")) ? vm["max-subalign"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
-    int cpuNum = (vm.count("cpu-num")) ? vm["cpu-num"].as<int>() : maxCpuThreads;
+    int cpuNum = (vm.count("cpu")) ? vm["cpu"].as<int>() : maxCpuThreads;
     if (cpuNum <= 0) {
         std::cerr << "ERROR: Requested cpu cores <= 0.\n";
         exit(1);
@@ -95,11 +97,10 @@ msa::option::option(po::variables_map& vm) {
         std::cerr << "ERROR: Requested cpu cores more available threads.\n";
         exit(1);
     }
-    printf("Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
-    float gappyVertical = vm["gappy"].as<float>();
+    float gappyVertical = vm["rgc"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
-        std::cerr << "ERROR: The value of gappy should be in (0,1]\n";
+        std::cerr << "ERROR: The value of rgc should be in (0,1]\n";
         exit(1);
     }
     if (vm.count("gappy-horizon")) {
@@ -150,7 +151,7 @@ msa::option::option(po::variables_map& vm) {
         std::cerr << "ERROR: Unrecognized output type \"" << outType <<"\"\n";
         exit(1);
     }
-    std::string merger = vm["merge-subtrees"].as<std::string>();
+    std::string merger = vm["merge"].as<std::string>();
     if (merger == "T" || merger == "t") merger = "transitivity";
     else if (merger == "P" || merger == "p") merger = "profile";
     else {
@@ -187,6 +188,19 @@ msa::option::option(po::variables_map& vm) {
     this->merger = merger;
     this->printDetail = vm.count("verbose");
     this->deleteTemp = !vm.count("keep-temp");
+
+    
+    std::cout << "====== Configuration =======\n";
+    if (this->maxSubtree != INT32_MAX) 
+    std::cout << "Max-subalignment: " << this->maxSubtree << '\n';
+    if (this->maxSubSubtree != INT32_MAX) 
+    std::cout << "Max-subtree: " << this->maxSubSubtree << '\n';
+    if (this->gappyVertical == 1) 
+    std::cout << "Disable removing gappy columns.\n";
+    else
+    std::cout << "Removing gappy columns: " << this->gappyVertical << '\n';
+    printf("Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
+    
 }
 
 void msa::utility::changeStorage(int idx) {
