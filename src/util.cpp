@@ -251,30 +251,28 @@ void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* ut
 
 void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs) {
     std::vector<std::pair<std::string, std::string>> seqs;    
-
     if (option->alnMode == 0) {
         util->seqsIdx.clear();
-        std::string seqFileName = option->seqFile;
+        // std::string seqFileName = option->seqFile;
         std::map<int, std::pair<std::string, std::string>> rawSeqs;
         tbb::spin_rw_mutex  writeMutex;
         std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
         int proceeded = 0;    
         for (auto subroot: partition->partitionsRoot) {
-            gzFile f_rd = gzopen(seqFileName.c_str(), "r");
-            if (!f_rd) { fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str()); exit(1);}
-            kseq_t* kseq_rd = kseq_init(f_rd);
             int subtreeIdx = tree->allNodes[subroot.first]->grpID;
+            std::string subalnFileName = option->tempDir + "/subtree-" + std::to_string(subtreeIdx) + ".subalignment.aln";
+            gzFile f_rd = gzopen(subalnFileName.c_str(), "r");
+            if (!f_rd) { fprintf(stderr, "ERROR: cant open file: %s\n", subalnFileName.c_str()); exit(1);}
+            kseq_t* kseq_rd = kseq_init(f_rd);
             ++proceeded;
             std::cout << "Start writing alignment of subtree No. " << subtreeIdx << ". (" << proceeded << '/' << partition->partitionsRoot.size() << ")\n";
             Tree* subT = new Tree(subroot.second.first);
             int s = 0;
             while (kseq_read(kseq_rd) >= 0) {
                 std::string seqName = kseq_rd->name.s;
-                if (subT->allNodes.find(seqName) != subT->allNodes.end()) {
-                    size_t seqLen = kseq_rd->seq.l;
-                    rawSeqs[s] = std::make_pair(seqName, std::string(kseq_rd->seq.s, seqLen));
-                    ++s;
-                }
+                size_t seqLen = kseq_rd->seq.l;
+                rawSeqs[s] = std::make_pair(seqName, std::string(kseq_rd->seq.s, seqLen));
+                ++s;
             }
             kseq_destroy(kseq_rd);
             gzclose(f_rd);
@@ -282,27 +280,8 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             tbb::parallel_for(tbb::blocked_range<int>(0, rawSeqs.size()), [&](tbb::blocked_range<int> range){ 
             for (int n = range.begin(); n < range.end(); ++n) {
                 std::string seqName = rawSeqs[n].first;
-                std::string rawSeq = rawSeqs[n].second;
-                std::string updatedSeq = "", alnSeq = "";
-                size_t r = 0;
-                std::string num_s = "";
-                for (size_t i = 0; i < util->seqsCIGAR[seqName].size(); ++i) {
-                    if (util->seqsCIGAR[seqName][i] == 'M') {
-                        int num = std::stoi(num_s.c_str());
-                        num_s = "";
-                        for (int k = 0; k < num; ++k) {updatedSeq += rawSeq[r]; ++r;}
-                    }
-                    else if (util->seqsCIGAR[seqName][i] == 'D') {
-                        int num = std::stoi(num_s.c_str());
-                        num_s = "";
-                        for (int k = 0; k < num; ++k) updatedSeq += '-';
-                    }
-                    else {
-                        num_s += util->seqsCIGAR[seqName][i];
-                    }
-                }
-                assert(r == rawSeq.size());            
-                r = 0;
+                std::string updatedSeq = rawSeqs[n].second, alnSeq = "";
+                size_t r = 0;         
                 for (size_t j = 0; j < tree->allNodes[subroot.first]->msaAln.size(); ++j) {
                     if ((tree->allNodes[subroot.first]->msaAln[j] & 0xFFFF) == 0 || (tree->allNodes[subroot.first]->msaAln[j] & 0xFFFF) == 2) {
                         alnSeq += updatedSeq[r];
@@ -330,6 +309,11 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             delete subT;
             seqs.clear();
             rawSeqs.clear();
+            if (option->deleteTemp) {
+                std::string command = "rm " + subalnFileName;
+                int delResult = system(command.c_str());
+                if (delResult != 0) std::cerr << "ERROR: Unable to delete subalignment file.\n";
+            }
         }
         tree->root->msa.clear();
     }
@@ -414,6 +398,35 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
     }
     return;
 }
+
+void outputSubAln(msa::utility* util, msa::option* option, Tree* T, int subtreeIdx) {
+    std::string fileName = option->tempDir + "/subtree-" + std::to_string(subtreeIdx) + ".subalignment.aln";
+    std::ofstream outFile(fileName);
+    if (!outFile) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+        exit(1);
+    }
+    std::vector<std::string> seqs;
+    for (auto seq: util->seqsIdx)
+        seqs.push_back(seq.first);
+    size_t seqLen = util->seqsLen[T->root->identifier];
+    std::cout << "Subalignment Length: " << seqLen << '\n';
+    std::sort(seqs.begin(), seqs.end(), cmp);
+    for (int s = 0; s < seqs.size(); ++s) {
+        int sIdx = util->seqsIdx[seqs[s]];
+        int storage = util->seqsStorage[sIdx];
+        if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+            outFile << '>' << seqs[s] << "\n";
+            outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
+            outFile << '\n';
+        }
+        // util->seqFree(sIdx);
+    }
+    // util->seqsFree();
+    outFile.close();
+    return;
+}
+
 
 void outputAln(msa::utility* util, msa::option* option, Tree* T) {
     std::string fileName = option->outFile;
@@ -553,6 +566,7 @@ void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, 
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
         exit(1);
     }
+    std::sort(seqs.begin(), seqs.end(), cmp2);
     // int alnLen = seqs.begin()->second.size();
     for (auto it = seqs.begin(); it != seqs.end(); ++it) {
         // assert(it->second.size() == alnLen);
@@ -604,6 +618,11 @@ bool cmp(std::string a, std::string b) {
     return a < b;
 }
 
+bool cmp2(std::pair<std::string, std::string> a, std::pair<std::string, std::string> b) {
+    if (a.first.size() != b.first.size()) return a.first.size() < b.first.size();
+    return a.first < b.first;
+}
+
 void getSubtreeNewick(Node* root, std::string& outputString) {
 	if(root->children.size() != 0) {
 		outputString += "(";
@@ -640,7 +659,7 @@ void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util) {
 
 void storeFreq(msa::utility* util, Tree* T, int grpID) {
     int seqLen = util->seqsLen[T->root->identifier];
-    std::cout << "Alignment Length: " << seqLen << '\n';
+    // std::cout << "Alignment Length: " << seqLen << '\n';
     util->profileFreq[grpID] = std::vector<std::vector<float>> (seqLen, std::vector<float> (6, 0.0));
     float totalWeight = 0;
     for (auto sIdx: T->root->msaIdx) totalWeight += T->allNodes[util->seqsName[sIdx]]->weight;

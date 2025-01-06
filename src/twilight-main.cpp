@@ -141,12 +141,13 @@ int main(int argc, char** argv) {
                 if (P->partitionsRoot.size() > 1) {
                     auto storeStart = std::chrono::high_resolution_clock::now();
                     storeFreq(util, subT, subtree);
-                    util->storeCIGAR();
+                    outputSubAln(util, option, subT, subtree);
+                    // util->storeCIGAR();
                     util->seqsFree();
                     util->clearAll();
                     auto storeEnd = std::chrono::high_resolution_clock::now();
                     std::chrono::nanoseconds storeTime = storeEnd - storeStart;
-                    std::cout << "Stored the sub-alignments in " << storeTime.count() / 1000000 << " ms.\n";
+                    std::cout << "Stored the subalignments in " << storeTime.count() / 1000000 << " ms.\n";
                 }
                 delete subP;
                 delete subT;
@@ -160,7 +161,7 @@ int main(int argc, char** argv) {
         if (P->partitionsRoot.size() > 1) {
             auto alnSubtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnSubtreeTime = alnSubtreeEnd - alnSubtreeStart;
-            std::cout << "Finsihed all sub-alignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
+            std::cout << "Finsihed all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
         }
         if (P->partitionsRoot.size() > 1) {
             util->nowProcess = 2; // merge subtrees
@@ -171,21 +172,21 @@ int main(int argc, char** argv) {
                 mergeSubtrees (T, newT, util, option, *param);
                 auto alnEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-                std::cout << "Merge " << newT->allNodes.size() << " sub-alignments in " << alnTime.count() / 1000000 << " ms\n";
+                std::cout << "Merge " << newT->allNodes.size() << " subalignments in " << alnTime.count() / 1000000 << " ms\n";
             }
             else if (option->merger == "profile") {
                 auto alnStart = std::chrono::high_resolution_clock::now();
                 mergeSubtrees (T, newT, util, option, *param);
                 auto alnEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-                std::cout << "Profile alignment on " << newT->allNodes.size() << " sub-alignments in " << alnTime.count() / 1000000 << " ms\n";
+                std::cout << "Profile alignment on " << newT->allNodes.size() << " subalignments in " << alnTime.count() / 1000000 << " ms\n";
             }
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
             outputFinal (T, P, util, option, totalSeqs);
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
-            std::cout << "Output " << newT->allNodes.size() << " sub-alignments (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
+            std::cout << "Output " << newT->allNodes.size() << " subalignments (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
         }
     }
     else { // Twilight-Mer

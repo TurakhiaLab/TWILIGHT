@@ -31,6 +31,7 @@ void readFrequency(msa::utility* util, msa::option* option);
 
 // output
 void outputAln(msa::utility* util, msa::option* option, Tree* T);
+void outputSubAln(msa::utility* util, msa::option* option, Tree* T, int subtreeIdx);
 void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID);
 void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option);
 void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx);
@@ -40,6 +41,7 @@ void outputSubtreeCIGAR(std::string fileName, std::vector<std::pair<std::string,
 
 // auxiliary
 bool cmp(std::string a, std::string b);
+bool cmp2(std::pair<std::string, std::string> a, std::pair<std::string, std::string> b);
 void getSubtreeNewick(Node* root, std::string& outputString);
 double calSPScore(std::string alnFile, msa::utility* util, Params* param);
 void storeFreq(msa::utility* util, Tree* T, int grpID);
