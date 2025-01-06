@@ -3,7 +3,7 @@
 #endif
 
 Params::Params(po::variables_map& vm) {
-    bool userDefine = vm.count("user-defined");
+    bool userDefine = vm.count("sub-matrix");
     float gapOp = vm["gap-open"].as<float>();
     float gapEx = vm["gap-extend"].as<float>();
     float mat = vm["match"].as<float>();
@@ -30,17 +30,45 @@ Params::Params(po::variables_map& vm) {
         this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     else {
-        for (int i = 0; i < 5; ++i) {
-            for (int j = 0; j < 5; ++j) {
-                this->scoringMatrix[i][j] = this->userMatrix[i][j];
+        std::string matrixFileName = vm["sub-matrix"].as<std::string>();
+        std::ifstream matrixFile(matrixFileName);
+        if (!matrixFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", matrixFileName.c_str());
+            exit(1);
+        }
+        std::string dna;
+        std::vector<int> dnaVec;
+        int readCount = 0;
+        while (matrixFile >> dna) {
+            if (readCount < 4) {
+                if      (dna == "A" || dna == "a") dnaVec.push_back(0);
+                else if (dna == "C" || dna == "c") dnaVec.push_back(1);
+                else if (dna == "G" || dna == "g") dnaVec.push_back(2);
+                else if (dna == "T" || dna == "t" || dna == "U" || dna == "u") dnaVec.push_back(3);
+                else { std::cerr << "ERROR: Illegal nucleotide type \"" << dna << "\"\n"; exit(1);}
+                readCount++;
+            }
+            else {
+                int x = (readCount-4) / 4;
+                int y = (readCount-4) % 4;
+                int i = dnaVec[x];
+                int j = dnaVec[y];
+                this->scoringMatrix[i][j] = std::stof(dna.c_str());
+                readCount++;
             }
         }
-        this->gapOpen = this->userGapOpen; this->gapExtend = this->userGapExtend;
-        this->gapClose = this->userGapClose;
+        matrixFile.close();
+        float Nscore = vm.count("wildcard") ? (this->scoringMatrix[0][0] + this->scoringMatrix[1][1] + this->scoringMatrix[2][2] + this->scoringMatrix[3][3]) / 4 : 0.0;
+        for (int i = 0; i < 5; ++i) {
+            this->scoringMatrix[i][4] = Nscore;
+            this->scoringMatrix[4][i] = Nscore;
+        }
+        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapClose = gapCl;
         this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     if (vm.count("verbose")) {
         std::cout << "======== Paremeters ========\n";
+        std::cout << "    A    C    G    T    N   \n";
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
                 std::cout << std::setw(5) << this->scoringMatrix[i][j];

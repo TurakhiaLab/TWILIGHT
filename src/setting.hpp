@@ -24,26 +24,9 @@ struct Params
 {
     float gapOpen;
     float gapExtend; //for gap-affine
-    float gapClose;
+    float gapClose; // not used
     float xdrop; //optional for now
-    // hoxd70
-    // float userMatrix [5][5] = { {  91, -114,  -31, -123, -100},
-    //                                 {-114,  100, -125,  -31, -100},
-    //                                 { -31, -125,  100, -114, -100},
-    //                                 {-123,  -31, -114,   91, -100},
-    //                                 {-100, -100, -100, -100, -100} }; 
-    // float userGapOpen = -400;
-    // float userGapExtend = -30;
-
     float scoringMatrix [5][5];
-    float userMatrix [5][5] = { { 18, -8, 5,  -8,  0},  // a
-                                { -8, 18, -8,  5,  0},  // c
-                                {  5, -8, 18, -8,  0},  // g
-                                { -8,  5, -8, 18,  0}, // t
-                                {  0,  0,  0,  0,  0}};
-    float userGapOpen = -50;
-    float userGapClose = -50;
-    float userGapExtend = -5;
     Params(po::variables_map& vm);
 };
 
