@@ -6,7 +6,7 @@ void getGpuInfo (po::variables_map& vm, msa::option* option) {
     int maxGpuNum;
     cudaGetDeviceCount(&maxGpuNum);
     int gpuNum = (vm.count("gpu")) ? vm["gpu"].as<int>() : maxGpuNum;
-    if (gpuNum <= 0) {
+    if (gpuNum < 0) {
         std::cerr << "ERROR: Requested number of GPU <= 0.\n";
         exit(1);
     }
@@ -51,6 +51,11 @@ void getGpuInfo (po::variables_map& vm, msa::option* option) {
         }
     }
     printf("Maximum available GPUs: %d. Using %d GPUs.\n", maxGpuNum, gpuNum);
+    if (gpuNum == 0) {
+        std::cout << "WARNING: Requested 0 GPU. CPU version is used.\n";
+        option->cpuOnly = true;
+    }
+    
     option->gpuNum = gpuNum;
     option->gpuIdx = gpuIdx;
     return;
@@ -76,7 +81,7 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
     }
     auto scheduleEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds scheduleTime = scheduleEnd - progressiveStart;
-    if (option->printDetail) std::cout << "Scheduled alignment in " <<  scheduleTime.count() / 1000 << " us\n";
+    if (option->printDetail) std::cout << "Scheduling in " <<  scheduleTime.count() / 1000 << " us\n";
 
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;

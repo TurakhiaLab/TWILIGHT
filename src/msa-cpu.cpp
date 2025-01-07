@@ -23,7 +23,7 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     }
     auto scheduleEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds scheduleTime = scheduleEnd - progressiveStart;
-    if (option->printDetail) std::cout << "Scheduled alignment in " <<  scheduleTime.count() / 1000 << " us\n";
+    if (option->printDetail) std::cout << "Scheduling in " <<  scheduleTime.count() / 1000 << " us\n";
     
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;
@@ -224,7 +224,7 @@ void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option
         totalEdges += singleLevel.size();
         if (breakLoop) break;
     }
-    if (option->printDetail) std::cout << "Total Edges/Levels: " << totalEdges << '/' << totalLevels << '\n';
+    // if (option->printDetail) std::cout << "Total Edges/Levels: " << totalEdges << '/' << totalLevels << '\n';
     return;
 }
 
@@ -277,7 +277,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
             for (int s = 0; s < qryLen; ++s) hostGapEx[seqLen+s] = util->profileFreq[subtreeQry][s][5] / qryNum; 
             calculatePSGOP(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, seqLen, 0, 0, param);
         }
-        removeGappyColumns(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen, 0, 0);
+        // removeGappyColumns(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, gappyColumns, newRef, newQry, seqLen, 0, 0);
         std::vector<int8_t> aln_old, aln;
         std::vector<std::vector<float>> freqRef (newRef, std::vector<float>(6, 0.0));
         std::vector<std::vector<float>> freqQry (newQry, std::vector<float>(6, 0.0));
@@ -319,10 +319,10 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
                 talco_params.updateFLen(talco_params.fLen << 1);
             }
         }
-        std::pair<int, int> debugIdx;
-        addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
-        assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
-        tree->allNodes[nodes[nIdx].first->identifier]->msaAln = aln;
+        // std::pair<int, int> debugIdx;
+        // addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, option);
+        // assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
+        tree->allNodes[nodes[nIdx].first->identifier]->msaAln = aln_old;
         free(hostFreq);
         free(hostGapCl);
         free(hostGapEx);

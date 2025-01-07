@@ -16,11 +16,11 @@ void parseArguments(int argc, char** argv)
         ("sequences,i", po::value<std::string>(), "Input tip sequences - Fasta format (required if building MSA from raw sequences).")
         ("files,f", po::value<std::string>(), "Path to the directory containing all MSA files. MSA files - Fasta format.")
         ("output,o", po::value<std::string>(), "Output file name (required).")
-        ("cpu,c",  po::value<int>(), "Number of CPU cores. Default: all available cores.")
-        ("gpu,g",  po::value<int>(), "Number of GPUs. Default: all available GPUs.")
-        ("gpu-index", po::value<std::string>(), "Specify the GPU to use, separated by commas. Ex. 0,2,3")
-        ("max-subtree,m",  po::value<int>(), "Maximum number of leaves in a subtree within a subalignment, used for transitivity merger.")
-        ("max-subalign,a", po::value<int>(), "Maximum number of leaves in a subalignment.")
+        ("cpu,C",  po::value<int>(), "Number of CPU cores. Default: all available cores.")
+        ("gpu,G",  po::value<int>(), "Number of GPUs. Default: all available GPUs.")
+        ("gpu-index", po::value<std::string>(), "Specify the GPU to be used, separated by commas. Ex. 0,2,3")
+        ("max-group,g",  po::value<int>(), "Maximum number of leaves in a group within a subtree, used for performing transitivity merger in a subtree.")
+        ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree, used for memory-friendly mode.")
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files. Used when merging MSAs (-f option) or specifying the maximum subalignment size (-a option).")
         ("rgc,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
         // ("gappy-horizon,z", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
@@ -32,8 +32,8 @@ void parseArguments(int argc, char** argv)
         ("transition", po::value<float>()->default_value(5), "Score for transitions")
         ("gap-open",   po::value<float>()->default_value(-50), "Gap-Open penalty")
         ("gap-extend", po::value<float>()->default_value(-5), "Gap-Extend penalty")
-        ("xdrop",      po::value<float>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the Gap-Extend penalty.")
-        ("sub-matrix,x", po::value<std::string>(), "Use a user-defined substition matrix.")
+        ("xdrop",      po::value<float>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty.")
+        ("matrix,x", po::value<std::string>(), "Use a user-defined substition matrix.")
         ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR, CIGAR stands for CIGAR-like compressed format.")
         ("merge", po::value<std::string>()->default_value("p"), "t: Transitivity merger, p: Progressive alignment. Used when --max-subalign is specifiied.")
         ("keep-temp,k", "Keep the temporary directory. Used when --max-subalign is specifiied.")
@@ -82,7 +82,7 @@ int main(int argc, char** argv) {
         partitionTree(T->root, P);
         newT = reconsturctTree(T->root, P->partitionsRoot);
         if (P->partitionsRoot.size() > 1) {
-            std::cout << "Decomposed the tree into " << P->partitionsRoot.size() << " subalignments.\n";
+            std::cout << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
             outputSubtreeTrees(T, P, util, option);
         }
         // Start alignmnet on subtrees
@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
                 partitionTree(subT->root, subP);
                 auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-                if (subP->partitionsRoot.size() > 1) std::cout << "Partition the subalignment into " << subP->partitionsRoot.size() << " subtrees in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
+                if (subP->partitionsRoot.size() > 1) std::cout << "Partition the subtree into " << subP->partitionsRoot.size() << " groups in " <<  treeBuiltTime.count() / 1000000 << " ms\n";
                 // Progressive alignment on each sub-subtree
                 Tree* newSubT = nullptr;
                 if (subP->partitionsRoot.size() > 1) newSubT = reconsturctTree(subT->root, subP->partitionsRoot);
@@ -119,20 +119,19 @@ int main(int argc, char** argv) {
                     option->redo = false;
                     continue;
                 }
-                // If -l option, merge sub-subtrees with transitivity merger
+                // If -g option, merge groups with transitivity merger
                 if (subP->partitionsRoot.size() > 1) {
-                    // Align adjacent sub-subtrees to create overlap alignment
                     auto alnStart = std::chrono::high_resolution_clock::now();
                     alignSubtrees(subT, newSubT, util, option, *param);
                     auto alnEnd = std::chrono::high_resolution_clock::now();
                     std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-                    std::cout << "Aligned adjacent subtrees in " <<  alnTime.count() / 1000000 << " ms\n";
+                    std::cout << "Aligned adjacent groups in " <<  alnTime.count() / 1000000 << " ms\n";
                     auto mergeStart = std::chrono::high_resolution_clock::now();
                     mergeSubtrees (subT, newSubT, util, option, *param);
                     auto mergeEnd = std::chrono::high_resolution_clock::now();
                     std::chrono::nanoseconds mergeTime = mergeEnd - mergeStart;
                     int totalSeqs = subT->root->msaIdx.size();
-                    std::cout << "Merge " << newSubT->allNodes.size() << " subtrees (total " << totalSeqs << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
+                    std::cout << "Merge " << newSubT->allNodes.size() << " groups (total " << totalSeqs << " sequences) in " << mergeTime.count() / 1000000 << " ms\n";
                 }
                 for (auto sIdx: subT->root->msaIdx) T->allNodes[subT->root->identifier]->msaIdx.push_back(sIdx);
                 // post-alignment debugging
@@ -184,14 +183,14 @@ int main(int argc, char** argv) {
                 mergeSubtrees (T, newT, util, option, *param);
                 auto alnEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-                std::cout << "Profile alignment on " << newT->allNodes.size() << " subalignments in " << alnTime.count() / 1000000 << " ms\n";
+                std::cout << "Progressive alignment on " << newT->allNodes.size() << " subalignments in " << alnTime.count() / 1000000 << " ms\n";
             }
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
             outputFinal (T, P, util, option, totalSeqs);
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
-            std::cout << "Output " << newT->allNodes.size() << " subalignments (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
+            std::cout << "Output " << newT->allNodes.size() << " alignments (total " << totalSeqs << " sequences) in " << outTime.count() / 1000000 << " ms\n";
         }
     }
     else { // Twilight-Mer
@@ -204,7 +203,7 @@ int main(int argc, char** argv) {
         msaOnSubtree(T, util, option, P, *param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-        std::cout << "Profile alignment on " << T->allNodes.size() << " MSAs in " << alnTime.count() / 1000000 << " ms\n";
+        std::cout << "Progressive alignment on " << T->allNodes.size() << " MSAs in " << alnTime.count() / 1000000 << " ms\n";
         int totalSeqs = 0;
         auto outStart = std::chrono::high_resolution_clock::now();
         outputFinal (T, P, util, option, totalSeqs);

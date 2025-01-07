@@ -3,7 +3,7 @@
 #endif
 
 Params::Params(po::variables_map& vm) {
-    bool userDefine = vm.count("sub-matrix");
+    bool userDefine = vm.count("matrix");
     float gapOp = vm["gap-open"].as<float>();
     float gapEx = vm["gap-extend"].as<float>();
     float mat = vm["match"].as<float>();
@@ -30,7 +30,7 @@ Params::Params(po::variables_map& vm) {
         this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     else {
-        std::string matrixFileName = vm["sub-matrix"].as<std::string>();
+        std::string matrixFileName = vm["matrix"].as<std::string>();
         std::ifstream matrixFile(matrixFileName);
         if (!matrixFile) {
             fprintf(stderr, "ERROR: cant open file: %s\n", matrixFileName.c_str());
@@ -67,7 +67,7 @@ Params::Params(po::variables_map& vm) {
         this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     if (vm.count("verbose")) {
-        std::cout << "======== Paremeters ========\n";
+        std::cout << "======== Parameters ========\n";
         std::cout << "    A    C    G    T    N   \n";
         for (int i = 0; i < 5; ++i) {
             for (int j = 0; j < 5; ++j) {
@@ -113,8 +113,8 @@ msa::option::option(po::variables_map& vm) {
     }
     outFile.close();
 
-    int maxSubtreeSize = (vm.count("max-subalign")) ? vm["max-subalign"].as<int>() : INT32_MAX;
-    int maxSubSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
+    int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
+    int maxSubSubtreeSize = (vm.count("max-group")) ? vm["max-group"].as<int>() : INT32_MAX;
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     int cpuNum = (vm.count("cpu")) ? vm["cpu"].as<int>() : maxCpuThreads;
     if (cpuNum <= 0) {
@@ -142,7 +142,7 @@ msa::option::option(po::variables_map& vm) {
         gappyHorizon = 1;
     }
     
-    if (vm.count("max-subalign") || vm.count("files")) {
+    if (vm.count("max-subtree") || vm.count("files")) {
         std::string tempDir;
         if (!vm.count("temp-dir")) {
             int idx = 1;
@@ -220,9 +220,9 @@ msa::option::option(po::variables_map& vm) {
     
     std::cout << "====== Configuration =======\n";
     if (this->maxSubtree != INT32_MAX) 
-    std::cout << "Max-subalignment: " << this->maxSubtree << '\n';
+    std::cout << "Max-subtree: " << this->maxSubtree << '\n';
     if (this->maxSubSubtree != INT32_MAX) 
-    std::cout << "Max-subtree: " << this->maxSubSubtree << '\n';
+    std::cout << "Max-group: " << this->maxSubSubtree << '\n';
     if (this->gappyVertical == 1) 
     std::cout << "Disable removing gappy columns.\n";
     else

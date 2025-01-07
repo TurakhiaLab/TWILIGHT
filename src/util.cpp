@@ -256,7 +256,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
         // std::string seqFileName = option->seqFile;
         std::map<int, std::pair<std::string, std::string>> rawSeqs;
         tbb::spin_rw_mutex  writeMutex;
-        std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
+        std::cout << "Final alignment length: " << tree->allNodes[tree->root->identifier]->msaAln.size() << '\n';
         int proceeded = 0;    
         for (auto subroot: partition->partitionsRoot) {
             int subtreeIdx = tree->allNodes[subroot.first]->grpID;
