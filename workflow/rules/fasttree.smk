@@ -1,7 +1,7 @@
 
 rule fasttree_iter1:
-    input: msa="output/msa_iter1.fa",
-    output: tree="output/tree_iter1.nwk"
+    input: msa=config["work_dir"]+"/msa_iter1.fa",
+    output: tree=config["work_dir"]+"/tree_iter1.nwk"
     params:
         fasttree_exe=config["fasttree"],
         model= "-gtr -nt" if config["ft_model"] == "GTR" else "-nt"
@@ -13,8 +13,8 @@ rule fasttree_iter1:
         '''
 
 rule fasttree_iter2:
-    input: msa="output/msa_iter2.fa",
-    output: tree="output/tree_iter2.nwk"
+    input: msa=config["work_dir"]+"/msa_iter2.fa",
+    output: tree=config["work_dir"]+"/tree_iter2.nwk"
     params:
         fasttree_exe=config["fasttree"],
         model= "-gtr -nt" if config["ft_model"] == "GTR" else "-nt"
@@ -24,8 +24,8 @@ rule fasttree_iter2:
         '''
 
 rule fasttree_iter3:
-    input: msa="output/msa_iter3.fa",
-    output: tree="output/tree_iter3.nwk"
+    input: msa=config["work_dir"]+"/msa_iter3.fa",
+    output: tree=config["work_dir"]+"/tree_iter3.nwk"
     params:
         fasttree_exe=config["fasttree"],
         model= "-gtr -nt" if config["ft_model"] == "GTR" else "-nt"
@@ -35,8 +35,8 @@ rule fasttree_iter3:
         '''
 
 rule fasttree_iter4:
-    input: msa="output/msa_iter4.fa",
-    output: tree="output/tree_iter4.nwk"
+    input: msa=config["work_dir"]+"/msa_iter4.fa",
+    output: tree=config["work_dir"]+"/tree_iter4.nwk"
     params:
         fasttree_exe=config["fasttree"],
         model= "-gtr -nt" if config["ft_model"] == "GTR" else "-nt"
@@ -46,8 +46,8 @@ rule fasttree_iter4:
         '''
 
 rule fasttree_iter5:
-    input: msa="output/msa_iter5.fa",
-    output: tree="output/tree_iter5.nwk"
+    input: msa=config["work_dir"]+"/msa_iter5.fa",
+    output: tree=config["work_dir"]+"/tree_iter5.nwk"
     params:
         fasttree_exe=config["fasttree"],
         model= "-gtr -nt" if config["ft_model"] == "GTR" else "-nt"

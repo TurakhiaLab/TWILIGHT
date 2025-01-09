@@ -5,7 +5,8 @@ init_tree: "mashtree"                     # Tools for initial guide tree, only M
 iter_tree: "fasttree"                        # Other options: "fasttree", "iqtree"
 num_threads: 8                            # Number of threads
 iterations: 3                             # Number of iterations: 1-5
-final_tree: "no"                          # estimate tree after the final MSA, "yes" or "no"
+final_tree: "no"                         # estimate tree after the final MSA, "yes" or "no"
+work_dir: "working_dir"                 # directory to store MSA and tree files
 
 # Path for executable files
 # please make sure you have the correct paths if you're not using the provided docker environment
@@ -16,7 +17,7 @@ iqtree: "iqtree2"
 raxml: "raxmlHPC"
 
 # TWILIGHT command options
-psgop: "auto"            # Recommand "no" for short-branched sequences and "yes" otherwise
+psgop: "yes"            # Recommand "no" for short-branched sequences and "yes" otherwise
 max_group: 2147483647    # Default: INT32_MAX
 max_subtree: 2147483647  # Default: INT32_MAX
 rgc: 0.95                # Threshold for removing gappy columns, recommand higher threshold for similar sequences
@@ -29,4 +30,4 @@ ft_model: "GTR"          # "GTR" or "JC" (Jukes-Cantor)
 # IQTree command options
 
 # RAxML command options
-rx_model: "JC69"          # Other options: "JC69", "K80" or "HKY85"
+rx_model: "HKY85"          # Other options: "JC69", "K80" or "HKY85"

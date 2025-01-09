@@ -1,10 +1,10 @@
 
 rule raxml_iter1:
-    input: msa="output/msa_iter1.fa",
-    output: tree="output/tree_iter1.nwk"
+    input: msa=config["work_dir"]+"/msa_iter1.fa",
+    output: tree=config["work_dir"]+"/tree_iter1.nwk"
     params: 
         raxml_exe=config["raxml"],
-        model="" if config["rx_model"] != "JC69" or config["rx_model"] != "K80" or config["rx_model"] != "HKY85" else "--"+config["rx_model"]
+        model="" if config["rx_model"] != "JC69" and config["rx_model"] != "K80" and config["rx_model"] != "HKY85" else "--"+config["rx_model"]
     threads: config["num_threads"]
     shell:
         '''
@@ -14,11 +14,11 @@ rule raxml_iter1:
         '''
 
 rule raxml_iter2:
-    input: msa="output/msa_iter2.fa",
-    output: tree="output/tree_iter2.nwk"
+    input: msa=config["work_dir"]+"/msa_iter2.fa",
+    output: tree=config["work_dir"]+"/tree_iter2.nwk"
     params: 
         raxml_exe=config["raxml"],
-        model="" if config["rx_model"] != "JC69" or config["rx_model"] != "K80" or config["rx_model"] != "HKY85" else "--"+config["rx_model"]
+        model="" if config["rx_model"] != "JC69" and config["rx_model"] != "K80" and config["rx_model"] != "HKY85" else "--"+config["rx_model"]
     threads: config["num_threads"]
     shell:
         '''
@@ -28,11 +28,11 @@ rule raxml_iter2:
         '''
 
 rule raxml_iter3:
-    input: msa="output/msa_iter3.fa",
-    output: tree="output/tree_iter3.nwk"
+    input: msa=config["work_dir"]+"/msa_iter3.fa",
+    output: tree=config["work_dir"]+"/tree_iter3.nwk"
     params: 
         raxml_exe=config["raxml"],
-        model="" if config["rx_model"] != "JC69" or config["rx_model"] != "K80" or config["rx_model"] != "HKY85" else "--"+config["rx_model"]
+        model="" if config["rx_model"] != "JC69" and config["rx_model"] != "K80" and config["rx_model"] != "HKY85" else "--"+config["rx_model"]
     threads: config["num_threads"]
     shell:
         '''
@@ -42,11 +42,11 @@ rule raxml_iter3:
         '''
 
 rule raxml_iter4:
-    input: msa="output/msa_iter4.fa",
-    output: tree="output/tree_iter4.nwk"
+    input: msa=config["work_dir"]+"/msa_iter4.fa",
+    output: tree=config["work_dir"]+"/tree_iter4.nwk"
     params: 
         raxml_exe=config["raxml"],
-        model="" if config["rx_model"] != "JC69" or config["rx_model"] != "K80" or config["rx_model"] != "HKY85" else "--"+config["rx_model"]
+        model="" if config["rx_model"] != "JC69" and config["rx_model"] != "K80" and config["rx_model"] != "HKY85" else "--"+config["rx_model"]
     threads: config["num_threads"]
     shell:
         '''
@@ -56,11 +56,11 @@ rule raxml_iter4:
         '''
 
 rule raxml_iter5:
-    input: msa="output/msa_iter5.fa",
-    output: tree="output/tree_iter5.nwk"
+    input: msa=config["work_dir"]+"/msa_iter5.fa",
+    output: tree=config["work_dir"]+"/tree_iter5.nwk"
     params: 
         raxml_exe=config["raxml"],
-        model="" if config["rx_model"] != "JC69" or config["rx_model"] != "K80" or config["rx_model"] != "HKY85" else "--"+config["rx_model"]
+        model="" if config["rx_model"] != "JC69" and config["rx_model"] != "K80" and config["rx_model"] != "HKY85" else "--"+config["rx_model"]
     threads: config["num_threads"]
     shell:
         '''

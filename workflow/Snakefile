@@ -7,8 +7,8 @@ iterations = config["iterations"]
 init_tree = config["init_tree"]
 iter_tree = config["iter_tree"]
 
-finalMSA = "output/msa_iter"+str(iterations)+".fa"
-finalTree = "output/tree_iter"+str(iterations)+".nwk"
+finalMSA  = config["work_dir"]+"/msa_iter"+str(iterations)+".fa"
+finalTree = config["work_dir"]+"/tree_iter"+str(iterations)+".nwk"
 finalFile = finalTree if config["final_tree"] == "yes" else finalMSA
 
 include: "rules/twilight.smk"

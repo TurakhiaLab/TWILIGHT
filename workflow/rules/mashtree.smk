@@ -1,7 +1,7 @@
 
 rule mashtree:
     input: config["sequences"],
-    output: "output/tree_iter0.nwk"
+    output: config["work_dir"]+"/tree_iter0.nwk"
     params:
         mashtree_exe=config["mashtree"],
         tempDir=config["sequences"]+".tempDir"
