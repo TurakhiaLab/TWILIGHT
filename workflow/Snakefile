@@ -1,0 +1,28 @@
+from snakemake.utils import min_version
+min_version("7.12.1")
+
+configfile: "workflow/config.yaml"
+
+iterations = config["iterations"]
+init_tree = config["init_tree"]
+iter_tree = config["iter_tree"]
+
+finalMSA = "output/msa_iter"+str(iterations)+".fa"
+finalTree = "output/tree_iter"+str(iterations)+".nwk"
+finalFile = finalTree if config["final_tree"] == "yes" else finalMSA
+
+include: "rules/twilight.smk"
+
+if (init_tree == "mashtree"):
+	include: "rules/mashtree.smk"
+
+if (iter_tree == "fasttree"):
+	include: "rules/fasttree.smk"
+elif (iter_tree == "iqtree"):
+	include: "rules/iqtree.smk"
+elif (iter_tree == "raxml"):
+	include: "rules/raxml.smk"
+
+rule all:
+	input: finalFile
+	

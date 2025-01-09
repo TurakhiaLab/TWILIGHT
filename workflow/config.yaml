@@ -1,0 +1,32 @@
+
+# Main configuration
+sequences: "dataset/128-taxon-trial-1.fa" # input unaligned sequence file
+init_tree: "mashtree"                     # Tools for initial guide tree, only MashTree at this time
+iter_tree: "fasttree"                        # Other options: "fasttree", "iqtree"
+num_threads: 8                            # Number of threads
+iterations: 2                             # Number of iterations: 1-5
+final_tree: "yes"                          # estimate tree after the final MSA, "yes" or "no"
+
+# Path for executable files
+# please make sure you have the correct paths if you're not using the provided docker environment
+twilight: "build/twilight"
+mashtree: "mashtree"
+fasttree: "FastTreeMP"
+iqtree: "iqtree2"
+raxml: "raxmlHPC"
+
+# TWILIGHT command options
+psgop: "auto"            # Recommand "no" for short-branched sequences and "yes" otherwise
+max_group: 2147483647    # Default: INT32_MAX
+max_subtree: 2147483647  # Default: INT32_MAX
+rgc: 0.95                # Threshold for removing gappy columns, recommand higher threshold for similar sequences
+
+# MashTree command options
+
+# FastTree command options
+ft_model: "GTR"          # "GTR" or "JC" (Jukes-Cantor)
+
+# IQTree command options
+
+# RAxML command options
+rx_model: "JC69"          # Other options: "JC69", "K80" or "HKY85"
