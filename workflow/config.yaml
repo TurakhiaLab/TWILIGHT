@@ -1,11 +1,11 @@
 
 # Main configuration
-sequences: "dataset/128-taxon-trial-1.fa" # input unaligned sequence file
+sequences: "dataset/RNASim.fa" # input unaligned sequence file
 init_tree: "mashtree"                     # Tools for initial guide tree, only MashTree at this time
 iter_tree: "fasttree"                        # Other options: "fasttree", "iqtree"
 num_threads: 8                            # Number of threads
-iterations: 2                             # Number of iterations: 1-5
-final_tree: "yes"                          # estimate tree after the final MSA, "yes" or "no"
+iterations: 3                             # Number of iterations: 1-5
+final_tree: "no"                          # estimate tree after the final MSA, "yes" or "no"
 
 # Path for executable files
 # please make sure you have the correct paths if you're not using the provided docker environment
