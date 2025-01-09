@@ -142,7 +142,7 @@ msa::option::option(po::variables_map& vm) {
         gappyHorizon = 1;
     }
     
-    if (vm.count("max-subtree") || vm.count("files")) {
+    if (maxSubtreeSize < INT32_MAX || vm.count("files")) {
         std::string tempDir;
         if (!vm.count("temp-dir")) {
             int idx = 1;
