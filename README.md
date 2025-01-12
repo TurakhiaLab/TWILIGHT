@@ -2,13 +2,12 @@
 
 ## Table of Contents
 - [Overview](#overview)
-- [Getting Started](#start)
-  - [Clone the repository](#clone)
-  - [Install dependencies](#install) 
-  - [Build TWILIGHT](#custom)
-  - [Docker](#docker)
-  - [Run TWILIGHT](#run)
-  - [Example Command](#example)
+- [Clone the repository](#clone)
+- [Install dependencies](#install) 
+- [Build TWILIGHT](#custom)
+- [Docker](#docker)
+- [Run TWILIGHT](#run)
+- [Example Command](#example)
 
 <br>
 
