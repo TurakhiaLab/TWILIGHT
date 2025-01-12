@@ -1,13 +1,15 @@
-# TWILIGHT: Tall and WIde multiple sequence aLIgnment using GPU for High Throughput
+# TWILIGHT: Tall and WIde aLIGnments at High Throughput
 
 ## Table of Contents
 - [Overview](#overview)
-- [Clone the repository](#clone)
-- [Install dependencies](#install) 
-- [Build TWILIGHT](#custom)
-- [Docker](#docker)
-- [Run TWILIGHT](#run)
-- [Example Command](#example)
+- [Quick start](#start)
+  - [Unix commands](#unix)
+  - [Docker](#docker)
+- [TWILIGHT modes](#mode)
+  - [Default](#default)
+  - [Iterative](#iterative)
+- [Citation](#cite)
+
 
 <br>
 
@@ -17,26 +19,17 @@ TWILIGHT is a tool designed for ultrafast and ultralarge multiple sequence align
 
 TWILIGHT accepts unaligned sequences in FASTA format and an optional input guide tree in Newick format to generate output alignments in FASTA format. When a guide tree is unavailable, users can utilize the provided snakemake workflow to estimate trees using external tools.
 
-## <a name="clone"></a> Clone the TWILIGHT repository.
+## <a name="start"></a> Quick start
 
-```bash
-git clone https://github.com/TurakhiaLab/TWILIGHT.git
-```
-
-## <a name="install"></a> Install the required dependencies.
-
-For TWILIGHT, please make sure the following libraries are installed in your system.
+### <a name="unix"></a> Unix commands (requires sudo access to install dependant libraries)
+#### Dependent libraries
 ```
 sudo apt-get install libboost-all-dev # BOOST
 sudo apt-get install libtbb2 # TBB 2.0
 ```
-For iterative mode, please install snakemake `pip install snakemake` and tools you would like to use and configure the executable path in `workflow/config.yaml`,
-- Initial guide tree: MashTree, MAFFT(PartTree)
-- Subsequent iterations: FastTree, IQ-Tree, RAxML
-
-## <a name="custom"></a> Build TWILIGHT.
-
+#### Build TWILIGHT
 ```bash
+git clone https://github.com/TurakhiaLab/TWILIGHT.git
 cd TWILIGHT
 mkdir build && cd build
 wget https://github.com/oneapi-src/oneTBB/archive/2019_U9.tar.gz
@@ -44,20 +37,21 @@ tar -xvzf 2019_U9.tar.gz
 cmake  -DTBB_DIR=${PWD}/oneTBB-2019_U9  -DCMAKE_PREFIX_PATH=${PWD}/oneTBB-2019_U9/cmake  ..
 make
 ```
-## <a name="docker"></a> An alternative way: Use Docker.
-Clone the repository and go into the TWILIGHT directory. Docker currently only supports vanilla mode.
-```
+### <a name="docker"></a> Use Docker
+Docker currently only supports default mode.
+```bash
+git clone https://github.com/TurakhiaLab/TWILIGHT.git
+cd TWILIGHT
 docker build -t twilight_image .
 docker run -it twilight_image
 ```
-
-## <a name="run"></a> Run TWILIGHT
-### TWILIGHT vanilla mode
+## <a name="mode"></a> TWILIGHT modes
+### <a name="default"></a> Default mode
 See Help for more details
 ```
 ./twilight -h
 ```
-Default mode
+Default
 ```
 ./twilight -t <tree file> -i <sequence file> -o <output file>
 ```
@@ -69,8 +63,12 @@ Merge multiple MSAs
 ```
 ./twilight -f <directory containing all MSA files> -o <output file>
 ```
-### TWILIGHT iterative mode
-Go into the TWILIGHT directory and update the `workflow/config.yaml` file to include the path to your input unaligned sequence file, tree inference tools, the number of cpu threads, and other parameters.
+### <a name="iterative"></a> Iterative mode
+Please install snakemake `pip install snakemake` and tools you would like to use and configure the executable path in `workflow/config.yaml`.
+- Initial guide tree: MashTree, MAFFT(PartTree)
+- Subsequent iterations: FastTree, IQ-Tree, RAxML
+
+Update the `workflow/config.yaml` file to include the path to your input sequence file, tree inference tools, the number of cpu threads, and other parameters.
 
 Dry run to see the workflow
 ```
@@ -80,16 +78,5 @@ Run iterative mode
 ```
 snakemake
 ```
-## <a name="example"></a> Example commands
-Default mode
-```
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y
-```
-Align short-branched sequences
-```
-./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n
-```
-To reduce memory usage
-```
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -d RNASim_temp -a 200 -p y
-```
+## <a name="cite"></a> Citation
+TBA.
