@@ -5,8 +5,8 @@
 - [Quick start](#start)
   - [Installation](#install)
   - [Execution](#run)
-  - [Examples](#example)
   - [Iterative](#iterative)
+  - [Examples](#example)
 - [Citation](#cite)
 
 
@@ -76,7 +76,7 @@ Run iterative mode
 ```bash
 snakemake
 ```
-### <a name="Examples"></a> Example commands
+### <a name="example"></a> Example commands
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln # default configuration
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y # for gappy and divergent alignments
