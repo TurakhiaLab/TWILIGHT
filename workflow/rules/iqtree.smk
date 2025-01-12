@@ -4,13 +4,18 @@ rule iqtree_iter1:
     output: tree=config["work_dir"]+"/tree_iter1.nwk"
     params:
         iqtree_exe=config["iqtree"],
-        temp=config["work_dir"]
+        temp=config["work_dir"],
+        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        threshold=config["mask_gappy"],
+        tempFile=config["work_dir"]+"/msa_iter1.mask.fa"
     threads: config["num_threads"]
     shell:
         '''
-        {params.iqtree_exe} -s {input.msa} -T {threads}
-        mv {params.temp}/msa_iter1.fa.treefile {output}
-        rm {params.temp}/msa_iter1.fa.*
+        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
+        mv {params.temp}/msa_iter1.mask.fa.treefile {output}
+        rm {params.temp}/msa_iter1.mask.fa.*
+        rm {params.tempFile}
         '''
 
 rule iqtree_iter2:
@@ -18,13 +23,18 @@ rule iqtree_iter2:
     output: tree=config["work_dir"]+"/tree_iter2.nwk"
     params:
         iqtree_exe=config["iqtree"],
-        temp=config["work_dir"]
+        temp=config["work_dir"],
+        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        threshold=config["mask_gappy"],
+        tempFile=config["work_dir"]+"/msa_iter2.mask.fa"
     threads: config["num_threads"]
     shell:
         '''
-        {params.iqtree_exe} -s {input.msa} -T {threads}
-        mv {params.temp}/msa_iter2.fa.treefile {output}
-        rm {params.temp}/msa_iter2.fa.*
+        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
+        mv {params.temp}/msa_iter2.mask.fa.treefile {output}
+        rm {params.temp}/msa_iter2.mask.fa.*
+        rm {params.tempFile}
         '''
 
 rule iqtree_iter3:
@@ -32,13 +42,18 @@ rule iqtree_iter3:
     output: tree=config["work_dir"]+"/tree_iter3.nwk"
     params:
         iqtree_exe=config["iqtree"],
-        temp=config["work_dir"]
+        temp=config["work_dir"],
+        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        threshold=config["mask_gappy"],
+        tempFile=config["work_dir"]+"/msa_iter3.mask.fa"
     threads: config["num_threads"]
     shell:
         '''
-        {params.iqtree_exe} -s {input.msa} -T {threads}
-        mv {params.temp}/msa_iter2.fa.treefile {output}
-        rm {params.temp}/msa_iter2.fa.*
+        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
+        mv {params.temp}/msa_iter3.mask.fa.treefile {output}
+        rm {params.temp}/msa_iter3.mask.fa.*
+        rm {params.tempFile}
         '''
 
 rule iqtree_iter4:
@@ -46,13 +61,18 @@ rule iqtree_iter4:
     output: tree=config["work_dir"]+"/tree_iter4.nwk"
     params:
         iqtree_exe=config["iqtree"],
-        temp=config["work_dir"]
+        temp=config["work_dir"],
+        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        threshold=config["mask_gappy"],
+        tempFile=config["work_dir"]+"/msa_iter4.mask.fa"
     threads: config["num_threads"]
     shell:
         '''
-        {params.iqtree_exe} -s {input.msa} -T {threads}
-        mv {params.temp}/msa_iter2.fa.treefile {output}
-        rm {params.temp}/msa_iter2.fa.*
+        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
+        mv {params.temp}/msa_iter4.mask.fa.treefile {output}
+        rm {params.temp}/msa_iter4.mask.fa.*
+        rm {params.tempFile}
         '''
 
 rule iqtree_iter5:
@@ -60,11 +80,16 @@ rule iqtree_iter5:
     output: tree=config["work_dir"]+"/tree_iter5.nwk"
     params:
         iqtree_exe=config["iqtree"],
-        temp=config["work_dir"]
+        temp=config["work_dir"],
+        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        threshold=config["mask_gappy"],
+        tempFile=config["work_dir"]+"/msa_iter5.mask.fa"
     threads: config["num_threads"]
     shell:
         '''
-        {params.iqtree_exe} -s {input.msa} -T {threads}
-        mv {params.temp}/msa_iter2.fa.treefile {output}
-        rm {params.temp}/msa_iter2.fa.*
+        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
+        mv {params.temp}/msa_iter5.mask.fa.treefile {output}
+        rm {params.temp}/msa_iter5.mask.fa.*
+        rm {params.tempFile}
         '''

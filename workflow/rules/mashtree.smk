@@ -9,6 +9,6 @@ rule mashtree:
     shell:
         '''
         bash workflow/scripts/mashtree.sh {input} {params.tempDir}
-		{params.mashtree_exe} --mindepth 0 --numcpus {threads} --outtree {output} {params.tempDir}/*.fa
+		{params.mashtree_exe} --numcpus {threads} --outtree {output} {params.tempDir}/*.fa
         rm -rf {params.tempDir}
         '''

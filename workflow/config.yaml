@@ -1,20 +1,22 @@
 
 # Main configuration
-sequences: "dataset/RNASim.fa" # input unaligned sequence file
-init_tree: "mashtree"                     # Tools for initial guide tree, only MashTree at this time
-iter_tree: "fasttree"                        # Other options: "fasttree", "iqtree"
-num_threads: 8                            # Number of threads
-iterations: 3                             # Number of iterations: 1-5
-final_tree: "no"                         # estimate tree after the final MSA, "yes" or "no"
-work_dir: "working_dir"                 # directory to store MSA and tree files
+sequences: "./dataset/RNASim.fa"           # input unaligned sequence file
+init_tree: "maffttree"                     # Tree from unaligned sequences, options: "maffttree", "parttree", "mashtree"
+iter_tree: "fasttree"                      # Tree from MSA, options: "raxml", "fasttree", "iqtree"
+num_threads: 8                             # Number of threads
+iterations: 2                              # Number of iterations: 1-5
+final_tree: "no"                           # Estimate tree after the final MSA, "yes" or "no"
+work_dir: "working_dir"                    # Directory to store MSA and tree files
+mask_gappy: 0.95                           # Minimum porpotion of gappy sites that would be mask before proceed to tree inference step
 
 # Path for executable files
-# please make sure you have the correct paths if you're not using the provided docker environment
+# please make sure you have the correct paths
 twilight: "build/twilight"
 mashtree: "mashtree"
 fasttree: "FastTreeMP"
 iqtree: "iqtree2"
-raxml: "raxmlHPC"
+raxml: "raxmlHPC-PTHREADS-AVX"
+mafft: "mafft"
 
 # TWILIGHT command options
 psgop: "yes"            # Recommand "no" for short-branched sequences and "yes" otherwise
@@ -28,6 +30,8 @@ rgc: 0.95                # Threshold for removing gappy columns, recommand highe
 ft_model: "GTR"          # "GTR" or "JC" (Jukes-Cantor)
 
 # IQTree command options
+iq_model: "GTR+F"        # See the iqtree manual for more information, 
+                         # setting to "AUTO" lets iqtree find the best model
 
 # RAxML command options
-rx_model: "HKY85"          # Other options: "JC69", "K80" or "HKY85"
+rx_model: "GTR"          # Default: "GTR", other options: "JC69", "K80" or "HKY85"

@@ -15,6 +15,10 @@ include: "rules/twilight.smk"
 
 if (init_tree == "mashtree"):
 	include: "rules/mashtree.smk"
+elif (init_tree == "maffttree"):
+	include: "rules/maffttree.smk"
+elif (init_tree == "parttree"):
+	include: "rules/parttree.smk"
 
 if (iter_tree == "fasttree"):
 	include: "rules/fasttree.smk"
