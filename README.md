@@ -1,4 +1,4 @@
-# TWILIGHT
+# TWILIGHT: Tall and WIde multiple sequence aLIgnment using GPU for High Throughput
 
 ## Table of Contents
 - [Overview](#overview)
