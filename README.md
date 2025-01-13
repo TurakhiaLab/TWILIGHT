@@ -3,10 +3,10 @@
 ## Table of Contents
 - [Overview](#overview)
 - [Quick start](#start)
-  - [Installation](#install)
-  - [Execution](#run)
-  - [Iterative](#iterative)
-  - [Examples](#example)
+  - [Install TWILIGHT](#install)
+  - [Run TWILIGHT](#run)
+  - [Iterative mode](#iterative)
+  - [Example commands](#example)
 - [Citation](#cite)
 
 
@@ -16,10 +16,10 @@
 
 TWILIGHT is a tool designed for ultrafast and ultralarge multiple sequence alignment. It is able to scale to millions of long nucleotide sequences (>10000 bases). TWILIGHT can run on CPU-only platforms (Linux/Mac) or take advantage of CUDA-capable GPUs for further acceleration. 
 
-TWILIGHT default mode requires an unaligned sequence file in FASTA format and an input guide tree in Newick format to generate output alignments in FASTA format. When a guide tree is unavailable, users can utilize the iterative mode which provides a snakemake workflow to estimate guide trees using external tools.
+By default, TWILIGHT requires an unaligned sequence file in FASTA format and an input guide tree in Newick format to generate the output alignment in FASTA format. When a guide tree is unavailable, users can utilize the iterative mode, which provides a snakemake workflow to estimate guide trees using external tools.
 
 ## <a name="start"></a> Quick start
-### <a name="install"></a> Installation
+### <a name="install"></a> Install TWILIGHT
 #### Using Unix commands (requires sudo access to install dependant libraries)
 Dependent libraries
 ```
@@ -44,12 +44,12 @@ cd TWILIGHT
 docker build -t twilight_image .
 docker run -it twilight_image
 ```
-### <a name="run"></a> Execution
+### <a name="run"></a> Run TWILIGHT
 For more information about TWILIGHT's options and instructions, see Help.
 ```bash
 ./twilight -h
 ```
-To run TWILIGHT with defualt configuration:
+Run TWILIGHT with defualt configuration.
 ```bash
 ./twilight -t <guide_tree> -i <input_fasta> -o <output_fasts>
 ```
@@ -80,7 +80,7 @@ snakemake
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln # default configuration
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y # for gappy and divergent alignments
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y -d RNASim_temp -a 200 # reduce memory usage
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y -d RNASim_temp -m 200 # reduce memory usage
 ./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n # for short-branched sequences
 ./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n -x ../dataset/subsitution.txt --gap-open -20 --gap-extend -4 # using user-defined scoring system
 ```
