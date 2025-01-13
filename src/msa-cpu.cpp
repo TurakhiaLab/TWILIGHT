@@ -824,13 +824,13 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                 int backSites = 8;
                 int distance_from_gap = 0;
                 int increPenalty = false;
-                for (int d = s-1; d > std::max(s-backSites, 0); --d) {
-                    ++distance_from_gap;
-                    if (hostFreq[offsetf+6*d+5] > 0) {
-                        increPenalty = true;
-                        break;
-                    }
-                }
+                // for (int d = s-1; d > std::max(s-backSites, 0); --d) {
+                //     ++distance_from_gap;
+                //     if (hostFreq[offsetf+6*d+5] > 0) {
+                //         increPenalty = true;
+                //         break;
+                //     }
+                // }
                 hostGapOp[offsetg+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
             hostGapEx[offsetg+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*s+5])/refNum);
@@ -843,13 +843,13 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                 int backSites = 8;
                 int distance_from_gap = 0;
                 int increPenalty = false;
-                for (int d = s-1; d > std::max(s-backSites, 0); --d) {
-                    ++distance_from_gap;
-                    if (hostFreq[offsetf+6*(seqLen+d)+5] > 0) {
-                        increPenalty = true;
-                        break;
-                    }
-                }
+                // for (int d = s-1; d > std::max(s-backSites, 0); --d) {
+                //     ++distance_from_gap;
+                //     if (hostFreq[offsetf+6*(seqLen+d)+5] > 0) {
+                //         increPenalty = true;
+                //         break;
+                //     }
+                // }
                 hostGapOp[offsetg+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
             hostGapEx[offsetg+seqLen+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*(seqLen+s)+5])/qryNum);

@@ -115,6 +115,14 @@ msa::option::option(po::variables_map& vm) {
 
     int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-group")) ? vm["max-group"].as<int>() : INT32_MAX;
+    if (maxSubtreeSize <= 0) {
+        std::cerr << "ERROR: max-subtree should be a positive integer.\n";
+        exit(1);
+    }
+    if (maxSubSubtreeSize <= 0) {
+        std::cerr << "ERROR: max-group should be a positive integer.\n";
+        exit(1);
+    }
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     int cpuNum = (vm.count("cpu")) ? vm["cpu"].as<int>() : maxCpuThreads;
     if (cpuNum <= 0) {

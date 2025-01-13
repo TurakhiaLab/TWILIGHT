@@ -685,13 +685,13 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                                 int backSites = 8;
                                 int distance_from_gap = 0;
                                 int increPenalty = false;
-                                for (int d = s-1; d > max(s-backSites, 0); --d) {
-                                    ++distance_from_gap;
-                                    if (gapRatioRef[d] > 0) {
-                                        increPenalty = true;
-                                        break;
-                                    }
-                                }
+                                // for (int d = s-1; d > max(s-backSites, 0); --d) {
+                                //     ++distance_from_gap;
+                                //     if (gapRatioRef[d] > 0) {
+                                //         increPenalty = true;
+                                //         break;
+                                //     }
+                                // }
                                 hostGapOp[gn][2*seqLen*n+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
                             }
                             hostGapEx[gn][2*seqLen*n+s] = param.gapExtend * (1-(gapRatioRef[s]/refNum));
@@ -704,13 +704,13 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                                 int backSites = 8;
                                 int distance_from_gap = 0;
                                 int increPenalty = false;
-                                for (int d = s-1; d > max(s-backSites, 0); --d) {
-                                    ++distance_from_gap;
-                                    if (gapRatioQry[d] > 0) {
-                                        increPenalty = true;
-                                        break;
-                                    }
-                                }
+                                // for (int d = s-1; d > max(s-backSites, 0); --d) {
+                                //     ++distance_from_gap;
+                                //     if (gapRatioQry[d] > 0) {
+                                //         increPenalty = true;
+                                //         break;
+                                //     }
+                                // }
                                 hostGapOp[gn][2*seqLen*n+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
                             }
                             hostGapEx[gn][2*seqLen*n+seqLen+s] = param.gapExtend * (1-(gapRatioQry[s]/qryNum));
