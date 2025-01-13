@@ -1,4 +1,4 @@
-# TWILIGHT: Tall and WIde aLIGnments at High Throughput
+# TWILIGHT: Tall and Wide Alignments at High Throughput
 
 ## Table of Contents
 - [Overview](#overview)
@@ -24,7 +24,7 @@ By default, TWILIGHT requires an unaligned sequence file in FASTA format and an 
 
 ## <a name="start"></a> Quick start
 ### <a name="install"></a> Install TWILIGHT
-#### <a name="unix"></a> Using Unix commands (requires sudo access to install dependant libraries)
+#### <a name="unix"></a> Option 1: Using Unix commands (requires sudo access to install dependant libraries)
 Dependent libraries.
 ```
 sudo apt-get install libboost-all-dev # BOOST
@@ -40,7 +40,7 @@ tar -xvzf 2019_U9.tar.gz
 cmake  -DTBB_DIR=${PWD}/oneTBB-2019_U9  -DCMAKE_PREFIX_PATH=${PWD}/oneTBB-2019_U9/cmake  ..
 make
 ```
-#### <a name="docker"></a> Using Docker
+#### <a name="docker"></a> Option 2: Using Docker
 Docker currently only supports default mode.
 ```bash
 git clone https://github.com/TurakhiaLab/TWILIGHT.git
