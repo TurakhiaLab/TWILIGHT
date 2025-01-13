@@ -95,7 +95,7 @@ Reduce memory usage.
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y -d RNASim_temp -m 200
 ```
-Align short-branched sequences
+Align short-branched sequences.
 ```bash
 ./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n
 ```
