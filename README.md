@@ -78,7 +78,7 @@ The TWILIGHT iterative mode provides a snakemake workflow to estimate guide tree
 
 Update the `workflow/config.yaml` file to include the path to your input sequence file, tree inference tools, the number of cpu threads, and other parameters.
 
-Dry run to see the workflow.
+Dry run to check the workflow.
 ```bash
 snakemake -n
 ```
