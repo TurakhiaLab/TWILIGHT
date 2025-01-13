@@ -60,15 +60,15 @@ For more information about TWILIGHT's options and instructions, see Help.
 ```
 Run TWILIGHT with default configuration.
 ```bash
-./twilight -t <guide_tree> -i <input_fasta> -o <output_fasts>
+./twilight -t guide_tree -i input_fasta -o output_fasta
 ```
 Specify a maximum subtree size to reduce memory usage when memory usage is the major concern.
 ```bash
-./twilight -t <guide_tree> -i <input_fasta> -o <output_fasts> -m <maximum_subtree_size>
+./twilight -t guide_tree -i input_fasta -o output_fasta -m maximum_subtree_size
 ```
 To merge multiple MSAs, please move all MSA files into a folder.
 ```bash
-./twilight -f <folder> -o <output_fasts>
+./twilight -f folder -o output_fasta
 ```
 ### <a name="iterative"></a> Iterative mode
 
