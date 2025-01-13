@@ -5,7 +5,7 @@
 - [Quick start](#start)
   - [Install TWILIGHT](#install)
     - [Using Unix commands](#unix)
-    - [Docker](#docker)
+    - [Using Docker](#docker)
   - [TWILIGHT modes](#mode)
     - [Default mode](#default)
     - [Iterative mode](#iterative)
