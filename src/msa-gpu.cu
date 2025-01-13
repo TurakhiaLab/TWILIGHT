@@ -385,7 +385,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
                     int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
                     std::vector<int8_t> aln_old, aln;
-                    std::pair<int, int> debugIdx;
+                    
                     float refWeight = 0, qryWeight = 0; // , totalWeight = 0;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
                     for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
@@ -397,6 +397,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     }
                     else {
                         for (int j = 0; j < hostAlnLen[gn][n]; ++j) aln_old.push_back(hostAln[gn][n*2*seqLen+j]);
+                        std::pair<int, int> debugIdx = std::make_pair(0,0);
                         addGappyColumnsBack(aln_old, aln, gappyColumns[n], debugIdx, option);
                         if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                             std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
