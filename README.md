@@ -4,9 +4,11 @@
 - [Overview](#overview)
 - [Quick start](#start)
   - [Install TWILIGHT](#install)
-  - [Run TWILIGHT](#run)
-  - [Iterative mode](#iterative)
-  - [Example commands](#example)
+    - [Using Unix commands](#unix)
+    - [Docker](#docker)
+  - [TWILIGHT modes](#mode)
+    - [Default mode](#default)
+    - [Iterative mode](#iterative)
 - [Citation](#cite)
 
 
@@ -20,13 +22,13 @@ By default, TWILIGHT requires an unaligned sequence file in FASTA format and an 
 
 ## <a name="start"></a> Quick start
 ### <a name="install"></a> Install TWILIGHT
-#### Using Unix commands (requires sudo access to install dependant libraries)
-Dependent libraries
+#### <a name="unix"></a> Using Unix commands (requires sudo access to install dependant libraries)
+Dependent libraries.
 ```
 sudo apt-get install libboost-all-dev # BOOST
 sudo apt-get install libtbb2 # TBB 2.0
 ```
-Build TWILIGHT
+Build TWILIGHT.
 ```bash
 git clone https://github.com/TurakhiaLab/TWILIGHT.git
 cd TWILIGHT
@@ -36,7 +38,7 @@ tar -xvzf 2019_U9.tar.gz
 cmake  -DTBB_DIR=${PWD}/oneTBB-2019_U9  -DCMAKE_PREFIX_PATH=${PWD}/oneTBB-2019_U9/cmake  ..
 make
 ```
-#### Using Docker
+#### <a name="docker"></a> Using Docker
 Docker currently only supports default mode.
 ```bash
 git clone https://github.com/TurakhiaLab/TWILIGHT.git
@@ -44,12 +46,21 @@ cd TWILIGHT
 docker build -t twilight_image .
 docker run -it twilight_image
 ```
-### <a name="run"></a> Run TWILIGHT
+### <a name="example"></a> Example commands
+```bash
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y -d RNASim_temp -m 200
+./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n
+./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n -x ../dataset/subsitution.txt --gap-open -20 --gap-extend -4
+```
+## <a name="mode"></a> TWILIGHT modes
+### <a name="default"></a> Default mode
 For more information about TWILIGHT's options and instructions, see Help.
 ```bash
 ./twilight -h
 ```
-Run TWILIGHT with defualt configuration.
+Run TWILIGHT with default configuration.
 ```bash
 ./twilight -t <guide_tree> -i <input_fasta> -o <output_fasts>
 ```
@@ -62,27 +73,20 @@ To merge multiple MSAs, please move all MSA files into a folder.
 ./twilight -f <folder> -o <output_fasts>
 ```
 ### <a name="iterative"></a> Iterative mode
-Iterative mode provides a snakemake workflow to estimate guide trees using external tools. Please first install snakemake `pip install snakemake` and tools you would like to use and configure the executable path in `workflow/config.yaml`.
+
+The TWILIGHT iterative mode provides a snakemake workflow to estimate guide trees using external tools. Please first install snakemake `pip install snakemake` and tools you would like to use and configure the executable path in `workflow/config.yaml`.
 - Initial guide tree: MashTree, MAFFT(PartTree)
 - Subsequent iterations: FastTree, IQ-Tree, RAxML
 
 Update the `workflow/config.yaml` file to include the path to your input sequence file, tree inference tools, the number of cpu threads, and other parameters.
 
-Dry run to see the workflow
+Dry run to see the workflow.
 ```bash
 snakemake -n
 ```
-Run iterative mode
+Run the TWILIGHT iterative mode.
 ```bash
 snakemake
-```
-### <a name="example"></a> Example commands
-```bash
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln # default configuration
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y # for gappy and divergent alignments
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y -d RNASim_temp -m 200 # reduce memory usage
-./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n # for short-branched sequences
-./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n -x ../dataset/subsitution.txt --gap-open -20 --gap-extend -4 # using user-defined scoring system
 ```
 ## <a name="cite"></a> Citation
 TBA.
