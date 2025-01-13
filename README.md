@@ -6,9 +6,11 @@
   - [Install TWILIGHT](#install)
     - [Using Unix commands](#unix)
     - [Using Docker](#docker)
+    - [Example command](#example) 
   - [TWILIGHT modes](#mode)
     - [Default mode](#default)
     - [Iterative mode](#iterative)
+- [Other example commands](#o_example)
 - [Citation](#cite)
 
 
@@ -46,13 +48,9 @@ cd TWILIGHT
 docker build -t twilight_image .
 docker run -it twilight_image
 ```
-### <a name="example"></a> Example commands
+### <a name="example"></a> Example command
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y -d RNASim_temp -m 200
-./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n
-./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n -x ../dataset/substitution.txt --gap-open -20 --gap-extend -4
 ```
 ## <a name="mode"></a> TWILIGHT modes
 ### <a name="default"></a> Default mode
@@ -87,6 +85,23 @@ snakemake -n
 Run the TWILIGHT iterative mode.
 ```bash
 snakemake
+```
+## <a name="o_example"></a> Other example commands
+Align divergent sequences.
+```bash
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y
+```
+Reduce memory usage.
+```bash
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -p y -d RNASim_temp -m 200
+```
+Align short-branched sequences
+```bash
+./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n
+```
+Specify a user-defined scoring matrix.
+```bash
+./twilight -t ../dataset/sars_20.nwk -i ../dataset/sars_20.fa -o sars_20.aln -r 1 -p n -x ../dataset/substitution.txt --gap-open -20 --gap-extend -4
 ```
 ## <a name="cite"></a> Citation
 TBA.
