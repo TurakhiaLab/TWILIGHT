@@ -833,7 +833,8 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                 // }
                 hostGapOp[offsetg+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
-            hostGapEx[offsetg+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*s+5])/refNum);
+            // hostGapEx[offsetg+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*s+5])/refNum);
+            hostGapEx[offsetg+s] = (hostFreq[offsetf+6*s+5] > 0.5) ? param.gapExtend * 0.5 : param.gapExtend;
         }
         for (int s = 0; s < qryLen; ++s) {
             if (hostFreq[offsetf+6*(seqLen+s)+5] > 0) {
@@ -852,7 +853,8 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                 // }
                 hostGapOp[offsetg+seqLen+s] = (increPenalty) ? param.gapOpen * static_cast<float>((2 + ((backSites - distance_from_gap)*2.0)/backSites)) : param.gapOpen;
             }
-            hostGapEx[offsetg+seqLen+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*(seqLen+s)+5])/qryNum);
+            // hostGapEx[offsetg+seqLen+s] = param.gapExtend * (1.0-(hostFreq[offsetf+6*(seqLen+s)+5])/qryNum);
+            hostGapEx[offsetg+seqLen+s] = (hostFreq[offsetf+6*(seqLen+s)+5] > 0) ? param.gapExtend*0.5 : param.gapExtend;
         }   
     }
     else {
