@@ -4,10 +4,10 @@ sequences: "./dataset/RNASim.fa"           # input unaligned sequence file
 init_tree: "maffttree"                     # Tree from unaligned sequences, options: "maffttree", "parttree", "mashtree"
 iter_tree: "fasttree"                      # Tree from MSA, options: "raxml", "fasttree", "iqtree"
 num_threads: 8                             # Number of threads
-iterations: 2                              # Number of iterations: 1-5
+iterations: 3                              # Number of iterations: 1-5
 final_tree: "no"                           # Estimate tree after the final MSA, "yes" or "no"
 work_dir: "working_dir"                    # Directory to store MSA and tree files
-mask_gappy: 0.95                           # Minimum porpotion of gappy sites that would be mask before proceed to tree inference step
+mask_gappy: 0.995                           # Minimum porpotion of gappy sites that would be mask before proceed to tree inference step
 
 # Path for executable files
 # please make sure you have the correct paths
@@ -23,6 +23,9 @@ psgop: "yes"            # Recommand "no" for short-branched sequences and "yes" 
 max_group: 2147483647    # Default: INT32_MAX
 max_subtree: 2147483647  # Default: INT32_MAX
 rgc: 0.95                # Threshold for removing gappy columns, recommand higher threshold for similar sequences
+gapopen: -50      
+gapextend: -5     
+matrix: ""   
 
 # MashTree command options
 
