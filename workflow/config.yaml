@@ -1,6 +1,6 @@
 
 # Main configuration
-sequences: "./dataset/RNASim.fa"           # input unaligned sequence file
+sequences: "dataset/RNASim.fa"           # input unaligned sequence file
 init_tree: "maffttree"                     # Tree from unaligned sequences, options: "maffttree", "parttree", "mashtree"
 iter_tree: "fasttree"                      # Tree from MSA, options: "raxml", "fasttree", "iqtree"
 num_threads: 8                             # Number of threads
