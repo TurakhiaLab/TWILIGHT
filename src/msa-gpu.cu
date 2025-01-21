@@ -86,6 +86,7 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;
     int cpuThres = option->cpuNum * 3;
+    if (option->printDetail) std::cout << "Total " << hier.size() << " levels.\n";
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);

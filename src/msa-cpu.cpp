@@ -28,6 +28,7 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     std::unordered_map<std::string, std::string> beforeAln;
     int level = 0;
     // Perform MSA
+    if (option->printDetail) std::cout << "Total " << hier.size() << " levels.\n";
     for (auto m: hier) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);
