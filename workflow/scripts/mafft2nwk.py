@@ -47,10 +47,10 @@ else:
                 nwkStr += c
             else:
                 num = c[:cut]
-                name = c[cut+1:]
-                if seqOrder[int(num)] != name:
-                    print("Something must be wrong.", num, seqOrder[int(num)], name)
-                nwkStr += name
+                # name = c[cut+1:]
+                # if seqOrder[int(num)] != name:
+                #     print("Something must be wrong.", num, seqOrder[int(num)], name)
+                nwkStr += seqOrder[int(num)]
 
 with open(args.outtree, "w") as outFile:
     outFile.write(nwkStr)
