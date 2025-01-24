@@ -218,7 +218,7 @@ Tree::Tree(std::string newickString) {
         fprintf(stderr, "WARNING: Tree found empty!\n");
     }
 
-    treeRoot->branchLength = -1;
+    treeRoot->branchLength = 0;
     root = treeRoot;
 
     this->calLeafNum();
