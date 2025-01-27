@@ -1376,6 +1376,7 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
                 for (int chIdx = 0; chIdx < node->parent->children.size(); ++chIdx) {
                     if (node->parent->children[chIdx]->identifier == node->identifier) {
                         node->parent->children[chIdx] = children[0];
+                        children[0]->branchLength += node->branchLength;
                         children[0]->parent = node->parent;
                         break;
                     }
