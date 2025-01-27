@@ -515,7 +515,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     int32_t seqLen = 0;
     if (util->nowProcess < 2) {
         for (auto n: nodes) seqLen = std::max(seqLen, std::max(util->seqsLen[n.first->identifier], util->seqsLen[n.second->identifier]));
-        seqLen *= 2;
+        // seqLen *= 2;
     }
     else {
         for (auto n: nodes) {

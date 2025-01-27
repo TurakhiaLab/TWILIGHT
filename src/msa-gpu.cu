@@ -197,6 +197,7 @@ void msaOnSubtreeGpu (Tree* T, msa::utility* util, msa::option* option, partitio
     return;
 }
 
+
 void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
     updateNode(tree, nodes, util);
@@ -206,7 +207,6 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     // get maximum sequence/profile length 
     int32_t seqLen = 0;
     for (auto n: tree->allNodes) seqLen = (util->seqsLen[n.first] > seqLen) ? util->seqsLen[n.first] : seqLen;
-    seqLen *= 2;
     int roundGPU = nodes.size() / numBlocks + 1;
     if (nodes.size()%numBlocks == 0) roundGPU -= 1;
     if (roundGPU < gpuNum) gpuNum = roundGPU;
@@ -316,18 +316,6 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 }
                 });
                 });
-                // for (int i = 0; i < 12; ++i) {
-                // std::cout << hostLen[gn][2*i] << ':' << hostLen[gn][2*i+1] << '\n';
-                // }
-                // for (int i = 0; i < 1000; ++i) std::cout << hostFreq[gn][12*seqLen*11+6*(i)+2] << ',';
-                // std::cout << '\n';
-                // for (int i = 0; i < 1000; ++i) std::cout << hostFreq[gn][12*seqLen*11+6*(seqLen+i)+2] << ',';
-                // std::cout << '\n';
-                
-                // for (int i = 0; i < 1000; ++i) std::cout << hostGapEx[gn][2*seqLen*11+i] << ',';
-                // std::cout << '\n';
-                // for (int i = 0; i < 1000; ++i) std::cout << hostGapOp[gn][2*seqLen*11+seqLen+i] << ',';
-                // std::cout << '\n';
                 
                 hostSeqInfo[gn][0] = alnPairs;
                 hostSeqInfo[gn][1] = seqLen;
@@ -490,6 +478,7 @@ void msaGpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     return;
 }
 
+
 void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
     updateNode(tree, nodes, util);
@@ -501,7 +490,6 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
     // get maximum sequence/profile length 
     int32_t seqLen = 0;
     for (auto n: nodes) seqLen = std::max(seqLen, std::max(util->seqsLen[n.first->identifier], util->seqsLen[n.second->identifier]));
-    seqLen *= 2;
     int roundGPU = nodes.size() / numBlocks + 1;
     if (nodes.size()%numBlocks == 0) roundGPU -= 1;
     if (roundGPU < gpuNum) gpuNum = roundGPU;
@@ -780,8 +768,6 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
                 std::chrono::nanoseconds kTime = kernelEnd - kernelStart;
                 int kt = kernelTime.fetch_add(kTime.count());
                 
-                // cudaMemcpy(hostAln[gn], deviceAln[gn], 2*seqLen * numBlocks * sizeof(int8_t), cudaMemcpyDeviceToHost);
-                // cudaMemcpy(hostAlnLen[gn], deviceAlnLen[gn], numBlocks * sizeof(int32_t), cudaMemcpyDeviceToHost);
                 cudaMemcpy(hostAln[gn], deviceAln[gn], 2*seqLen * alnPairs * sizeof(int8_t), cudaMemcpyDeviceToHost);
                 cudaMemcpy(hostAlnLen[gn], deviceAlnLen[gn], alnPairs * sizeof(int32_t), cudaMemcpyDeviceToHost);
                 
@@ -912,6 +898,7 @@ void msaGpu_s(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::util
     fallback2cpu(fallbackPairs, tree, nodes, util, option);
     return;
 }
+
 
 bool comp (Node* A, Node* B) {
     return (A->msaIdx.size() > B->msaIdx.size());
