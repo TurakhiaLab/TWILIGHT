@@ -15,7 +15,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
     int32_t pairNum = seqInfo[0];    
 
     __syncthreads();
-    if (bx < pairNum) {
+    if (bx < pairNum && alnLen[bx] >= 0) {
         __shared__ int8_t tile_aln[tile_aln_size];
         __shared__ int16_t S  [3*fLen];
         __shared__ int16_t CS [3*fLen];
@@ -34,6 +34,9 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
         __shared__ bool last_tile;
         __shared__ bool converged; 
         __shared__ bool conv_logic;
+        __shared__ bool global;
+        __shared__ bool includeHead;
+        __shared__ bool reachBoundary;
         
         int32_t seqLen = seqInfo[1];
         
@@ -64,6 +67,10 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
         // initialize global values
         if (tx == 0) {
             last_tile = false;
+            reachBoundary = false;
+            global = (alnLen[bx] <= 1);
+            includeHead = (alnLen[bx] % 2 == 0);
+            alnLen[bx] = 0;
         } 
         if (tx < 2) {
             idx[tx] = 0;
@@ -102,8 +109,6 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
             int8_t tb_state = 0;
             int8_t ptr = 0;  // Main pointer
             int8_t state = 0;
-            
-
             
             int32_t prev_conv_s = -1;
 
@@ -150,6 +155,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                     __syncthreads();
                     break;
                 }
+
                 
                 // __syncthreads();
                 ptr = 0;
@@ -304,6 +310,8 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 }
                 __syncthreads();
                 
+                
+
                 int32_t newL = L[k%3];
                 int32_t newU = U[k%3];
                 while (newL <= U[k%3]) {         
@@ -323,12 +331,20 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 
                 L[(k+1)%3] = max(newL, Lprime);
                 U[(k+1)%3] = min(v1, v3); 
+
+                if (tx == 0 && !global) {
+                    int32_t seqBand = v1-Lprime;
+                    if (seqBand <= (U[k%3]-L[k%3]+1)) reachBoundary = true;
+                }
                 
-                if (tx == 0) {
+                
+                
+                
+                
+                if (tx == 0 && !reachBoundary) {
                     if ((!converged) && (k < reference_length + query_length - 2)) {
                         int32_t start = newL - L[k%3];
                         int32_t length = newU - newL;
-                        // if(bx == 1 && tx == 0 && tile >= 462 )printf("k: %d, st: %d, l: %d\n",k, start, length);
                         int32_t conv_I = CI[(k%2)*fLen+start];
                         int32_t conv_D = CD[(k%2)*fLen+start];
                         int32_t conv_S = CS[(k%3)*fLen+start];
@@ -367,7 +383,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 }
                 __syncthreads();
                 last_k = k;
-                if (conv_logic) break;
+                if (conv_logic || reachBoundary) break;
             }
             __syncthreads();
             if (tx == 0) {
@@ -384,41 +400,51 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                     tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2])/2) : 
                                                       tb_start_addr +  ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]) / 2);
                     tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
+                    // if (conv_logic && bx == 0 && tx == 0) printf("%d, %d, (%d, %d)\n", tile, conv_ref_idx, conv_query_idx);
+                
                 } 
                 else {
-                    if (last_tile == true) {
+                    if (global) {
+                        if (last_tile == true) {
+                            conv_query_idx = 0;
+                            conv_ref_idx = 0;
+                            tb_start_addr = 0;
+                            tb_start_ftr = -1;
+                            tb_state = 0; 
+                            alnLen[bx] = -1;
+                        }
+                        else if (last_k < p_marker) {
+                            conv_query_idx = query_length-1;
+                            conv_ref_idx = reference_length-1;
+                            // tb_start_addr = ftr_addr-1;
+                            tb_start_addr = ftr_addr-1;
+                            tb_start_ftr = last_k;
+                            tb_state = 0;
+                            last_tile = true;
+                        }
+                        else {
+                            conv_query_idx = CS[(last_k%3)*fLen] & 0xFF;
+                            tb_state = (CS[(last_k%3)*fLen] >> 8) & 0xFF;
+                            conv_ref_idx = p_marker - conv_query_idx; 
+                            conv_ref_idx -= (tb_state == 3) ? 1: 0;
+                            tb_start_addr = ftr_addr - ftr_length[ftr_length_idx - 1];
+                            tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2])/2) : 
+                                                              tb_start_addr +  ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]) / 2);
+
+                            tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
+                        }
+                    }
+                    else {
                         conv_query_idx = 0;
                         conv_ref_idx = 0;
                         tb_start_addr = 0;
                         tb_start_ftr = -1;
                         tb_state = 0; 
-                        alnLen[bx] = -1;
-                        // if (!xdrop) alnLen[bx] = 0;
-                        // else        alnLen[bx] = -100;
-                        // if (bx == 45) printf("op 1\n");
-                    }
-                    else if (last_k < p_marker) {
-                        conv_query_idx = query_length-1;
-                        conv_ref_idx = reference_length-1;
-                        // tb_start_addr = ftr_addr-1;
-                        tb_start_addr = ftr_addr-1;
-                        tb_start_ftr = last_k;
-                        tb_state = 0;
                         last_tile = true;
-                    }
-                    else {
-                        // if (bx == 0 && tx == 0) printf("last_k %d\n", last_k);
-                        conv_query_idx = CS[(last_k%3)*fLen] & 0xFF;
-                        tb_state = (CS[(last_k%3)*fLen] >> 8) & 0xFF;
-                        conv_ref_idx = p_marker - conv_query_idx; 
-                        conv_ref_idx -= (tb_state == 3) ? 1: 0;
-                        tb_start_addr = ftr_addr - ftr_length[ftr_length_idx - 1];
-                        // tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + (conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2]) : 
-                        //                                   tb_start_addr +  (conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]);
-                        tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2])/2) : 
-                                                          tb_start_addr +  ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]) / 2);
-
-                        tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
+                        if (tile == 0) {
+                            alnLen[bx] = -1;
+                            printf("%d: Cannot find any convergence point\n", bx);
+                        }
                     }
                 }
                 int32_t addr = tb_start_addr; 
@@ -517,35 +543,36 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
             __syncthreads();
 
             int32_t alnStartIdx = bx * 2 * seqLen + alnLen[bx];
-            int txNum = (tile > 0) ? aln_idx - 1: aln_idx;
-            if (tile == 0) {
+            int txNum = (tile == 0 && includeHead) ? aln_idx : aln_idx - 1;
+            // int txNum = (tile > 0) ? aln_idx - 1: aln_idx;
+            if (tile == 0 && includeHead) {
                 if (tx < THREAD_NUM) {
                     for (int x = tx; x < txNum; x += THREAD_NUM) aln[alnStartIdx+x] = tile_aln[aln_idx-1-x];
                 }
             }
             else {
                 if (tx < THREAD_NUM) {
-                    for (int x = tx; x < txNum; x += THREAD_NUM) aln[alnStartIdx+tx] = tile_aln[aln_idx-2-tx];
+                    for (int x = tx; x < txNum; x += THREAD_NUM) aln[alnStartIdx+x] = tile_aln[aln_idx-2-x];
                 }
             }
-            if (tx == 0) {
-                if ((reference_idx == refLen-1 || query_idx == qryLen-1)) {
-                    alnStartIdx = bx * 2 * seqLen + alnLen[bx];
-                    if (reference_idx == refLen-1 && query_idx < qryLen-1) { // dir == 1
-                        for (int q = 0; q < qryLen-query_idx-1; ++q) {
-                            aln[alnStartIdx+txNum+q] = 1;
-                        }
-                        alnLen[bx] += qryLen-query_idx-1;
-                        last_tile = true;
+            if ((reference_idx == refLen-1 || query_idx == qryLen-1) && global) {
+                alnStartIdx = bx * 2 * seqLen + alnLen[bx];
+                if (reference_idx == refLen-1 && query_idx < qryLen-1) { // dir == 1
+                    for (int q = 0; q < qryLen-query_idx-1; ++q) {
+                        aln[alnStartIdx+txNum+q] = 1;
                     }
-                    if (query_idx == qryLen-1 && reference_idx < refLen-1) { // dir == 2
-                        for (int r = 0; r < refLen-reference_idx-1; ++r) {
-                            aln[alnStartIdx+txNum+r] = 2;
-                        }
-                        alnLen[bx] += refLen-reference_idx-1;
-                        last_tile = true;
-                    }
+                    alnLen[bx] += qryLen-query_idx-1;
+                    last_tile = true;
                 }
+                if (query_idx == qryLen-1 && reference_idx < refLen-1) { // dir == 2
+                    for (int r = 0; r < refLen-reference_idx-1; ++r) {
+                        aln[alnStartIdx+txNum+r] = 2;
+                    }
+                    alnLen[bx] += refLen-reference_idx-1;
+                    last_tile = true;
+                }
+            }
+            if (tx == 0 && txNum > 0) {
                 alnLen[bx] += txNum;
                 idx[0] = reference_idx;
                 idx[1] = query_idx;

@@ -133,7 +133,7 @@ msa::option::option(po::variables_map& vm) {
         std::cerr << "ERROR: Requested cpu cores more available threads.\n";
         exit(1);
     }
-    float gappyVertical = vm["rgc"].as<float>();
+    float gappyVertical = vm["remove-gappy"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
         std::cerr << "ERROR: The value of rgc should be in (0,1]\n";
@@ -224,6 +224,7 @@ msa::option::option(po::variables_map& vm) {
     this->merger = merger;
     this->printDetail = vm.count("verbose");
     this->deleteTemp = !vm.count("keep-temp");
+    this->alignGappy = !vm.count("no-align-gappy");
 
     
     std::cout << "====== Configuration =======\n";

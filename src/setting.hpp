@@ -50,6 +50,7 @@ namespace msa
         bool psgopAuto;
         bool calSim; // calculate column similarity
         bool redo;
+        bool alignGappy;
         float divTH = 0.1;
         // ======================================
         std::string treeFile;

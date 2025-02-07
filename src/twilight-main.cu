@@ -22,7 +22,7 @@ void parseArguments(int argc, char** argv)
         ("max-group,g",  po::value<int>(), "Maximum number of leaves in a group within a subtree, used for performing transitivity merger in a subtree.")
         ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree, used for memory-friendly mode.")
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files. Used when merging MSAs (-f option) or specifying the maximum subalignment size (-a option).")
-        ("rgc,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
+        ("remove-gappy,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
         // ("gappy-horizon,z", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
         ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
         ("verbose,v", "Print out every detail process.")
@@ -38,6 +38,7 @@ void parseArguments(int argc, char** argv)
         ("merge", po::value<std::string>()->default_value("p"), "t: Transitivity merger, p: Progressive alignment. Used when --max-subalign is specifiied.")
         ("keep-temp,k", "Keep the temporary directory. Used when --max-subalign is specifiied.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment.")
+        ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("cpu-only", "Run the program only on CPU.")
         ("help,h", "Print help messages");
@@ -78,6 +79,7 @@ int main(int argc, char** argv) {
     if (option->alnMode == 0) { // Twilight
         // Partition tree into subtrees
         T = readNewick(option->treeFile);
+        // printTree(T->root, -1);
         P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
         partitionTree(T->root, P);
         newT = reconsturctTree(T->root, P->partitionsRoot);
@@ -97,7 +99,6 @@ int main(int argc, char** argv) {
             while (redo) {
                 Tree* subT = new Tree(subRoot.second.first);
                 readSequences(util, option, subT);
-                
                 auto treeBuiltStart = std::chrono::high_resolution_clock::now();
                 partitionInfo_t * subP = new partitionInfo_t(option->maxSubSubtree, 0, 0, "centroid");
                 partitionTree(subT->root, subP);
