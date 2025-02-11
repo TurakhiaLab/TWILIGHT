@@ -10,7 +10,7 @@ rule raxml_iter1:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.raxml_exe} -s {params.tempFile} -m GTRCAT -n raxml.tree -T {threads} -p 235813 {params.model}
         mv RAxML_bestTree.raxml.tree {output}
         rm *.raxml.tree
@@ -28,7 +28,7 @@ rule raxml_iter2:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.raxml_exe} -s {params.tempFile} -m GTRCAT -n raxml.tree -T {threads} -p 235813 {params.model}
         mv RAxML_bestTree.raxml.tree {output}
         rm *.raxml.tree
@@ -46,7 +46,7 @@ rule raxml_iter3:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.raxml_exe} -s {params.tempFile} -m GTRCAT -n raxml.tree -T {threads} -p 235813 {params.model}
         mv RAxML_bestTree.raxml.tree {output}
         rm *.raxml.tree
@@ -64,7 +64,7 @@ rule raxml_iter4:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.raxml_exe} -s {params.tempFile} -m GTRCAT -n raxml.tree -T {threads} -p 235813 {params.model}
         mv RAxML_bestTree.raxml.tree {output}
         rm *.raxml.tree
@@ -82,7 +82,7 @@ rule raxml_iter5:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.raxml_exe} -s {params.tempFile} -m GTRCAT -n raxml.tree -T {threads} -p 235813 {params.model}
         mv RAxML_bestTree.raxml.tree {output}
         rm *.raxml.tree

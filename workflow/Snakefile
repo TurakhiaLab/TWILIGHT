@@ -1,15 +1,68 @@
+'''
+This is a snakemake workflow for TWILIGHT iterative mode.
+
+OPTIONS
+SEQ:      Input unaligned sequence file path
+OUT:      Output MSA file path
+DIR:      Directory for storing temporary files
+ITER:     Total number of iterations, ranging from 1 to 5.
+INITTREE: Tree method for initial tree, "parttree", "maffttree", or "mashtree"
+ITERTREE: Tree method for subsequent iterations, "fasttree", "iqtree", or "raxml"
+OUTTREE:  Output Tree file path
+GETTREE:  Estimate tree after the final MSA, "yes" or "no"
+See config.yaml for more options
+
+HOW TO RUN 
+Usage syntax:
+snakemake --cores [num threads] --config SEQ=[sequence] OUT=[output] DIR=[directory] ITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
+Example:
+snakemake --cores 8 --config SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir ITER=2 INITTREE=maffttree ITERTREE=raxml OUTTREE=RNASim.tree GETTREE=yes
+
+Unspecified options will use the default options written in config.yaml
+'''
+
+import os
 from snakemake.utils import min_version
+
 min_version("7.12.1")
 
-configfile: "workflow/config.yaml"
+def checkFiles(dir, msa, tree, gettree):
+	if os.path.isdir(dir):
+		print("ERROR: %s already exists. Please use another directory name." % dir, file=sys.stderr)
+		exit(1)
+	if os.path.isfile(msa):
+		print("ERROR: %s already exists. Please use another file name." % msa, file=sys.stderr)
+		exit(1)
+	if gettree and os.path.isfile(tree):
+		print("ERROR: %s already exists. Please use another file name." % tree, file=sys.stderr)
+		exit(1)
 
-iterations = config["iterations"]
-init_tree = config["init_tree"]
-iter_tree = config["iter_tree"]
+def checkConfig(iter, inittree, itertree):
+	if int(iter) <= 0 or int(iter) > 5:
+		print("ERROR: %d iterations not supported." % iter, file=sys.stderr)
+		exit(1)
+	if str(inittree) != "maffttree" and str(inittree) != "parttree" and str(inittree) != "mashtree":
+		print("ERROR: Unrecognized tree method for initial tree. Please choose from \"parttree\", \"maffttree\" and \"mashtree\".", file=sys.stderr)
+		exit(1)
+	if str(itertree) != "fasttree" and str(itertree) != "iqtree" and str(itertree) != "raxml":
+		print("ERROR: Unrecognized tree method for subsequent iterations. Please choose from \"fasttree\", \"iqtree\" and \"raxml\".", file=sys.stderr)
+		exit(1)
 
+configfile: "config.yaml"  
+config["sequences"] = config.get("SEQ", config["sequences"])
+config["work_dir"] = config.get("DIR", config["work_dir"])
+config["output_msa"]=config.get("OUT", config["output_msa"])
+config["final_tree"]=config.get("GETTREE", config["final_tree"])
+config["output_tree"]=config.get("OUTTREE", config["output_tree"])
+iterations = int(config.get("ITER", config["iterations"]))
+init_tree = config.get("INITTREE", config["init_tree"])
+iter_tree = config.get("ITERTREE", config["iter_tree"])
 finalMSA  = config["work_dir"]+"/msa_iter"+str(iterations)+".fa"
 finalTree = config["work_dir"]+"/tree_iter"+str(iterations)+".nwk"
 finalFile = finalTree if config["final_tree"] == "yes" else finalMSA
+
+checkFiles(config["work_dir"], config["output_msa"], config["output_tree"], config["final_tree"])
+checkConfig(iterations, init_tree, iter_tree)
 
 include: "rules/twilight.smk"
 
@@ -29,4 +82,15 @@ elif (iter_tree == "raxml"):
 
 rule all:
 	input: finalFile
+	params: 
+		outputFile=config["output_msa"],
+		tempFinal=finalMSA,
+		moveTree="" if config["final_tree"] != "yes" else ("mv " + finalTree + " " + config["output_tree"]),
+		deleteDir="" if config["keep_dir"] == "yes" else ("rm -rf " + config["work_dir"])
+	shell:
+		'''
+        mv {params.tempFinal} {params.outputFile}
+		{params.moveTree}
+		{params.deleteDir}
+        '''
 	

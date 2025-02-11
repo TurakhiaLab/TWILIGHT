@@ -11,7 +11,7 @@ rule iqtree_iter1:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
         mv {params.temp}/msa_iter1.mask.fa.treefile {output}
         rm {params.temp}/msa_iter1.mask.fa.*
@@ -30,7 +30,7 @@ rule iqtree_iter2:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
         mv {params.temp}/msa_iter2.mask.fa.treefile {output}
         rm {params.temp}/msa_iter2.mask.fa.*
@@ -49,7 +49,7 @@ rule iqtree_iter3:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
         mv {params.temp}/msa_iter3.mask.fa.treefile {output}
         rm {params.temp}/msa_iter3.mask.fa.*
@@ -68,7 +68,7 @@ rule iqtree_iter4:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
         mv {params.temp}/msa_iter4.mask.fa.treefile {output}
         rm {params.temp}/msa_iter4.mask.fa.*
@@ -87,7 +87,7 @@ rule iqtree_iter5:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
         mv {params.temp}/msa_iter5.mask.fa.treefile {output}
         rm {params.temp}/msa_iter5.mask.fa.*

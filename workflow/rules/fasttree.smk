@@ -10,7 +10,7 @@ rule fasttree_iter1:
     threads: config["num_threads"]
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         export OMP_NUM_THREADS={threads}
         {params.fasttree_exe} {params.model} -fastest {params.tempFile} > {output.tree} 
         rm {params.tempFile}
@@ -26,7 +26,7 @@ rule fasttree_iter2:
         tempFile=config["work_dir"]+"/msa_iter2.mask.fa"
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.fasttree_exe} {params.model} -fastest {params.tempFile} > {output.tree} 
         rm {params.tempFile}
         '''
@@ -41,7 +41,7 @@ rule fasttree_iter3:
         tempFile=config["work_dir"]+"/msa_iter3.mask.fa"
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.fasttree_exe} {params.model} -fastest {params.tempFile} > {output.tree} 
         rm {params.tempFile}
         '''
@@ -56,7 +56,7 @@ rule fasttree_iter4:
         tempFile=config["work_dir"]+"/msa_iter4.mask.fa"
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.fasttree_exe} {params.model} -fastest {params.tempFile} > {output.tree} 
         rm {params.tempFile}
         '''
@@ -71,7 +71,7 @@ rule fasttree_iter5:
         tempFile=config["work_dir"]+"/msa_iter5.mask.fa"
     shell:
         '''
-        python3 workflow/scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.fasttree_exe} {params.model} -fastest {params.tempFile} > {output.tree} 
         rm {params.tempFile}
         '''
