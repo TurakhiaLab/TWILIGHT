@@ -12,13 +12,13 @@
 - [Run TWILIGHT](#run)
   - [Default mode](#default)
   - [Iterative mode](#iterative)
-- [Contribution](#contribution)
+- [Contributions](#contribution)
 - [Citing TWILIGHT](#cite)
 
 
 <br>
 
-## <a name="Introduction"></a> Introduction
+## <a name="intro"></a> Introduction
 
 TWILIGHT (**T**all and **Wi**de A**lig**nments at **H**igh **T**hroughput) is a tool designed for ultrafast and ultralarge multiple sequence alignment. It is able to scale to millions of long nucleotide sequences (>10000 bases). TWILIGHT can run on CPU-only platforms (Linux/Mac) or take advantage of CUDA-capable GPUs for further acceleration.
 
