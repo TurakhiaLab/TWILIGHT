@@ -8,7 +8,7 @@
 - [Introduction](#intro)
 - [Installation](#install)
   - [Using Installation Script](#script)
-  - [Using Dockerfile](#file)
+  - [Using Dockerfile](#docker)
 - [Run TWILIGHT](#run)
   - [Default mode](#default)
   - [Iterative mode](#iterative)
@@ -32,7 +32,10 @@ TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling
 </div>
 
 ## <a name="install"></a> Installation
-### <a name="script"></a> Using installation script (requires sudo access for dependencies)
+### <a name="script"></a> Using installation script (requires sudo access and only for Ubuntu)  
+
+This has been tested only on Ubuntu. Users on other platforms or systems please refer to the next section to install TWILIGHT using Docker.  
+
 **Step 0:** Dependencies  
 - Git: `sudo apt install -y git` 
 - Conda: Optional, for iterative mode  
@@ -115,7 +118,7 @@ cd build
 ./twilight -h
 ```
 
-## <a name="Run TWILIGHT"></a> Run TWILIGHT
+## <a name="run"></a> Run TWILIGHT
 ### <a name="default"></a> Default Mode
 For more information about TWILIGHT's options and instructions, see Help.
 ```bash
