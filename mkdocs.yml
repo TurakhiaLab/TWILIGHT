@@ -1,5 +1,7 @@
-site_name: My MkDocs Material Documentation
-site_url: https://sitename.example
+site_name: TWILIGHT
+repo_name: TurakhiaLab/TWILIGHT
+repo_url: https://github.com/TurakhiaLab/TWILIGHT
+
 theme:
   name: material
 
@@ -42,6 +44,14 @@ theme:
       primary: indigo
       accent: deep orange
 
+plugins:
+  - search
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/TurakhiaLab/TWILIGHT
+
 markdown_extensions:
   - pymdownx.highlight:
       anchor_linenums: true
@@ -53,4 +63,8 @@ markdown_extensions:
   - admonition
   - pymdownx.details
   - pymdownx.superfences
+
+use_directory_urls: false
+nav:
+  - Home: index.md
 
