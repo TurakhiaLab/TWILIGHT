@@ -32,7 +32,7 @@ theme:
     - scheme: slate
       toggle:
         icon: material/weather-sunny
-        name: Dark mode
+        name: Light mode
       primary: deep orange
       accent: deep purple
 
@@ -40,7 +40,7 @@ theme:
     - scheme: default
       toggle:
         icon: material/weather-night
-        name: Light mode
+        name: Dark mode
       primary: indigo
       accent: deep orange
 
