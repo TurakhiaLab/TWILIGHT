@@ -5,7 +5,7 @@
 
 
 ## Table of Contents
-- [Introduction](#intro)
+- [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
 - [Installation](#install)
   - [Using Installation Script](#script)
   - [Using Dockerfile](#docker)
@@ -120,7 +120,7 @@ cd build
 
 ## <a name="run"></a> Run TWILIGHT
 ### <a name="default"></a> Default Mode
-For more information about TWILIGHT's options and instructions, see Help.
+For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. 
 ```bash
 cd build
 ./twilight -h
@@ -165,7 +165,7 @@ Options for tree inference tools:
 ```bash
 cd workflow
 ```
-**Step 2:** See (Wiki) for more details for the configurations  
+**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations  
 
 **Step 3:** Run TWILIGHT iterative mode.  
 Usage syntax
