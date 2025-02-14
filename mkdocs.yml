@@ -1,0 +1,56 @@
+site_name: My MkDocs Material Documentation
+site_url: https://sitename.example
+theme:
+  name: material
+
+  logo: images/icon.png
+  favicon: images/icon.png
+  features:
+    # - announce.dismiss
+    - content.tabs.link
+    - content.code.annotation
+    - content.code.copy
+    - content.action.edit
+    - content.action.view
+    - content.tooltips
+    - toc.follow
+    - toc.integrate
+    - navigation.tabs
+    - navigation.sections
+    - navigation.path
+    - navigation.tabs.sticky
+    - navigation.instant.prefetch
+    - navigation.tracking
+    - navigation.footer
+    - navigation.expand
+    - search.highlight
+    - search.suggest
+  palette:
+    # Dark Mode
+    - scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Dark mode
+      primary: deep orange
+      accent: deep purple
+
+    # Light Mode
+    - scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Light mode
+      primary: indigo
+      accent: deep orange
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+

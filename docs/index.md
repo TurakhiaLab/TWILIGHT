@@ -44,6 +44,7 @@ TWILIGHT employs parallelization techniques on both CPU and GPU to maximize effi
 ## <b>Installation Methods</b>
 
 ### **Using installation script (requires sudo access)**
+This has been tested only on Ubuntu. Users on other platforms or systems please refer to the next section to install TWILIGHT using Docker.  
 
 0. Dependencies
     - Git: `sudo apt install -y git`  
