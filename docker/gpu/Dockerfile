@@ -37,8 +37,8 @@ RUN conda create -n twilight -y
 RUN echo "source activate twilight" > ~/.bashrc
 SHELL ["conda", "run", "-n", "twilight", "/bin/bash", "-c"]
 
-RUN pip install snakemake && \
-    pip install numpy
+RUN pip install snakemake
+RUN pip install numpy
 
 RUN conda install bioconda::fasttree -y # FastTree
 RUN conda install bioconda::mashtree -y # MashTree
