@@ -230,6 +230,9 @@ void Talco_xdrop::Tile (
         // int8_t tb_state_marker = 0;
 
         float denominator = refNum * qryNum;
+
+        float p_gapHead = (param.type % 2 == 0) ? param.gapBoundary : 0;
+        float p_gapTail = (param.type == 0 || param.type == 3) ? param.gapBoundary : 0;
                     
 
         int32_t L[3], U[3];
@@ -376,7 +379,7 @@ void Talco_xdrop::Tile (
                     }  
 
                     similarScore = static_cast<int32_t>(roundeven(numerator/denominator));
-                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param.gapBoundary * std::max(reference_idx + j, query_idx + i);
+                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + p_gapHead * std::max(reference_idx + j, query_idx + i);
                     else if (offsetDiag < 0)               match = similarScore;
                     else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
@@ -388,12 +391,12 @@ void Talco_xdrop::Tile (
                 
 
                 if (query_idx + i == query.size() - 1) {
-                    pos_gapOpen_ref = param.gapBoundary;
-                    pos_gapExtend_ref = param.gapBoundary;
+                    pos_gapOpen_ref = p_gapTail;
+                    pos_gapExtend_ref = p_gapTail;
                 }
                 if (reference_idx + j == reference.size() - 1) {
-                    pos_gapOpen_qry = param.gapBoundary;
-                    pos_gapExtend_qry = param.gapBoundary;
+                    pos_gapOpen_qry = p_gapTail;
+                    pos_gapExtend_qry = p_gapTail;
                 }
 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {

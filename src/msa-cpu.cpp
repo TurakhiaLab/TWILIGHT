@@ -698,6 +698,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         
         std::pair<float, float> num = std::make_pair(static_cast<float>(refNum), static_cast<float>(qryNum));
         Talco_xdrop::Params talco_params(hostParam);
+        talco_params.setType(option->alnType);
         if (refLen == 0) for (int j = 0; j < qryLen; ++j) aln_old.push_back(1);
         if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_old.push_back(2);
         while (aln_old.empty()) {

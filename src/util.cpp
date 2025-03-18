@@ -120,7 +120,6 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
                     util->alnStorage[0][i][j] != 'U' && util->alnStorage[0][i][j] != 'u'  ) ++countN;
             }
             util->lowQuality[i] = (countN > (len/10));
-            // if (util->lowQuality[i]) std::cout << name << " many Ns.\n";
         }
         // else {
         //     std::cout << name << " short sequence.\n";

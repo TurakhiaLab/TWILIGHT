@@ -632,6 +632,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                                     Talco_xdrop::Params talco_params(hostParam);
                                     if (refLen == 0) for (int j = 0; j < qryLen; ++j) aln_reduced.push_back(1);
                                     if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_reduced.push_back(2);
+                                    talco_params.setType(option->alnType);
                                     while (aln_reduced.empty()) {
                                         int16_t errorType = 0;
                                         aln_reduced.clear();

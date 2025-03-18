@@ -45,6 +45,7 @@ namespace Talco_xdrop {
         int32_t xdrop;
         int32_t fLen;
         int32_t marker;
+        int type;
 
         void updateXDrop(int32_t new_xdrop) { 
             this->xdrop = new_xdrop;
@@ -64,6 +65,8 @@ namespace Talco_xdrop {
             this->fLen = (1 << 12);
             this->marker = (1 << 10); //reduce this value to save memory
         }
+
+        void setType(int t) {this->type = t;}
     };
     
     void Align_freq (
