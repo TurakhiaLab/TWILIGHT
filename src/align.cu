@@ -37,6 +37,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
         __shared__ bool global;
         __shared__ bool includeHead;
         __shared__ bool reachBoundary;
+        __shared__ bool initGP;
         
         int32_t seqLen = seqInfo[1];
         
@@ -44,10 +45,14 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
         int32_t qryLen = len[2*bx+1];
         float refNum =  __int2float_rn(num[2*bx]);
         float qryNum =  __int2float_rn(num[2*bx+1]);
-
+        
         
         // float p_gapOpen = param[25];
+        int16_t p_gapOpen = __float2int_rn(param[25]);
         float p_gapExtend = param[26];
+        float p_gapHead = (seqInfo[2] % 2 == 0) ? param[27] : 0;
+        float p_gapTail = (seqInfo[2] == 0 || seqInfo[2] == 3) ? param[27] : 0;
+
         // float p_gapClose = param[27];
         float p_xdrop = param[28];
         float p_scoreMat [25];
@@ -70,11 +75,16 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
             reachBoundary = false;
             global = (alnLen[bx] <= 1);
             includeHead = (alnLen[bx] % 2 == 0);
+            initGP = includeHead;
             alnLen[bx] = 0;
         } 
         if (tx < 2) {
             idx[tx] = 0;
         }
+
+        // if (bx == 0 && tx == 0) {
+        //     printf("Penalty: %f, %f, %f, %f\n", p_gapOpen, p_gapExtend, p_gapHead, p_gapTail);
+        // }
 
         __syncthreads();
         
@@ -103,6 +113,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 max_score = 0;
                 converged = false;
                 conv_logic = false;
+                if (reference_idx > 0 && query_idx > 0) initGP = false;
             }
             int32_t conv_value = 0; 
             
@@ -133,6 +144,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 if (tx < fLen/maxDiv) {
                     sub_max_score_list[tx] = -(p_xdrop+1); 
                 }
+                
                 __syncthreads();
                 if (tx < maxDiv) {
                     max_score_list[tx] = -(p_xdrop+1); 
@@ -175,6 +187,9 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                     threadRound -= 1;
                     lastRound = THREAD_NUM;
                 }
+                // if (bx == 2 && tile > 462 && tx == 0) {
+                //     printf("%d, %d, %d, (%d,%d), %d, %d\n ", tile, k, ftrLen, L[k%3], U[k%3]+1, reference_length, query_length);
+                // }
                 for (int32_t rn = 0; rn < threadRound; rn += 1) {
                     int32_t activeThread = (rn != threadRound-1) ? THREAD_NUM : lastRound;
                     if (tx < activeThread) {
@@ -188,7 +203,9 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
                         int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
                         int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
-                        if ((k==0) || ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3]))) {
+                        if ((k==0) || 
+                            ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) ||
+                            (initGP && (i == 0 || j == 0))) {
                             int16_t similarScore = 0;
                             float numerator = 0;
                             int32_t refFreqIdx = reference_idx + j;
@@ -201,15 +218,31 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                                 }
                             }
                             similarScore = __float2int_rn(__fdiv_rn(numerator, denominator));
-                            if (offsetDiag < 0) match = similarScore;
-                            else                match = S[(k+1)%3*fLen+offsetDiag] + similarScore;
+                            if (initGP && (i == 0 || j == 0)) match = similarScore + p_gapHead * max(reference_idx + j, query_idx + i);
+                            // if (initGP && (i == 0 || j == 0)) {
+                            //     if (i == 0)      match = similarScore + gapExtend[2*bx*seqLen+reference_idx+j];
+                            //     else if (j == 0) match = similarScore + gapExtend[(2*bx+1)*seqLen+query_idx+i];
+                            // }
+                            else if (offsetDiag < 0) match = similarScore;
+                            else                     match = S[(k+1)%3*fLen+offsetDiag] + similarScore;
                         }
                         
                         int16_t pos_gapOpen_ref = __float2int_rn(gapOpen[2*bx*seqLen+reference_idx+j]);
                         int16_t pos_gapOpen_qry = __float2int_rn(gapOpen[(2*bx+1)*seqLen+query_idx+i]);
-                        int16_t pos_gapExtend_ref = __float2int_rn(gapExtend[2*bx*seqLen+reference_idx+j]);
-                        int16_t pos_gapExtend_qry = __float2int_rn(gapExtend[(2*bx+1)*seqLen+query_idx+i]);
-                        
+                        // int16_t pos_gapExtend_ref = __float2int_rn(gapExtend[2*bx*seqLen+reference_idx+j]);
+                        // int16_t pos_gapExtend_qry = __float2int_rn(gapExtend[(2*bx+1)*seqLen+query_idx+i]);
+                        int16_t pos_gapExtend_ref = (pos_gapOpen_ref == p_gapOpen) ? __float2int_rn(p_gapExtend) : __float2int_rn(p_gapExtend/2);
+                        int16_t pos_gapExtend_qry = (pos_gapOpen_qry == p_gapOpen) ? __float2int_rn(p_gapExtend) : __float2int_rn(p_gapExtend/2);
+
+                        if (query_idx + i == qryLen - 1) {
+                            pos_gapOpen_ref = p_gapTail;
+                            pos_gapExtend_ref = p_gapTail;
+                        }
+                        if (reference_idx + j == refLen - 1) {
+                            pos_gapOpen_qry = p_gapTail;
+                            pos_gapExtend_qry = p_gapTail;
+                        }
+
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                             delOp =  S[(k+2)%3*fLen+offsetUp] + pos_gapOpen_ref;
                             delExt = D[(k+1)%2*fLen+offsetUp] + pos_gapExtend_ref;
@@ -219,7 +252,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                             insExt = I[(k+1)%2*fLen+offsetLeft] + pos_gapExtend_qry;
                         }
                         int16_t tempI, tempD, tempH;
-
+                        
                         // Use DPX instuctions to calculate Max
                         unsigned Ext = (delExt << 16) | (insExt & 0xFFFF);
                         unsigned Op =  (delOp << 16)  | (insOp & 0xFFFF);
@@ -229,12 +262,12 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         D[(k%2)*fLen+offset] = tempD; 
                         I[(k%2)*fLen+offset] = tempI;
                         // Use DPX instuctions to calculate Max and argMax
-                        int32_t mat32 = (match << 16) | (0 & 0xFFFF);
+                        int32_t mat32 = (match << 16) | (4 & 0xFFFF);
                         int32_t ins32 = (tempI << 16) | (1 & 0xFFFF);
                         int32_t del32 = (tempD << 16) | (2 & 0xFFFF);
                         int32_t max32 = __vimax3_s32(mat32, ins32, del32);
                         tempH = (max32 >> 16) & 0xFFFF;
-                        ptr = (max32) & 0xFF;
+                        ptr = (max32) & 0x03;
                         if (tempH < max_score-p_xdrop) tempH = -inf;
                         S[(k%3)*fLen+offset] = tempH;
                         score = tempH;
@@ -266,6 +299,21 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                             } else {
                                 CS[(k%3)*fLen+offset] = CD[(k%2)*fLen+offset];
                             } 
+                            // if (bx == 2 && CI[(k%2)*fLen+offset] == -1) printf("I: %d, %d, (%d,%d)\n", tile, k, i, j);
+                            if (CI[(k%2)*fLen+offset] == -1 ) {
+                                if (i == 0 && query_idx == 0) CI[(k%2)*fLen+offset] = -2;
+                                if (j == 0 && reference_idx == 0) CI[(k%2)*fLen+offset] = -3;
+                            }
+                            // if (bx == 2 && CD[(k%2)*fLen+offset] == -1) printf("D: %d, %d, (%d,%d)\n", tile, k, i, j);
+                            if (CD[(k%2)*fLen+offset] == -1) {
+                                if (i == 0 && query_idx == 0) CD[(k%2)*fLen+offset] = -2;
+                                if (j == 0 && reference_idx == 0) CD[(k%2)*fLen+offset] = -3;
+                            }
+                            // if (bx == 2 && CS[(k%3)*fLen+offset] == -1) printf("S: %d, %d, (%d,%d)\n", tile, k, i, j);
+                            if (CS[(k%3)*fLen+offset] == -1) {
+                                if (i == 0 && query_idx == 0) CS[(k%3)*fLen+offset] = -2;
+                                if (j == 0 && reference_idx == 0) CS[(k%3)*fLen+offset] = -3;
+                            }
                         }
                         if (Iptr) ptr |= 0x04; 
                         if (Dptr) ptr |= 0x08;
@@ -303,7 +351,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 if (max_score_prime >= INT16_MAX - __float2int_rn(p_scoreMat[0])) {
                     if (tx == 0) {
                         last_tile = true;
-                        // printf("No.%d Max number (%d) larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d,%d)\n",  bx, max_score_prime, (INT16_MAX - __float2int_rn(p_scoreMat[0])), alnLen[bx], reference_length, query_length);
+                        // printf("No.%d Max number (%d) larger than the maximum limit (%d)! align length = %d, length left (r,q): (%d/%d,%d/%d)\n",  bx, max_score_prime, (INT16_MAX - __float2int_rn(p_scoreMat[0])), alnLen[bx], reference_length, refLen, query_length, qryLen);
                     }
                     __syncthreads();
                     break;
@@ -342,26 +390,26 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 
                 
                 if (tx == 0 && !reachBoundary) {
-                    if ((!converged) && (k < reference_length + query_length - 2)) {
+                    if ((!converged) && (k < reference_length + query_length - 2) && (k > p_marker)) {
                         int32_t start = newL - L[k%3];
                         int32_t length = newU - newL;
-                        int32_t conv_I = CI[(k%2)*fLen+start];
-                        int32_t conv_D = CD[(k%2)*fLen+start];
-                        int32_t conv_S = CS[(k%3)*fLen+start];
-                        for (int32_t i = start + 1; i <= start + length; i++ ){
-                            if (conv_I != CI[(k%2)*fLen+i]){
+                        int32_t conv_I = CI[(k%2)*fLen+start+length/2];
+                        int32_t conv_D = CD[(k%2)*fLen+start+length/2];
+                        int32_t conv_S = CS[(k%3)*fLen+start+length/2];
+                        for (int32_t i = start; i <= start + length; i++ ){
+                            if (conv_I != CI[(k%2)*fLen+i] && conv_I != CI[(k%2)*fLen+i] != -2 && conv_I != CI[(k%2)*fLen+i] != -3){
                                 conv_I = -1;
                                 break;
                             } 
                         }
-                        for (int32_t i = start + 1; i <= start + length; i++ ){
-                            if (conv_D != CD[(k%2)*fLen+i]){
+                        for (int32_t i = start; i <= start + length; i++ ){
+                            if (conv_D != CD[(k%2)*fLen+i] && conv_D != CD[(k%2)*fLen+i] != -2 && conv_D != CD[(k%2)*fLen+i] != -3){
                                 conv_D = -1;
                                 break;
                             } 
                         }
-                        for (int32_t i = start + 1; i <= start + length; i++ ){
-                            if (conv_S != CS[(k%3)*fLen+i]){
+                        for (int32_t i = start; i <= start + length; i++ ){
+                            if (conv_S != CS[(k%3)*fLen+i] && conv_S != CS[(k%3)*fLen+i] != -2 && conv_S != CS[(k%3)*fLen+i] != -3){
                                 conv_S = -1;
                                 break;
                             } 
@@ -378,12 +426,14 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                     //     conv_logic = true;
                     // }
                     if ((converged)){
+                        // if (bx == 2) printf("Conv at %d, %d, %d, %d, %d/%d, %d/%d\n", prev_conv_s, tile, k, alnLen[bx], reference_idx, refLen, query_idx, qryLen); 
                         conv_logic = true;
                     }
                 }
                 __syncthreads();
                 last_k = k;
                 if (conv_logic || reachBoundary) break;
+                        
             }
             __syncthreads();
             if (tx == 0) {
@@ -392,16 +442,36 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 int32_t tb_start_addr = 0; 
                 int32_t tb_start_ftr = 0;  
                 if (conv_logic) {       
-                    conv_query_idx = conv_value & 0xFF;
-                    tb_state = (conv_value >> 8) & 0xFF;
-                    conv_ref_idx = p_marker - conv_query_idx; 
-                    conv_ref_idx -= (tb_state == 3) ? 1: 0;
-                    tb_start_addr = ftr_addr - ftr_length[ftr_length_idx - 1];
-                    tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2])/2) : 
-                                                      tb_start_addr +  ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]) / 2);
-                    tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
-                    // if (conv_logic && bx == 0 && tx == 0) printf("%d, %d, (%d, %d)\n", tile, conv_ref_idx, conv_query_idx);
-                
+                    if (prev_conv_s != -2 && prev_conv_s != -3) {
+                        conv_query_idx = conv_value & 0xFF;
+                        tb_state = (conv_value >> 8) & 0xFF;
+                        conv_ref_idx = p_marker - conv_query_idx; 
+                        conv_ref_idx -= (tb_state == 3) ? 1: 0;
+                        tb_start_addr = ftr_addr - ftr_length[ftr_length_idx - 1];
+                        tb_start_addr = (tb_state == 3) ? tb_start_addr - ftr_length[ftr_length_idx - 2] + ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 2])/2) : 
+                                                          tb_start_addr +  ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]) / 2);
+                        tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
+                        // if (conv_logic && bx == 0 && tx == 0) printf("%d, %d, (%d, %d)\n", tile, conv_ref_idx, conv_query_idx);
+                    }
+                    else if (prev_conv_s == -2) { // i = 0
+                        // printf("G on Q: %d, %d\n", bx, tile);
+                        conv_query_idx = -1;
+                        conv_ref_idx = p_marker;
+                        // tb_start_addr = ftr_addr-1;
+                        tb_start_addr = 0;
+                        tb_start_ftr = -1;
+                        tb_state = 0;
+                    }
+                    else if (prev_conv_s == -3) { // j = 0
+                        // printf("G on R: %d, %d\n", bx, tile);
+                        
+                        conv_query_idx = p_marker;
+                        conv_ref_idx = -1;
+                        // tb_start_addr = ftr_addr-1;
+                        tb_start_addr = 0;
+                        tb_start_ftr = -1;
+                        tb_state = 0;
+                    }
                 } 
                 else {
                     if (global) {
@@ -432,6 +502,8 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                                                               tb_start_addr +  ((conv_query_idx - ftr_lower_limit[ftr_lower_limit_idx - 1]) / 2);
 
                             tb_start_ftr = (tb_state == 3) ? ftr_length_idx - 2: ftr_length_idx - 1;
+                            // if (bx == 2 && tile >= 462 && tx == 0) printf("%d, %d, %d, %d, %d, %d/%d, %d/%d\n", tile, last_k, alnLen[bx], conv_query_idx, conv_ref_idx, reference_idx, refLen, query_idx, qryLen); 
+                
                         }
                     }
                     else {
@@ -456,7 +528,8 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                 state = tb_state%3;
                 int8_t  dir = 0;
                 // if(xdrop) printf("Start Addr:%d state:%d, ftr:%d, idx:%d, ll[ftr-1]:%d\n", addr, (state & 0xFFFF), ftr, qry_idx , ftr_lower_limit[ftr]);
-                
+                // if (bx == 2)  printf("(%d), %d, %d, %d, %d, (%d/%d), (%d/%d)\n", bx, tile, ref_idx, qry_idx, ftr, reference_idx, refLen, query_idx, qryLen);
+                bool reachCond = false;
                 while (ftr >= 0) {
                     if (addr < 0) {
                         if (bx == 0) printf("ERROR: tb addr < 0 (%d)!\n", addr);
@@ -507,6 +580,25 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                     // addr = addr - (traceback_idx  - ftr_lower_limit[ftr] + 1) - (ftr_length[ftr - 1]);
                     addr = addr - (traceback_idx  - ftr_lower_limit[ftr])/2 - (ftr_length[ftr - 1]);
 
+                    if (initGP && ((ref_idx == 0 || qry_idx == 0 )) && dir == 0) {
+                        int alnB = aln_idx;
+                        tile_aln[aln_idx] = 0;
+                        ++aln_idx;
+                        for (int r = 0; r < ref_idx; ++r) {
+                            // if (bx == 2) printf("%d, %d, %d, %d, %d\n", bx, tile, ref_idx, r, ref_idx+1);
+                            tile_aln[aln_idx] = 2;
+                            ++aln_idx;
+                        }
+                        for (int q = 0; q < qry_idx; ++q)  {
+                            // printf("%d, %d,  %d\n", bx, tile, qry_idx);
+                            tile_aln[aln_idx] = 1;
+                            ++aln_idx;
+                        }
+                        // if (bx == 2) printf("!!(%d), %d, %d, %d, %d, %d/%d, (%d/%d), (%d/%d)\n", bx, tile, ref_idx, qry_idx, ftr, alnB ,aln_idx, reference_idx, refLen, query_idx, qryLen);
+                        initGP = false;
+                        reachCond = true;
+                        break;
+                    }
 
                     if (dir == 0) {
                         // addr = addr - (ftr_length[ftr - 2]) + (traceback_idx - ftr_lower_limit[ftr  - 2]);
@@ -532,55 +624,90 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         ref_idx--;
                     }
                     tile_aln[aln_idx] = dir;
-                    ++aln_idx;    
+                    ++aln_idx;   
+
                     // state = next_state;
                     
+                    
+                    
+                }
+                
+                if (initGP && (conv_ref_idx == -1 || conv_query_idx == -1) && aln_idx == 0) {
+                    // if (bx == 2) printf("XX, %d, %d, %d, %d, %d\n", bx, tile, ref_idx, qry_idx, ftr);
+                    for (int r = 0; r < conv_ref_idx+1; ++r) {
+                        // printf("%d, %d, %d, %d, %d\n", bx, tile, ref_idx, r, ref_idx+1);
+                        tile_aln[aln_idx] = 2;
+                        ++aln_idx;
+                    }
+                    for (int q = 0; q < conv_query_idx+1; ++q)  {
+                        // printf("%d, %d,  %d\n", bx, tile, qry_idx);
+                        tile_aln[aln_idx] = 1;
+                        ++aln_idx;
+                    }
                 }
                 state = tb_state % 3;
-                reference_idx += conv_ref_idx;
-                query_idx += conv_query_idx;
-            }
-            __syncthreads();
-
+                
+                if (conv_ref_idx >= 0) reference_idx += conv_ref_idx;
+                if (conv_query_idx >= 0) query_idx += conv_query_idx;
             int32_t alnStartIdx = bx * 2 * seqLen + alnLen[bx];
-            int txNum = (tile == 0 && includeHead) ? aln_idx : aln_idx - 1;
+            // int txNum = (tile == 0 && includeHead) ? aln_idx : aln_idx - 1;
+            bool containFirstDir = (((reference_idx > 0 && query_idx > 0) && ((tile == 0 && includeHead) || initGP)) || (reachCond));
+            int txNum = containFirstDir ? aln_idx : aln_idx - 1;
+            // if (bx == 2 && tx == 0) printf("%d, %d\n", txNum, aln_idx);
+            // if (bx == 2 && tx == 0) {
+            //     for (int tt = 0; tt < aln_idx; ++tt) printf("%d", (tile_aln[tt] & 0xFFFF));
+            //     printf("\n");
+            // }
             // int txNum = (tile > 0) ? aln_idx - 1: aln_idx;
-            if (tile == 0 && includeHead) {
-                if (tx < THREAD_NUM) {
-                    for (int x = tx; x < txNum; x += THREAD_NUM) aln[alnStartIdx+x] = tile_aln[aln_idx-1-x];
-                }
+            if  (containFirstDir) {
+                // if (tx < THREAD_NUM) {
+                //     for (int x = tx; x < txNum; x += THREAD_NUM) aln[alnStartIdx+x] = tile_aln[aln_idx-1-x];
+                // }
+                for (int x = 0; x < txNum; ++x) aln[alnStartIdx+x] = tile_aln[aln_idx-1-x];
             }
             else {
-                if (tx < THREAD_NUM) {
-                    for (int x = tx; x < txNum; x += THREAD_NUM) aln[alnStartIdx+x] = tile_aln[aln_idx-2-x];
-                }
+                // if (tx < THREAD_NUM) {
+                //     for (int x = tx; x < txNum; x += THREAD_NUM) aln[alnStartIdx+x] = tile_aln[aln_idx-2-x];
+                // }
+                for (int x = 0; x < txNum; ++x) aln[alnStartIdx+x] = tile_aln[aln_idx-2-x];
             }
-            if ((reference_idx == refLen-1 || query_idx == qryLen-1) && global) {
-                alnStartIdx = bx * 2 * seqLen + alnLen[bx];
-                if (reference_idx == refLen-1 && query_idx < qryLen-1) { // dir == 1
-                    for (int q = 0; q < qryLen-query_idx-1; ++q) {
-                        aln[alnStartIdx+txNum+q] = 1;
+            // if (tx == 0) {
+                if ((reference_idx == refLen-1 || query_idx == qryLen-1) && global) {
+                    alnStartIdx = bx * 2 * seqLen + alnLen[bx];
+                    if (reference_idx == refLen-1 && query_idx < qryLen-1) { // dir == 1
+                        for (int q = 0; q < qryLen-query_idx-1; ++q) {
+                            aln[alnStartIdx+txNum+q] = 1;
+                        }
+                        alnLen[bx] += qryLen-query_idx-1;
+                        last_tile = true;
                     }
-                    alnLen[bx] += qryLen-query_idx-1;
-                    last_tile = true;
-                }
-                if (query_idx == qryLen-1 && reference_idx < refLen-1) { // dir == 2
-                    for (int r = 0; r < refLen-reference_idx-1; ++r) {
-                        aln[alnStartIdx+txNum+r] = 2;
+                    if (query_idx == qryLen-1 && reference_idx < refLen-1) { // dir == 2
+                        // if (bx == 92) printf("%d/%d, %d\n", reference_idx, refLen-1, refLen-reference_idx-1);
+                        for (int r = 0; r < refLen-reference_idx-1; ++r) {
+                            aln[alnStartIdx+txNum+r] = 2;
+                        }
+                        alnLen[bx] += refLen-reference_idx-1;
+                        last_tile = true;
                     }
-                    alnLen[bx] += refLen-reference_idx-1;
-                    last_tile = true;
                 }
-            }
+            // }
             if (tx == 0 && txNum > 0) {
                 alnLen[bx] += txNum;
                 idx[0] = reference_idx;
                 idx[1] = query_idx;
             }
+            // if (bx == 2 && tx == 0) {
+            //     for (int tt = 0; tt < txNum; ++tt) printf("%d", (aln[alnStartIdx+tt] & 0xFFFF));
+            //     printf("\n");
+            // }
+            }
             __syncthreads();
+            
             tile++;
+            // if (bx == 2 && tx == 0 && tile > 462) printf("(%d, %d), (%d, %d), %d\n", reference_idx, refLen, query_idx, qryLen, alnLen[bx]);
         }
         __syncthreads();
+        
     }
     return;
 

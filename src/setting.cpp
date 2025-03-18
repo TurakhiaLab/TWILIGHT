@@ -10,10 +10,10 @@ Params::Params(po::variables_map& vm) {
     float mis = vm["mismatch"].as<float>();
     float trans = vm["transition"].as<float>();
     float xdrop = round(vm["xdrop"].as<float>());
-    float gapCl = gapOp;
+    float gapBo = vm.count("gap-ends") ? vm["gap-ends"].as<float>() : gapEx;
     
-    if (gapOp > 0 || gapEx > 0) {
-        std::cerr << "ERROR: Gap penalties should be less or equal than 0.\n";
+    if (gapOp > 0 || gapEx > 0 || gapBo > 0)  {
+        std::cerr << "ERROR: Gap penalties should be less than or equal to 0.\n";
         exit(1);
     }
     
@@ -26,7 +26,7 @@ Params::Params(po::variables_map& vm) {
                 else                         this->scoringMatrix[i][j] = mis;
             }
         }
-        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapClose = gapCl;
+        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapBoundary = gapBo;
         this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     else {
@@ -63,7 +63,7 @@ Params::Params(po::variables_map& vm) {
             this->scoringMatrix[i][4] = Nscore;
             this->scoringMatrix[4][i] = Nscore;
         }
-        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapClose = gapCl;
+        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapBoundary = gapBo;
         this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     if (vm.count("verbose")) {
@@ -75,7 +75,10 @@ Params::Params(po::variables_map& vm) {
             }
             std::cout << '\n';
         }
-        std::cout << "GapOpen: " << this->gapOpen << " / GapExtend: " << this->gapExtend << " / Xdrop: " << this->xdrop << '\n';
+        std::cout << "Gap-Open:     " << this->gapOpen << "\n"
+                  << "Gap-Extend:   " << this->gapExtend << "\n"
+                  << "Gap-Boundary: " << this->gapBoundary << "\n"
+                  << "Xdrop:        " << this->xdrop << '\n';
     }
     std::cout << "============================\n";
 }
@@ -209,6 +212,14 @@ msa::option::option(po::variables_map& vm) {
         this->psgop = false;
         this->psgopAuto = true;
     }
+    std::string alignType = vm["align"].as<std::string>();
+    std::map<char,int> alignMap = {{'g',0}, {'l',1}, {'h',2}, {'t',3}};
+    if (alignType != "l" && alignType != "g" && alignType != "h" && alignType != "t") {
+        std::cerr << "ERROR: Unrecognized alignment type \"" << alignType <<"\"\n";
+        exit(1);
+    }
+
+    this->alnType = alignMap[alignType[0]];
     this->redo = false;
     this->calSim = false;
     this->cpuNum = cpuNum; 
@@ -228,6 +239,7 @@ msa::option::option(po::variables_map& vm) {
 
     
     std::cout << "====== Configuration =======\n";
+    std::cout << "Alignment type: " << this->alnType << "\n";
     if (this->maxSubtree != INT32_MAX) 
     std::cout << "Max-subtree: " << this->maxSubtree << '\n';
     if (this->maxSubSubtree != INT32_MAX) 
@@ -419,6 +431,7 @@ void msa::utility::clearAll() {
     this->seqsName.clear();
     this->seqsLen.clear();
     this->seqsStorage.clear();
+    this->lowQuality.clear();
 }
 
 void msa::utility::debug() {
@@ -438,6 +451,7 @@ void msa::utility::debug() {
         if (theFirst) {alnLen = offset; theFirst = false;}
         else {
             if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", s.first.c_str(), offset, alnLen);
+            if (alnLen != offset) this->alnStorage[storage][sIdx][offset-1] = '-';
         }
         if (r != s.second) {
             printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());

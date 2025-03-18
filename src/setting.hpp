@@ -2,6 +2,7 @@
 #define SETTING_HPP
 
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <cstdio>
 #include <sys/stat.h>
@@ -24,7 +25,7 @@ struct Params
 {
     float gapOpen;
     float gapExtend; //for gap-affine
-    float gapClose; // not used
+    float gapBoundary; // gap penalty at ends
     float xdrop; //optional for now
     float scoringMatrix [5][5];
     Params(po::variables_map& vm);
@@ -40,6 +41,7 @@ namespace msa
         int maxSubSubtree;
         int gappyHorizon;
         int alnMode; //0: MSA from raw sequences, 1: merge multiple MSA files
+        int alnType; //0: global, 1: local, 2: gap penalty at head, 3: gap penalty at tail
         float gappyVertical;
         std::vector<int> gpuIdx;
         int nowProcess;
@@ -77,6 +79,8 @@ namespace msa
         std::unordered_map<int, bool> seqsStorage;
         std::map<int, std::vector<std::vector<float>>> profileFreq;
         std::unordered_map<std::string, std::string> seqsCIGAR;
+
+        std::unordered_map<int, bool> lowQuality;
         
         char** alnStorage[2] = {nullptr, nullptr};
         int nowProcess = 0;
@@ -85,6 +89,7 @@ namespace msa
         int* seqMemLen = 0;
         int memNum = 0;
         int seqLen = 0;
+        int maxRawSeqLen = 0;
         const float timesBigger = 2.0;
         void changeStorage(int idx); 
         void setSubtreeIdx(int idx); 

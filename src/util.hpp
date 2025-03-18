@@ -1,7 +1,6 @@
 #ifndef UTIL_HPP
 #define UTIL_HPP
 
-#include <fstream>
 #include "kseq.h"
 #include "zlib.h"
 
