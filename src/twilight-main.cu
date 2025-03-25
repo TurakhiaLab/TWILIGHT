@@ -41,7 +41,8 @@ void parseArguments(int argc, char** argv)
         ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("cpu-only", "Run the program only on CPU.")
-        ("help,h", "Print help messages");
+        ("help,h", "Print help messages")
+        ("version", "Show program version");
 }
 
 int main(int argc, char** argv) {
@@ -63,6 +64,10 @@ int main(int argc, char** argv) {
     }
     if(vm.count("help")) {
         std::cerr << mainDesc << std::endl;
+        return 0;
+    }
+    if(vm.count("version")) {
+        std::cerr << "TWILIGHT Version 0.1.0" << std::endl;
         return 0;
     }
 
