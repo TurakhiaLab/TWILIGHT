@@ -343,15 +343,15 @@ void Talco_xdrop::Tile (
                         }
                     }  
 
-                    similarScore = static_cast<int32_t>(roundeven(numerator/denominator));
+                    similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
                     if (offsetDiag < 0) match = similarScore;
                     else                match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
 
-                int32_t pos_gapOpen_ref =   static_cast<int32_t>(roundeven(gapOp[0][reference_idx+j]));
-                int32_t pos_gapOpen_qry =   static_cast<int32_t>(roundeven(gapOp[1][query_idx+i]));
-                int32_t pos_gapExtend_ref = static_cast<int32_t>(roundeven(gapEx[0][reference_idx+j]));
-                int32_t pos_gapExtend_qry = static_cast<int32_t>(roundeven(gapEx[1][query_idx+i]));
+                int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(gapOp[0][reference_idx+j]));
+                int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(gapOp[1][query_idx+i]));
+                int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
+                int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
                 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                     // delOp = S[(k+2)%3][offsetUp] + gapOpen;

@@ -33,7 +33,7 @@
 #include <fstream>
 #include <vector>
 #include <unordered_map>
-#include <math.h>
+#include <cmath>
 
 
 namespace Talco_xdrop {
