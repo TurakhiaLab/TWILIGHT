@@ -2,6 +2,7 @@
 #define SETTING_HPP
 
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <cstdio>
 #include <sys/stat.h>
