@@ -70,20 +70,16 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
             if (seqLen > maxLen) maxLen = seqLen;
             if (seqLen < minLen) minLen = seqLen;
             if (seqLen == 0) std::cout << "Null sequences, " << seqName << '\n';
-                
             totalLen += seqLen;
         }
     }
     kseq_destroy(kseq_rd);
     gzclose(f_rd);
-        
-    
+
+
     seqNum = seqs.size();
     uint32_t avgLen = totalLen/seqNum;
     util->maxRawSeqLen = maxLen;
-    
-
-
     if (tree->m_numLeaves != seqNum) {
         fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
         int kk = 0;
@@ -119,12 +115,8 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
                     util->alnStorage[0][i][j] != 'T' && util->alnStorage[0][i][j] != 't' &&
                     util->alnStorage[0][i][j] != 'U' && util->alnStorage[0][i][j] != 'u'  ) ++countN;
             }
-            util->lowQuality[i] = (countN > (len/10));
+            util->lowQuality[i] = (countN > (len * 0.1));
         }
-        // else {
-        //     std::cout << name << " short sequence.\n";
-        // }
-
         if (util->lowQuality[i]) numLowQ.fetch_add(1);
     }
     });
@@ -189,14 +181,11 @@ void readFrequency(msa::utility* util, msa::option* option) {
             }
             else {
                 if (seqLen != msaLen) {
-                    std::cerr << "ERROR: sequence length does not match in " << msaFileName.c_str() << ", (" << seqLen <<  ", " << msaLen << ")\n";
-                    // fprintf(stderr, "ERROR: seqeunce length does not match in %s, (%d, %d)\n", msaFileName.c_str(), seqLen, msaLen);
+                    fprintf(stderr, "ERROR: seqeunce length does not match in %s\n", msaFileName.c_str());
+                    exit(1);
                 }
             }
             std::string seq = std::string(kseq_rd->seq.s, seqLen);
-            if (seqLen > msaLen) seq = seq.substr(0, msaLen);
-            if (seqLen < msaLen) for (int ss = 0; ss < msaLen - seqLen; ss++) seq += '-';
-            seqLen = msaLen;
             tbb::this_task_arena::isolate( [&]{
             tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
             for (int j = r.begin(); j < r.end(); ++j) {
@@ -339,14 +328,6 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 // assert(alnSeq.size() == tree->allNodes[subroot.first]->msaAln.size());
                 seqs[n].first = seqName;
                 seqs[n].second = alnSeq;
-                // {
-                //     tbb::spin_rw_mutex::scoped_lock lock(writeMutex);
-                //     if (alnSeq.size() != tree->allNodes[subroot.first]->msaAln.size()) {
-                //         std::cout << "ERROR: length not match. alnSeq (" << alnSeq.size() << ") != msaAln (" << tree->allNodes[subroot.first]->msaAln.size() << '\n'; 
-                //     }
-                //     // assert(alnSeq.size() == tree->allNodes[subroot.first]->msaAln.size());
-                //     seqs.push_back(std::make_pair(seqName, alnSeq));
-                // }
             }
             });
             tree->allNodes[subroot.first]->msaAln.clear();
@@ -407,11 +388,10 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 else {
                     if (seqLen != msaLen) {
                         fprintf(stderr, "ERROR: seqeunce length does not match in %s\n", msaFileName.c_str());
+                        exit(1);
                     }
                 }
                 std::string seq = std::string(kseq_rd->seq.s, seqLen);
-                if (seqLen > msaLen) seq = seq.substr(0, msaLen);
-                if (seqLen < msaLen) for (int ss = 0; ss < msaLen - seqLen; ss++) seq += '-';
                 seqs.push_back(std::make_pair(kseq_rd->name.s, seq));
                 ++seqNum;
             }

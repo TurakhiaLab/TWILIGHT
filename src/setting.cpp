@@ -212,14 +212,7 @@ msa::option::option(po::variables_map& vm) {
         this->psgop = false;
         this->psgopAuto = true;
     }
-    std::string alignType = vm["align"].as<std::string>();
-    std::map<char,int> alignMap = {{'g',0}, {'l',1}, {'h',2}, {'t',3}};
-    if (alignType != "l" && alignType != "g" && alignType != "h" && alignType != "t") {
-        std::cerr << "ERROR: Unrecognized alignment type \"" << alignType <<"\"\n";
-        exit(1);
-    }
 
-    this->alnType = alignMap[alignType[0]];
     this->redo = false;
     this->calSim = false;
     this->cpuNum = cpuNum; 
@@ -239,7 +232,6 @@ msa::option::option(po::variables_map& vm) {
 
     
     std::cout << "====== Configuration =======\n";
-    std::cout << "Alignment type: " << this->alnType << "\n";
     if (this->maxSubtree != INT32_MAX) 
     std::cout << "Max-subtree: " << this->maxSubtree << '\n';
     if (this->maxSubSubtree != INT32_MAX) 
@@ -451,17 +443,9 @@ void msa::utility::debug() {
         if (theFirst) {alnLen = offset; theFirst = false;}
         else {
             if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", s.first.c_str(), offset, alnLen);
-            if (alnLen != offset) this->alnStorage[storage][sIdx][offset-1] = '-';
         }
         if (r != s.second) {
-            printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());
-            // if (r.size() != s.second.size()) printf("Wrong length. %lu/%lu.\n",r.size(), s.second.size());
-            // for (int i = 0; i < s.second.size(); ++i) {
-            //     if (r[i] != s.second[i]) {
-            //         printf("Mismatch at position %d.\n", i);
-            //         break;
-            //     }
-            // }                
+            printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());            
         }
         
     }

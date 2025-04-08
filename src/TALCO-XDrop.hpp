@@ -61,12 +61,10 @@ namespace Talco_xdrop {
             this->gapOpen = t_param[25];
             this->gapExtend = t_param[26];
             this->gapBoundary = t_param[27];
-            this->xdrop = static_cast<int32_t> (1500 * -1 * t_param[26]);
+            this->xdrop = static_cast<int32_t> (1000 * -1 * t_param[26]);
             this->fLen = (1 << 12);
             this->marker = (1 << 10); //reduce this value to save memory
         }
-
-        void setType(int t) {this->type = t;}
     };
     
     void Align_freq (

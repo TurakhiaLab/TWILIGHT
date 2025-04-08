@@ -26,8 +26,7 @@ void parseArguments(int argc, char** argv)
         // ("gappy-horizon,z", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
         ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
         ("verbose,v", "Print out every detail process.")
-        ("psgop,p", po::value<std::string>(), "y: Enable, n: Disable position-specific gap open penalty. If not specified, it will be detected automatically.")
-        ("align,a", po::value<std::string>()->default_value("g"), "Alignment types: g - gap penalty at both ends, l - no gap penalty at either end, h - gap penalty at the head, t - gap penalty at the tail.")
+        ("psgop,p", po::value<std::string>()->default_value("y"), "y: Enable, n: Disable position-specific gap open penalty.")
         ("match",      po::value<float>()->default_value(18), "Match score.")
         ("mismatch",   po::value<float>()->default_value(-8), "Mismatch penalty for transversions.")
         ("transition", po::value<float>()->default_value(5), "Score for transitions")
@@ -39,11 +38,12 @@ void parseArguments(int argc, char** argv)
         ("output-type", po::value<std::string>()->default_value("FASTA"), "FASTA or CIGAR, CIGAR stands for CIGAR-like compressed format.")
         ("merge", po::value<std::string>()->default_value("p"), "t: Transitivity merger, p: Progressive alignment.")
         ("keep-temp,k", "Keep the temporary directory.")
-        ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment.")
+        ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("cpu-only", "Run the program only on CPU.")
-        ("help,h", "Print help messages");
+        ("help,h", "Print help messages")
+        ("version", "Show program version");
 }
 
 int main(int argc, char** argv) {
@@ -65,6 +65,10 @@ int main(int argc, char** argv) {
     }
     if(vm.count("help")) {
         std::cerr << mainDesc << std::endl;
+        return 0;
+    }
+    if(vm.count("version")) {
+        std::cerr << "TWILIGHT Version 0.1.1" << std::endl;
         return 0;
     }
 

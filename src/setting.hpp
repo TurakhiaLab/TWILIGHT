@@ -41,7 +41,6 @@ namespace msa
         int maxSubSubtree;
         int gappyHorizon;
         int alnMode; //0: MSA from raw sequences, 1: merge multiple MSA files
-        int alnType; //0: global, 1: local, 2: gap penalty at head, 3: gap penalty at tail
         float gappyVertical;
         std::vector<int> gpuIdx;
         int nowProcess;
