@@ -171,6 +171,17 @@ void Talco_xdrop::Traceback(
             ref_idx--;
         }
         aln.push_back(dir);   
+        if (firstTile &&  (ref_idx < 0 || query_idx < 0)) break;
+    }
+    if (firstTile) {
+        while (ref_idx > -1) {
+            aln.push_back(2);
+            ref_idx--;
+        }
+        while (query_idx > -1) {
+            aln.push_back(1);
+            query_idx--;
+        }
     }
 }
 
@@ -215,8 +226,8 @@ void Talco_xdrop::Tile (
         // int8_t tb_state_marker = 0;
 
         float denominator = refNum * qryNum;
-                    
 
+        
         int32_t L[3], U[3];
         int32_t *S[3], *I[2], *D[2];
         int32_t *CS[3], *CI[2], *CD[2];
@@ -330,10 +341,9 @@ void Talco_xdrop::Tile (
                 int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
                 int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
                 
-
                 
                 if ((k==0) || 
-                    ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) || 
+                    ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) ||
                     (tile == 0 && (i == 0 || j == 0 ))) {
                     int32_t similarScore = 0;
                     float numerator = 0;
@@ -345,10 +355,10 @@ void Talco_xdrop::Tile (
                         }
                     }  
 
-                    similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
-                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param.gapExtend * std::max(reference_idx + j, query_idx + i);
-                    else if (offsetDiag < 0) match = similarScore;
-                    else                match = S[(k+1)%3][offsetDiag] + similarScore;
+                    similarScore = static_cast<int32_t>(roundeven(numerator/denominator));
+                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param.gapBoundary * std::max(reference_idx + j, query_idx + i);
+                    else if (offsetDiag < 0)               match = similarScore;
+                    else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
 
                 int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(gapOp[0][reference_idx+j]));
@@ -357,29 +367,24 @@ void Talco_xdrop::Tile (
                 int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
 
                 if (query_idx + i == query.size() - 1) {
-                    pos_gapOpen_ref = param.gapExtend;
-                    pos_gapExtend_ref = param.gapExtend;
+                    pos_gapOpen_ref = param.gapBoundary;
+                    pos_gapExtend_ref = param.gapBoundary;
                 }
                 if (reference_idx + j == reference.size() - 1) {
-                    pos_gapOpen_qry = param.gapExtend;
-                    pos_gapExtend_qry = param.gapExtend;
+                    pos_gapOpen_qry = param.gapBoundary;
+                    pos_gapExtend_qry = param.gapBoundary;
                 }
-                
+
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
-                    // delOp = S[(k+2)%3][offsetUp] + gapOpen;
                     delOp = S[(k+2)%3][offsetUp] + pos_gapOpen_ref;
-                    // delExt = D[(k+1)%2][offsetUp] + gapExtend;
                     delExt = D[(k+1)%2][offsetUp] + pos_gapExtend_ref;
                 }
 
                 if ((offsetLeft >= 0) && (offsetLeft <= U[(k+2)%3]-L[(k+2)%3])) {
-                    // insOp = S[(k+2)%3][offsetLeft] + gapOpen;
                     insOp = S[(k+2)%3][offsetLeft] + pos_gapOpen_qry;
-                    // insExt = I[(k+1)%2][offsetLeft] + gapExtend;
                     insExt = I[(k+1)%2][offsetLeft] + pos_gapExtend_qry;
                 }
 
-                
                 I[k%2][offset] = insOp;
                 D[k%2][offset] = delOp;
 
@@ -395,8 +400,8 @@ void Talco_xdrop::Tile (
                     Dptr = true;
                 }
 
-                if (match > I[k%2][offset]) {
-                    if (match > D[k%2][offset]) {
+                if (match >= I[k%2][offset]) {
+                    if (match >= D[k%2][offset]) {
                         S[k%3][offset] = match;
                         ptr = 0;
                     }
@@ -548,7 +553,7 @@ void Talco_xdrop::Tile (
                 tb_start_ftr = (tb_state == 3) ? ftr_length.size() - 2: ftr_length.size() - 1;
             }
         }
-
+            
         reference_idx += conv_ref_idx;
         query_idx += conv_query_idx;
 

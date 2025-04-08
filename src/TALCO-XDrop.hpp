@@ -40,11 +40,12 @@ namespace Talco_xdrop {
     struct Params {
         float scoreMatrix [5][5];
         float gapOpen;
-        float gapClose;
+        float gapBoundary;
         float gapExtend;
         int32_t xdrop;
         int32_t fLen;
         int32_t marker;
+        int type;
 
         void updateXDrop(int32_t new_xdrop) { 
             this->xdrop = new_xdrop;
@@ -59,7 +60,7 @@ namespace Talco_xdrop {
             }
             this->gapOpen = t_param[25];
             this->gapExtend = t_param[26];
-            this->gapClose = t_param[27];
+            this->gapBoundary = t_param[27];
             this->xdrop = static_cast<int32_t> (1000 * -1 * t_param[26]);
             this->fLen = (1 << 12);
             this->marker = (1 << 10); //reduce this value to save memory

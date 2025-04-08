@@ -25,7 +25,7 @@ struct Params
 {
     float gapOpen;
     float gapExtend; //for gap-affine
-    float gapClose; // not used
+    float gapBoundary; // gap penalty at ends
     float xdrop; //optional for now
     float scoringMatrix [5][5];
     Params(po::variables_map& vm);
@@ -78,6 +78,8 @@ namespace msa
         std::unordered_map<int, bool> seqsStorage;
         std::map<int, std::vector<std::vector<float>>> profileFreq;
         std::unordered_map<std::string, std::string> seqsCIGAR;
+
+        std::unordered_map<int, bool> lowQuality;
         
         char** alnStorage[2] = {nullptr, nullptr};
         int nowProcess = 0;
@@ -86,6 +88,7 @@ namespace msa
         int* seqMemLen = 0;
         int memNum = 0;
         int seqLen = 0;
+        int maxRawSeqLen = 0;
         const float timesBigger = 2.0;
         void changeStorage(int idx); 
         void setSubtreeIdx(int idx); 

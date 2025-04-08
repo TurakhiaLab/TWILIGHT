@@ -10,10 +10,10 @@ Params::Params(po::variables_map& vm) {
     float mis = vm["mismatch"].as<float>();
     float trans = vm["transition"].as<float>();
     float xdrop = round(vm["xdrop"].as<float>());
-    float gapCl = gapOp;
+    float gapBo = vm.count("gap-ends") ? vm["gap-ends"].as<float>() : gapEx;
     
-    if (gapOp > 0 || gapEx > 0) {
-        std::cerr << "ERROR: Gap penalties should be less or equal than 0.\n";
+    if (gapOp > 0 || gapEx > 0 || gapBo > 0)  {
+        std::cerr << "ERROR: Gap penalties should be less than or equal to 0.\n";
         exit(1);
     }
     
@@ -26,7 +26,7 @@ Params::Params(po::variables_map& vm) {
                 else                         this->scoringMatrix[i][j] = mis;
             }
         }
-        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapClose = gapCl;
+        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapBoundary = gapBo;
         this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     else {
@@ -63,7 +63,7 @@ Params::Params(po::variables_map& vm) {
             this->scoringMatrix[i][4] = Nscore;
             this->scoringMatrix[4][i] = Nscore;
         }
-        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapClose = gapCl;
+        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapBoundary = gapBo;
         this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
     if (vm.count("verbose")) {
@@ -75,7 +75,10 @@ Params::Params(po::variables_map& vm) {
             }
             std::cout << '\n';
         }
-        std::cout << "GapOpen: " << this->gapOpen << " / GapExtend: " << this->gapExtend << " / Xdrop: " << this->xdrop << '\n';
+        std::cout << "Gap-Open:     " << this->gapOpen << "\n"
+                  << "Gap-Extend:   " << this->gapExtend << "\n"
+                  << "Gap-Boundary: " << this->gapBoundary << "\n"
+                  << "Xdrop:        " << this->xdrop << '\n';
     }
     std::cout << "============================\n";
 }
@@ -209,6 +212,7 @@ msa::option::option(po::variables_map& vm) {
         this->psgop = false;
         this->psgopAuto = true;
     }
+
     this->redo = false;
     this->calSim = false;
     this->cpuNum = cpuNum; 
@@ -419,6 +423,7 @@ void msa::utility::clearAll() {
     this->seqsName.clear();
     this->seqsLen.clear();
     this->seqsStorage.clear();
+    this->lowQuality.clear();
 }
 
 void msa::utility::debug() {
@@ -440,14 +445,7 @@ void msa::utility::debug() {
             if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", s.first.c_str(), offset, alnLen);
         }
         if (r != s.second) {
-            printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());
-            // if (r.size() != s.second.size()) printf("Wrong length. %lu/%lu.\n",r.size(), s.second.size());
-            // for (int i = 0; i < s.second.size(); ++i) {
-            //     if (r[i] != s.second[i]) {
-            //         printf("Mismatch at position %d.\n", i);
-            //         break;
-            //     }
-            // }                
+            printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());            
         }
         
     }
