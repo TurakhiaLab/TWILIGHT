@@ -332,7 +332,9 @@ void Talco_xdrop::Tile (
                 
 
                 
-                if ((k==0) || ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3]))) {
+                if ((k==0) || 
+                    ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) || 
+                    (tile == 0 && (i == 0 || j == 0 ))) {
                     int32_t similarScore = 0;
                     float numerator = 0;
                     for (int l = 0; l < 6; ++l) {
@@ -344,7 +346,8 @@ void Talco_xdrop::Tile (
                     }  
 
                     similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
-                    if (offsetDiag < 0) match = similarScore;
+                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param.gapExtend * std::max(reference_idx + j, query_idx + i);
+                    else if (offsetDiag < 0) match = similarScore;
                     else                match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
 
@@ -352,6 +355,15 @@ void Talco_xdrop::Tile (
                 int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(gapOp[1][query_idx+i]));
                 int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
                 int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
+
+                if (query_idx + i == query.size() - 1) {
+                    pos_gapOpen_ref = param.gapExtend;
+                    pos_gapExtend_ref = param.gapExtend;
+                }
+                if (reference_idx + j == reference.size() - 1) {
+                    pos_gapOpen_qry = param.gapExtend;
+                    pos_gapExtend_qry = param.gapExtend;
+                }
                 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                     // delOp = S[(k+2)%3][offsetUp] + gapOpen;
