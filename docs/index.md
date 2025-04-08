@@ -142,7 +142,7 @@ docker run --platform=linux/amd64 -it twilight
 | `-r`, `--remove-gappy`           | Threshold for removing gappy columns. Set to 1 to disable this feature. Default: 0.95. <br> It is recommended to set a higher threshold (i.e. 0.999) or to 1 when the alignment is known to be less gappy.                                           |
 | `-w`, `--wildcard`               | Treat unknown or ambiguous bases as wildcards and align them to usual letters.                                       |
 | `-v`, `--verbose`                | Print out every detail process.                                                                                      | 
-| `-p`, `--pgsop`                  | Position-specific gap open penalty. `y` for enable and `n` for disable. Automatically determined when not specified. <br> It is recommended to set to `n` when aligning highly similar sequences (i.e. Sars-CoV-2 sequences.) | 
+| `-p`, `--pgsop`                  | Position-specific gap open penalty. `y` for enable and `n` for disable. Default: `y`| 
 | `-x`, `--matrix`                 | User-specified substitution matrix path.                                                                             |
 | `-k`, `--keep-temp`              | Keep the temporary directory.                                                                                        |
 | `-s`, `--sum-of-pairs-score`     | Calculate the sum-of-pairs-score after alignment.                                                                    |
@@ -153,9 +153,11 @@ docker run --platform=linux/amd64 -it twilight
 | `--transition`                   | Transition score. Default: 5.                                                                                        |
 | `--gap-open`                     | Gap-open penalty. Default: -50.                                                                                      |
 | `--gap-extend`                   | Gap-extend penalty. Default: -5.                                                                                     |
+| `--gap-ends`                   | Penalty for gaps at both ends. Default: the same as gap-extend penalty.                                                                                     |
 | `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty. Default: 600.                  |
 | `--output-type`                  | Way to present MSA. `FASTA` for FASTA format and `CIGAR` for CIGAR-like compressed format. Default: `FASTA`.         |
 | `-h`, `--help`                   | Print help messages.                                                                                                 |
+| `--version`                   | Show TWILIGHT version.                                                                                                 |
 | **Options only for GPU version**                                                                                                                        |
 | `-G`, `--gpu`                    | Number of GPU. Default: all available GPUs.                                                                          |
 | `--gpu-index`                    | Specify the GPU to be used, separated by commas. For example, `0,2,3` uses 3 GPUs with the index 0, 2 and 3.         |
