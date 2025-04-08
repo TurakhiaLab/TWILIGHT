@@ -355,7 +355,7 @@ void Talco_xdrop::Tile (
                         }
                     }  
 
-                    similarScore = static_cast<int32_t>(roundeven(numerator/denominator));
+                    similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
                     if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param.gapBoundary * std::max(reference_idx + j, query_idx + i);
                     else if (offsetDiag < 0)               match = similarScore;
                     else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
