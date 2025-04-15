@@ -65,10 +65,6 @@ int main(int argc, char** argv) {
         return 0;
     }
     if(vm.count("version")) {
-        std::cerr << "TWILIGHT Version 0.1.0" << std::endl;
-        return 0;
-    }
-    if(vm.count("version")) {
         std::cerr << "TWILIGHT Version 0.1.1" << std::endl;
         return 0;
     }
