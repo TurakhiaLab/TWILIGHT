@@ -1,8 +1,20 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(msa LANGUAGES CXX)
+project(twilight LANGUAGES CXX)
 
 include(CheckLanguage)
+
+set(twilight_VERSION "?.?.?")
+execute_process(COMMAND head -n1 ${CMAKE_SOURCE_DIR}/version.txt OUTPUT_VARIABLE VERSION)
+string(REGEX REPLACE "^v([0-9]+)\\..*" "\\1" VERSION_MAJOR "${VERSION}")
+string(REGEX REPLACE "^v[0-9]+\\.([0-9]+).*" "\\1" VERSION_MINOR "${VERSION}")
+string(REGEX REPLACE "^v[0-9]+\\.[0-9]+\\.([0-9]+).*" "\\1" VERSION_PATCH "${VERSION}")
+if ("${VERSION_PATCH}" MATCHES "[0-9]+")
+    set(twilight_VERSION "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}")
+endif()
+# message(STATUS "${twilight_VERSION}")
+configure_file(src/version.hpp.in ${CMAKE_SOURCE_DIR}/src/version.hpp)
+
 check_language(CUDA)
 if(CMAKE_CUDA_COMPILER)
 	message(STATUS "CUDA detected.")
