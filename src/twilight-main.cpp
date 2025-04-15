@@ -6,6 +6,8 @@
 #include "msa-cpu.hpp"
 #endif
 
+#include "version.hpp"
+
 po::options_description mainDesc("TWILIGHT Command Line Arguments");
 
 void parseArguments(int argc, char** argv)
@@ -60,12 +62,12 @@ int main(int argc, char** argv) {
         else
             return 1;
     }
-    if(vm.count("help")) {
+    if(vm.count("help") || argc == 1) {
         std::cerr << mainDesc << std::endl;
         return 0;
     }
     if(vm.count("version")) {
-        std::cerr << "TWILIGHT Version 0.1.1" << std::endl;
+        std::cerr << "TWILIGHT Version " << PROJECT_VERSION << std::endl;
         return 0;
     }
 
