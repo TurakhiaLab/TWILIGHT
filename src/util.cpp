@@ -105,7 +105,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     // for (int i = 0; i < seqNum; ++i) {
         std::string name = util->seqsName[i];
         int len = util->seqsLen[name];
-        util->lowQuality[i] = (len < (maxLen * 0.9));
+        util->lowQuality[i] = (len > (avgLen * 1.9)) || (len < (avgLen * 0.9));
         if (!util->lowQuality[i]) {
             int countN = 0;
             for (int j = 0; j < len; ++j) {
