@@ -1,5 +1,6 @@
-FROM --platform=linux/amd64 nvidia/cuda:12.6.3-cudnn-devel-ubuntu20.04
+FROM --platform=linux/amd64 nvidia/cuda:12.2.0-devel-ubuntu20.04
 ENV DEBIAN_FRONTEND noninteractive
+RUN chmod 1777 /tmp
 
 # BASE
 RUN apt-get update && \
