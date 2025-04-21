@@ -10,7 +10,7 @@ iterations: 3                             # Number of iterations: 1-5
 final_tree: "no"                          # Estimate tree after the final MSA, "yes" or "no"
 work_dir: "working_dir"                   # Directory to store MSA and tree files
 keep_dir: "yes"                           # Keep working directory
-mask_gappy: 0.995                         # Minimum porpotion of gappy sites that would be mask before proceed to tree inference step
+mask_gappy: 0.995                         # Minimum proportion of gappy sites that would be mask before proceed to tree inference step
 
 # Path for executable files
 # please make sure you have the correct paths
