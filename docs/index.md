@@ -134,8 +134,15 @@ cd docker/gpu
 docker build -t twilight .
 ```
 3. Build and run docker container   
+    - CPU version
 ```bash
 docker run --platform=linux/amd64 -it twilight
+```
+    - GPU version  
+Since the prebuilt version included in the Docker image is for CPU only, please rebuild TWILIGHT within the container to enable GPU support.
+```bash
+docker run --platform=linux/amd64 --gpus all -it twilight
+bash ./install/installTWILIGHT.sh # Within the container
 ```
 4. Run TWILIGHT
 ```bash
