@@ -91,7 +91,27 @@ bash ./install/installIterative.sh
 !!!Note
     **TWILIGHT** is built using CMake and depends upon libraries such as Boost, oneTBB, etc. If users face version issues, try using the docker methods detailed below.
 
-### <a name="docker"></a> **Using Dockerfile**
+
+### **Using Conda**
+TWILIGHT is currently available for installation via Conda on the linux/amd64 platform only. Users on other platforms please refer to the Docker section.
+
+**Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
+```bash
+conda create -n twilight -y
+conda activate twilight
+```
+**Step 2:** Install TWILIGHT
+```bash
+conda install bioconda::twilight
+```
+**Step 3 (optional):** Install TWILIGHT iterative mode
+```bash
+git clone https://github.com/TurakhiaLab/TWILIGHT.git
+cd TWILIGHT
+bash ./install/installIterative.sh
+```
+
+### **Using Dockerfile**
 The Dockerfile installed all the dependencies and tools for TWILIGHT default/iterative mode.  
 
 0. Dependencies
@@ -147,6 +167,9 @@ docker run --platform=linux/amd64 -it twilight
 | `-k`, `--keep-temp`              | Keep the temporary directory.                                                                                        |
 | `-s`, `--sum-of-pairs-score`     | Calculate the sum-of-pairs-score after alignment.                                                                    |
 | `--no-align-gappy`               | Do not align gappy columns. This will create a longer MSA (larger file).                                             |
+| `length-deviation`               | Filters out sequences whose lengths deviate from the average by more than the specified fraction. Default: 0.1.                                             |
+| `max-ambig`               | Filters out sequences with an ambiguous character proportion exceeding the specified threshold. Default: 0.1.                                        |
+| `no-filtering`               | Do not exclude any sequences, regardless of ambiguity or length deviation.                                       |
 | `--merge`                        | Method to merge subtrees. `t` for Transitivity Merger and `p` for Pregressive Alignment. Default: `p`.               |
 | `--match`                        | Match score. Default: 18.                                                                                            | 
 | `--mismatch`                     | Mismatch penalty (transversions). Default: -8.                                                                       | 
@@ -227,6 +250,9 @@ TWILIGHT iterative mode estimate guide trees using external tools.
 
 !!!Note
     Default options in `workflow/config.yaml` will be used if the configuration is not specified. You can also modify `workflow/config.yaml` to set your options.
+
+!!!Note
+    For people who install TWILIGHT via Conda, please replace the executable path `"../build/twilight"` with `"twilight"` in `workflow/config.yaml`.
 
 #### **Run TWILIGHT iterative mode**
 1. Enter into `workflow` directory
