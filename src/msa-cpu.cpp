@@ -774,15 +774,21 @@ void fallback2cpu(std::vector<int>& fallbackPairs, Tree* tree, std::vector<std::
         int grpID = tree->allNodes[nodes[nIdx].first->identifier]->grpID;
         int32_t refNum = tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size();
         int32_t qryNum = tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size();
-        if (util->badSequences.find(grpID) == util->badSequences.end()) {
-            util->badSequences[grpID] = std::vector<std::string> (0);
-        }
         // if (refNum < qryNum) {
         if ((refNum < qryNum) || (refNum == 1 && util->lowQuality[tree->allNodes[nodes[nIdx].first->identifier]->msaIdx[0]])) {
-            // std::cout << "Deferring " << nodes[nIdx].first->identifier << '\n';
+            bool fallback = !(refNum == 1 && util->lowQuality[tree->allNodes[nodes[nIdx].first->identifier]->msaIdx[0]]) || option->noFilter;
+            if (fallback) {
+                if (util->badSequences.find(grpID) == util->badSequences.end()) {
+                    util->badSequences[grpID] = std::vector<std::string> (0);
+                }
+                util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+                if (refNum == 1 && util->lowQuality[tree->allNodes[nodes[nIdx].first->identifier]->msaIdx[0]]) {
+                    util->lowQuality[tree->allNodes[nodes[nIdx].first->identifier]->msaIdx[0]] = false;
+                }
+            }
+            
             int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
             int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
-            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
             util->seqsLen[nodes[nIdx].second->identifier] = refLen;
             util->seqsLen[nodes[nIdx].first->identifier] = qryLen;
             auto temp = nodes[nIdx].second->msaIdx;
@@ -795,7 +801,16 @@ void fallback2cpu(std::vector<int>& fallbackPairs, Tree* tree, std::vector<std::
         }
         else {
             // std::cout << "Deferring " << nodes[nIdx].second->identifier << '\n';
-            util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+            bool fallback = !(qryNum == 1 && util->lowQuality[tree->allNodes[nodes[nIdx].second->identifier]->msaIdx[0]]) || option->noFilter;
+            if (fallback) {
+                if (util->badSequences.find(grpID) == util->badSequences.end()) {
+                    util->badSequences[grpID] = std::vector<std::string> (0);
+                }
+                util->badSequences[grpID].push_back(nodes[nIdx].second->identifier);
+                if (qryNum == 1 && util->lowQuality[tree->allNodes[nodes[nIdx].second->identifier]->msaIdx[0]]) {
+                    util->lowQuality[tree->allNodes[nodes[nIdx].second->identifier]->msaIdx[0]] = false;
+                }
+            }
             totalSeqs += qryNum;
         }
     }

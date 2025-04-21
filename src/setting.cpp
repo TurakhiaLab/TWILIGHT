@@ -119,11 +119,11 @@ msa::option::option(po::variables_map& vm) {
     int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-group")) ? vm["max-group"].as<int>() : INT32_MAX;
     if (maxSubtreeSize <= 0) {
-        std::cerr << "ERROR: max-subtree should be a positive integer.\n";
+        std::cerr << "ERROR: --max-subtree should be a positive integer.\n";
         exit(1);
     }
     if (maxSubSubtreeSize <= 0) {
-        std::cerr << "ERROR: max-group should be a positive integer.\n";
+        std::cerr << "ERROR: --max-group should be a positive integer.\n";
         exit(1);
     }
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
@@ -139,7 +139,7 @@ msa::option::option(po::variables_map& vm) {
     float gappyVertical = vm["remove-gappy"].as<float>();
     float gappyHorizon;
     if (gappyVertical > 1 || gappyVertical <= 0) {
-        std::cerr << "ERROR: The value of rgc should be in (0,1]\n";
+        std::cerr << "ERROR: The value of --remove-gappy should be in (0,1]\n";
         exit(1);
     }
     if (vm.count("gappy-horizon")) {
@@ -213,6 +213,17 @@ msa::option::option(po::variables_map& vm) {
         this->psgopAuto = true;
     }
 
+    float lenDev = vm["length-deviation"].as<float>();
+    if (lenDev > 1 || lenDev <= 0) {
+        std::cerr << "ERROR: The value of --length-deviation should be in (0,1]\n";
+        exit(1);
+    }
+    float ambig = vm["max-ambig"].as<float>();
+    if (ambig > 1 || ambig <= 0) {
+        std::cerr << "ERROR: The value of --max-ambig should be in (0,1]\n";
+        exit(1);
+    }
+
     this->redo = false;
     this->calSim = false;
     this->cpuNum = cpuNum; 
@@ -229,6 +240,9 @@ msa::option::option(po::variables_map& vm) {
     this->printDetail = vm.count("verbose");
     this->deleteTemp = !vm.count("keep-temp");
     this->alignGappy = !vm.count("no-align-gappy");
+    this->lenDev = lenDev;
+    this->maxAmbig = ambig;
+    this->noFilter = vm.count("no-filtering");
 
     
     std::cout << "====== Configuration =======\n";
@@ -426,28 +440,31 @@ void msa::utility::clearAll() {
     this->lowQuality.clear();
 }
 
-void msa::utility::debug() {
+void msa::utility::debug(int& debugNum) {
     int alnLen = 0, offset = 0;
+    debugNum = 0;
     bool theFirst = true;
     for (auto s: this->rawSeqs) {
         std::string r = "";
         int sIdx = this->seqsIdx[s.first];
-        int storage = this->seqsStorage[sIdx];
-        offset = 0;
-        while (this->alnStorage[storage][sIdx][offset] != 0) {
-            if (this->alnStorage[storage][sIdx][offset] != '-') {
-                r += this->alnStorage[storage][sIdx][offset];
+        if (!this->lowQuality[sIdx]) {
+            int storage = this->seqsStorage[sIdx];
+            offset = 0;
+            while (this->alnStorage[storage][sIdx][offset] != 0) {
+                if (this->alnStorage[storage][sIdx][offset] != '-') {
+                    r += this->alnStorage[storage][sIdx][offset];
+                }
+                ++offset;
             }
-            ++offset;
+            if (theFirst) {alnLen = offset; theFirst = false;}
+            else {
+                if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", s.first.c_str(), offset, alnLen);
+            }
+            if (r != s.second) {
+                printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());            
+            }
+            ++debugNum;
         }
-        if (theFirst) {alnLen = offset; theFirst = false;}
-        else {
-            if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", s.first.c_str(), offset, alnLen);
-        }
-        if (r != s.second) {
-            printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", s.first.c_str());            
-        }
-        
     }
     this->rawSeqs.clear();
         

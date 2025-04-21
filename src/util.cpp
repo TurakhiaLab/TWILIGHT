@@ -97,6 +97,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     for (int i = 0; i < seqNum; ++i) {
         util->lowQuality[i] = false;
     }
+    float minLenTh = avgLen * (1-option->lenDev), maxLenTh = avgLen * (1+option->lenDev);
 
     std::atomic<int> numLowQ;
     numLowQ.store(0);
@@ -105,7 +106,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     // for (int i = 0; i < seqNum; ++i) {
         std::string name = util->seqsName[i];
         int len = util->seqsLen[name];
-        util->lowQuality[i] = (len > (avgLen * 1.9)) || (len < (avgLen * 0.9));
+        util->lowQuality[i] = (len > maxLenTh || len < minLenTh);
         if (!util->lowQuality[i]) {
             int countN = 0;
             for (int j = 0; j < len; ++j) {
@@ -115,20 +116,20 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
                     util->alnStorage[0][i][j] != 'T' && util->alnStorage[0][i][j] != 't' &&
                     util->alnStorage[0][i][j] != 'U' && util->alnStorage[0][i][j] != 'u'  ) ++countN;
             }
-            util->lowQuality[i] = (countN > (len * 0.1));
+            util->lowQuality[i] = (countN > (len * option->maxAmbig));
         }
         if (util->lowQuality[i]) numLowQ.fetch_add(1);
     }
     });
 
     if (option->printDetail) {
-        std::cout << "=== Sequence information ===\n";
+        std::cout << "===== Sequence Summary =====\n";
         std::cout << "Number : " << seqNum << '\n';
         std::cout << "Max. Length: " << maxLen << '\n';
         std::cout << "Min. Length: " << minLen << '\n';
         std::cout << "Avg. Length: " << avgLen << '\n';
-        std::cout << "Low Quality: " << numLowQ << '\n';
-        std::cout << "============================\n";
+        std::cout << "Non-Conforming: " << numLowQ << '\n';
+        std::cout << "=============================\n";
     }
     auto seqReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;

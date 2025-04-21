@@ -42,10 +42,13 @@ namespace msa
         int gappyHorizon;
         int alnMode; //0: MSA from raw sequences, 1: merge multiple MSA files
         float gappyVertical;
+        float lenDev;
+        float maxAmbig;
         std::vector<int> gpuIdx;
         int nowProcess;
         bool debug;
         bool cpuOnly;
+        bool noFilter;
         // == Position-specific option control ==
         bool psgop;
         bool psgopAuto;
@@ -101,7 +104,7 @@ namespace msa
         void memCheck(int seqLen, option* option);
         void memCheck(int seqLen, int idx);
         void clearAll();
-        void debug();
+        void debug(int& debugNum);
     };
 } 
 

@@ -40,6 +40,9 @@ void parseArguments(int argc, char** argv)
         ("keep-temp,k", "Keep the temporary directory.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment.")
         ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
+        ("length-deviation", po::value<float>()->default_value(0.1), "Filters out sequences whose lengths deviate from the average by more than the specified fraction.")
+        ("max-ambig", po::value<float>()->default_value(0.1), "Filters out sequences with an ambiguous character proportion exceeding the specified threshold.")
+        ("no-filtering", "Do not exclude any sequences, regardless of ambiguity or length deviation.")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("help,h", "Print help messages")
         ("version", "Show program version");
@@ -141,10 +144,11 @@ int main(int argc, char** argv) {
                 // post-alignment debugging
                 if (option->debug) {
                     auto dbgStart = std::chrono::high_resolution_clock::now();
-                    util->debug();
+                    int debugNum = 0;
+                    util->debug(debugNum);
                     auto dbgEnd = std::chrono::high_resolution_clock::now();
                     std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
-                    std::cout << "Completed checking " << subT->m_numLeaves << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
+                    std::cout << "Completed checking " << debugNum << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
                 }
                 if (P->partitionsRoot.size() > 1) {
                     auto storeStart = std::chrono::high_resolution_clock::now();
