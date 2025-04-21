@@ -8,6 +8,7 @@
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
 - [Installation](#install)
   - [Using Installation Script](#script)
+  - [Using Conda](#conda)
   - [Using Dockerfile](#docker)
 - [Run TWILIGHT](#run)
   - [Default mode](#default)
@@ -34,7 +35,7 @@ TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling
 ## <a name="install"></a> Installation
 ### <a name="script"></a> Using installation script (requires sudo access and only for Ubuntu)  
 
-This has been tested only on Ubuntu. Users on other platforms or systems please refer to the next section to install TWILIGHT using Docker.  
+This has been tested only on Ubuntu. Users without sudo access are advised to install TWILIGHT via [Conda](#conda). For users on other platforms or operating systems, please refer to the [Docker](#docker) section below for installation instructions.
 
 **Step 0:** Dependencies  
 - Git: `sudo apt install -y git` 
@@ -84,6 +85,26 @@ conda activate twilight
 bash ./install/installIterative.sh
 ```
 
+### <a name="conda"></a> Using Conda
+TWILIGHT is currently available for installation via Conda on the linux/amd64 platform only. Users on other platforms please refer to the [Docker](#docker) section.
+
+**Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
+```bash
+conda create -n twilight -y
+conda activate twilight
+```
+**Step 2:** Install TWILIGHT
+```bash
+conda install bioconda::twilight
+```
+**Step 3 (optional):** Install TWILIGHT iterative mode
+```bash
+git clone https://github.com/TurakhiaLab/TWILIGHT.git
+cd TWILIGHT
+bash ./install/installIterative.sh
+```
+
+
 ### <a name="docker"></a> Using Dockerfile
 The Dockerfile installed all the dependencies and tools for TWILIGHT default/iterative mode. 
 
@@ -109,14 +130,23 @@ cd docker/gpu
 docker build -t twilight .
 ```
 **Step 3:** Build and run docker container
+
+CPU version
 ```bash
 docker run --platform=linux/amd64 -it twilight
+```
+GPU version  
+Since the prebuilt version included in the Docker image is for CPU only, please rebuild TWILIGHT within the container to enable GPU support.
+```bash
+docker run --platform=linux/amd64 --gpus all -it twilight
+bash ./install/installTWILIGHT.sh # Within the container
 ```
 **Step 4:** Enter `build` directory and run TWILIGHT
 ```bash
 cd build
 ./twilight -h
 ```
+
 
 ## <a name="run"></a> Run TWILIGHT
 ### <a name="default"></a> Default Mode
@@ -165,7 +195,7 @@ Options for tree inference tools:
 ```bash
 cd workflow
 ```
-**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations  
+**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For people who install TWILIGHT via Conda, please replace the executable path `"../build/twilight"` with `"twilight"` in `config.yaml`.
 
 **Step 3:** Run TWILIGHT iterative mode.  
 Usage syntax
