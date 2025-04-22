@@ -1,8 +1,24 @@
+
+
+
+
+<div align="center">
+    
 # TWILIGHT: Tall and Wide Alignments at High Throughput
+
+[license-badge]: https://img.shields.io/badge/License-MIT-yellow.svg 
+[license-link]: https://github.com/TurakhiaLab/TWILIGHT/blob/main/LICENSE
+
+[![License][license-badge]][license-link]
+[<img src="https://img.shields.io/badge/Build with-CMake-green.svg?logo=snakemake">](https://cmake.org)
+[<img src="https://img.shields.io/badge/Made with-Snakemake-aquamarine.svg?logo=snakemake">](https://snakemake.readthedocs.io/en/v7.19.1/index.html)
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](http://bioconda.github.io/recipes/twilight/README.html)
+
 <div align="center">
   <img src="docs/images/logo.png" width="800"/>
 </div>
 
+</div>
 
 ## Table of Contents
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
@@ -15,7 +31,6 @@
   - [Iterative mode](#iterative)
 - [Contributions](#contribution)
 - [Citing TWILIGHT](#cite)
-
 
 <br>
 
