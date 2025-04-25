@@ -216,8 +216,8 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
     auto startT = std::chrono::high_resolution_clock::now();
     
     updateNode(tree, nodes, util);
-    int numBlocks = BLOCKSIZE;
-    int blockSize = THREAD_NUM;
+    int numBlocks = _BLOCKSIZE;
+    int blockSize = _THREAD_NUM;
     int gpuNum = option->gpuNum;
     // get maximum sequence/profile length
     int32_t seqLen = 0;

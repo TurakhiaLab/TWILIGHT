@@ -3,9 +3,9 @@
 
 #include <bits/stdc++.h>
 
-const int FRONT_WAVE_LEN = 1024+512;
-const int THREAD_NUM = 256;
-const int BLOCKSIZE = 2048;
+const int _FRONT_WAVE_LEN = 1024+512;
+const int _THREAD_NUM = 256;
+const int _BLOCKSIZE = 2048;
 
 // General Usage
 __global__ void alignGrpToGrp_freq

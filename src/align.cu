@@ -7,9 +7,9 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
     int tx = threadIdx.x;
     int bx = blockIdx.x;
 
-    const int fLen = FRONT_WAVE_LEN;
+    const int fLen = _FRONT_WAVE_LEN;
     const int p_marker = 128;
-    const int maxDiv = FRONT_WAVE_LEN/THREAD_NUM;
+    const int maxDiv = _FRONT_WAVE_LEN/_THREAD_NUM;
     const int tile_aln_size = 2*p_marker;
 
     int32_t pairNum = seqInfo[0];    
@@ -123,8 +123,8 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
             
             
             // Initialize shared memory
-            if (tx < THREAD_NUM) {
-                for (int i = tx; i < 3*fLen; i = i+THREAD_NUM) {                     
+            if (tx < _THREAD_NUM) {
+                for (int i = tx; i < 3*fLen; i = i+_THREAD_NUM) {                     
                     S[i] = -1; CS[i] = -1;
                     if (i < 2*fLen) { I[i] = -1; CI[i] = -1; D[i] = -1; CD[i] = -1;}
                     if (i < tile_aln_size) {tile_aln[i] = -1;}
@@ -175,16 +175,16 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                     ftr_lower_limit_idx += 1;      
                 }
                 __syncthreads();
-                int32_t threadRound = ftrLen / THREAD_NUM + 1;
-                int32_t lastRound = ftrLen % THREAD_NUM;
+                int32_t threadRound = ftrLen / _THREAD_NUM + 1;
+                int32_t lastRound = ftrLen % _THREAD_NUM;
                 if (lastRound == 0) {
                     threadRound -= 1;
-                    lastRound = THREAD_NUM;
+                    lastRound = _THREAD_NUM;
                 }
                 for (int32_t rn = 0; rn < threadRound; rn += 1) {
-                    int32_t activeThread = (rn != threadRound-1) ? THREAD_NUM : lastRound;
+                    int32_t activeThread = (rn != threadRound-1) ? _THREAD_NUM : lastRound;
                     if (tx < activeThread) {
-                        int32_t i=L[k%3]+rn*THREAD_NUM+tx;
+                        int32_t i=L[k%3]+rn*_THREAD_NUM+tx;
                         int32_t Lprime = max(0, k-reference_length + 1);
                         int32_t j= min(k, reference_length - 1) - (i-Lprime);
                         if (j < 0) { printf("tx: %d, ERROR: j less than 0.\n", tx);}
@@ -304,7 +304,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         if (tx % 2 == 0) ptr = (ptr << 4) & 0xF0;
                         else             ptr = ptr & 0x0F;
                         ptr += __shfl_xor_sync(0xffffffff, ptr, 1);
-                        if (tx < activeThread && tx%2 == 0) tb[tb_idx+rn*THREAD_NUM/2+tx/2] = ptr;
+                        if (tx < activeThread && tx%2 == 0) tb[tb_idx+rn*_THREAD_NUM/2+tx/2] = ptr;
                     }
                     __syncthreads();
                     // Calculate Max
