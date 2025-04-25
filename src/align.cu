@@ -375,19 +375,19 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         int32_t conv_D = CD[(k%2)*fLen+start+length/2];
                         int32_t conv_S = CS[(k%3)*fLen+start+length/2];
                         for (int32_t i = start; i <= start + length; i++ ){
-                            if (conv_I != CI[(k%2)*fLen+i] && conv_I != CI[(k%2)*fLen+i] != -2 && conv_I != CI[(k%2)*fLen+i] != -3){
+                            if (conv_I != CI[(k%2)*fLen+i] && conv_I != -2 && conv_I != -3){
                                 conv_I = -1;
                                 break;
                             } 
                         }
                         for (int32_t i = start; i <= start + length; i++ ){
-                            if (conv_D != CD[(k%2)*fLen+i] && conv_D != CD[(k%2)*fLen+i] != -2 && conv_D != CD[(k%2)*fLen+i] != -3){
+                            if (conv_D != CD[(k%2)*fLen+i] && conv_D != -2 && conv_D != -3){
                                 conv_D = -1;
                                 break;
                             } 
                         }
                         for (int32_t i = start; i <= start + length; i++ ){
-                            if (conv_S != CS[(k%3)*fLen+i] && conv_S != CS[(k%3)*fLen+i] != -2 && conv_S != CS[(k%3)*fLen+i] != -3){
+                            if (conv_S != CS[(k%3)*fLen+i] && conv_S != -2 && conv_S != -3){
                                 conv_S = -1;
                                 break;
                             } 
