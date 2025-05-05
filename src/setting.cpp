@@ -77,7 +77,7 @@ Params::Params(po::variables_map& vm) {
         }
         std::cout << "Gap-Open:     " << this->gapOpen << "\n"
                   << "Gap-Extend:   " << this->gapExtend << "\n"
-                  << "Gap-Boundary: " << this->gapBoundary << "\n"
+                  << "Gap-Ends: " << this->gapBoundary << "\n"
                   << "Xdrop:        " << this->xdrop << '\n';
     }
     std::cout << "============================\n";
@@ -99,22 +99,6 @@ msa::option::option(po::variables_map& vm) {
     if (vm.count("tree")) this->treeFile = vm["tree"].as<std::string>();
     if (vm.count("sequences")) {this->seqFile = vm["sequences"].as<std::string>(); this->alnMode = 0;}
     if (vm.count("files")) {this->msaDir = vm["files"].as<std::string>(); this->alnMode = 1;}
-    if (!vm.count("output")) {
-        std::cerr << "ERROR: An output file name is required.\n";
-        exit(1);
-    }
-    
-    this->outFile = vm["output"].as<std::string>();
-    if (fs::exists(this->outFile)) {
-        std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
-        exit(1);
-    }
-    std::ofstream outFile(this->outFile);
-    if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", this->outFile.c_str());
-        exit(1);
-    }
-    outFile.close();
 
     int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-group")) ? vm["max-group"].as<int>() : INT32_MAX;
@@ -213,10 +197,13 @@ msa::option::option(po::variables_map& vm) {
         this->psgopAuto = true;
     }
 
-    float lenDev = vm["length-deviation"].as<float>();
-    if (lenDev > 1 || lenDev <= 0) {
-        std::cerr << "ERROR: The value of --length-deviation should be in (0,1]\n";
-        exit(1);
+    float lenDev = 0;
+    if (vm.count("length-deviation")) {
+        lenDev = vm["length-deviation"].as<float>();
+        if (lenDev <= 0) {
+            std::cerr << "ERROR: The value of --length-deviation should be larger than 0\n";
+            exit(1);
+        }
     }
     float ambig = vm["max-ambig"].as<float>();
     if (ambig > 1 || ambig <= 0) {
@@ -242,7 +229,24 @@ msa::option::option(po::variables_map& vm) {
     this->alignGappy = !vm.count("no-align-gappy");
     this->lenDev = lenDev;
     this->maxAmbig = ambig;
-    this->noFilter = vm.count("no-filtering");
+    this->noFilter = !vm.count("filter");
+
+    if (!vm.count("output")) {
+        std::cerr << "ERROR: An output file name is required.\n";
+        exit(1);
+    }
+    
+    this->outFile = vm["output"].as<std::string>();
+    if (fs::exists(this->outFile)) {
+        std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
+        exit(1);
+    }
+    std::ofstream outFile(this->outFile);
+    if (!outFile) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", this->outFile.c_str());
+        exit(1);
+    }
+    outFile.close();
 
     
     std::cout << "====== Configuration =======\n";
@@ -253,7 +257,9 @@ msa::option::option(po::variables_map& vm) {
     if (this->gappyVertical == 1) 
     std::cout << "Disable removing gappy columns.\n";
     else
-    std::cout << "Removing gappy columns: " << this->gappyVertical << '\n';
+    std::cout << "Threshold for removing gappy columns: " << this->gappyVertical << '\n';
+    if (this->lenDev > 0) std::cout << "Allowed deviation from the average length: " << (this->lenDev * 100) << "%\n";
+    if (this->maxAmbig < 1) std::cout << "Allowed proportion of ambiguous characters: " << (this->maxAmbig * 100) << "%\n";
     printf("Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
     
 }
@@ -450,7 +456,9 @@ void msa::utility::debug(int& debugNum) {
         if (!this->lowQuality[sIdx]) {
             int storage = this->seqsStorage[sIdx];
             offset = 0;
-            while (this->alnStorage[storage][sIdx][offset] != 0) {
+            while ((this->alnStorage[storage][sIdx][offset] >= 'A' && this->alnStorage[storage][sIdx][offset] <= 'Z') || 
+                   (this->alnStorage[storage][sIdx][offset] >= 'a' && this->alnStorage[storage][sIdx][offset] <= 'z') || 
+                   (this->alnStorage[storage][sIdx][offset] == '-')) {
                 if (this->alnStorage[storage][sIdx][offset] != '-') {
                     r += this->alnStorage[storage][sIdx][offset];
                 }

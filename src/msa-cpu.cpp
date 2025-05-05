@@ -557,8 +557,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 });
                 });
             }
-            std::vector<std::vector<float>> freq (refLen, std::vector<float>(6,0.0));
-            tree->allNodes[nodes[0].first->identifier]->msaFreq = freq;
+            tree->allNodes[nodes[0].first->identifier]->msaFreq = std::vector<std::vector<float>> (refLen, std::vector<float>(6,0.0));
             for (int s = 0; s < refLen; ++s) for (int t = 0; t < 6; ++t) tree->allNodes[nodes[0].first->identifier]->msaFreq[s][t] = profile[6*s+t] / refNum * refWeight;
         }
         delete [] profile;
@@ -583,6 +582,15 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
         if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
         
+        if (util->nowProcess == 1) {
+            int32_t refNum = tree->allNodes[nodes[0].first->identifier]->msaIdx.size();
+            for (int s = 0; s < util->seqsLen[nodes[0].first->identifier]; ++s) {
+                for (int v = 0; v < 6; ++v)  {
+                    hostFreq[6*s+v] = tree->allNodes[nodes[0].first->identifier]->msaFreq[s][v]  / refWeight * refNum;
+                }
+            } 
+        }
+
         std::pair<int,int> startPos (std::make_pair(0,0));
         calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, seqLen, startPos);
 
@@ -815,9 +823,9 @@ void fallback2cpu(std::vector<int>& fallbackPairs, Tree* tree, std::vector<std::
         }
     }
     if (option->printDetail) {
-        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring 1 pair (1 sequence).\n";
-        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring 1 pair (%d sequences).\n", totalSeqs); 
-        else printf("Deferring %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
+        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring/excluding 1 pair (1 sequence).\n";
+        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring/excluding 1 pair (%d sequences).\n", totalSeqs); 
+        else printf("Deferring/excluding %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
     }
     return;
 }
@@ -1315,7 +1323,7 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
 void removeGappyColumns(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t profileLen, int32_t maxProfileLen, std::pair<int,int>& lens, std::pair<int,int>& rawLens) {
     float gappyVertical = option->gappyVertical;
     int gappyHorizon = option->gappyHorizon, gappyLength;
-    if ((gappyVertical == 1 || gappyHorizon < 1) || util->nowProcess == 1) {
+    if ((gappyVertical == 1 || gappyHorizon < 1)) {
         lens.first = std::min(lens.first, maxProfileLen);
         lens.second = std::min(lens.second, maxProfileLen);
         rawLens.first = lens.first;

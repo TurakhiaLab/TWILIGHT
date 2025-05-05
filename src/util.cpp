@@ -106,7 +106,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     // for (int i = 0; i < seqNum; ++i) {
         std::string name = util->seqsName[i];
         int len = util->seqsLen[name];
-        util->lowQuality[i] = (len > maxLenTh || len < minLenTh);
+        if (option->lenDev > 0) util->lowQuality[i] = (len > maxLenTh || len < minLenTh);
         if (!util->lowQuality[i]) {
             int countN = 0;
             for (int j = 0; j < len; ++j) {
@@ -128,7 +128,10 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
         std::cout << "Max. Length: " << maxLen << '\n';
         std::cout << "Min. Length: " << minLen << '\n';
         std::cout << "Avg. Length: " << avgLen << '\n';
-        std::cout << "Non-Conforming: " << numLowQ << '\n';
+        if (option->noFilter) 
+        std::cout << "Deferred sequences: " << numLowQ << '\n';
+        else 
+        std::cout << "Excluded sequences: " << numLowQ << '\n';
         std::cout << "=============================\n";
     }
     auto seqReadEnd = std::chrono::high_resolution_clock::now();

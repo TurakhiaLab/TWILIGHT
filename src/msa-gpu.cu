@@ -191,7 +191,7 @@ void msaOnSubtreeGpu(Tree *T, msa::utility *util, msa::option *option, partition
     if (!hier.empty()) {
         for (auto m : hier) {
             auto alnStart = std::chrono::high_resolution_clock::now();
-            if (option->cpuOnly) msaCpu(T, m, util, option, param);
+            if (option->cpuOnly || m.size() < cpuThres) msaCpu(T, m, util, option, param);
             else                 msaGpu(T, m, util, option, param);
             auto alnEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnTime = alnEnd - alnStart;
@@ -314,8 +314,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
         delete [] profile;
     }
 
-    tbb::parallel_for(tbb::blocked_range<int>(0, gpuNum), [&](tbb::blocked_range<int> range)
-                      { 
+    tbb::parallel_for(tbb::blocked_range<int>(0, gpuNum), [&](tbb::blocked_range<int> range) { 
         for (int gn = range.begin(); gn < range.end(); ++gn) {
 
             hostFreq[gn]   =  (float*)  malloc(12 * maxProfileLen * numBlocks * sizeof(float));
@@ -349,25 +348,11 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
             std::vector<std::pair<int, int>> startPos;
             std::vector<std::pair<int, int>> profileLen;
             std::vector<bool> endAln;
-
+            float globalRefWeight = 0.0;
             if (util->nowProcess == 1) {
-                float refWeight = 0.0;
                 int32_t refLen = util->seqsLen[nodes[0].first->identifier];
                 int32_t refNum = tree->allNodes[nodes[0].first->identifier]->msaIdx.size();
-                for (auto sIdx: tree->allNodes[nodes[0].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-
-                tbb::this_task_arena::isolate( [&]{
-                tbb::parallel_for(tbb::blocked_range<int>(0, util->seqsLen[nodes[0].first->identifier]), [&](tbb::blocked_range<int> r) {
-                for (int s = r.begin(); s < r.end(); ++s) {
-                    for (int n = 0; n < numBlocks; ++n) {
-                        int offsetf = 12*maxProfileLen*n+6*s;
-                        for (int v = 0; v < 6; ++v)  {
-                            hostFreq[gn][offsetf+v] = tree->allNodes[nodes[0].first->identifier]->msaFreq[s][v]  / refWeight * refNum;
-                        }
-                    }
-                }
-                });
-                });   
+                for (auto sIdx: tree->allNodes[nodes[0].first->identifier]->msaIdx)  globalRefWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
             }
 
             while (nowRound < roundGPU) {
@@ -394,6 +379,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                         gappyColumns.push_back(std::make_pair(gappyRef, gappyQry));
                         endAln.push_back(true);
                     }
+                    
                    
                     tbb::this_task_arena::isolate( [&]{
                     tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> r) {
@@ -409,12 +395,17 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                             float* rawProfile = new float [12 * maxLenLeft];
                             for (int i = 0; i < 12 * maxLenLeft; ++i) rawProfile[i] = 0;
                             calculateProfileFreq(rawProfile, tree, nodes[nIdx], util, maxLenLeft, startPos[n]);
+                            if (util->nowProcess == 1) {
+                                for (int s = startPos[n].first; s < std::min(startPos[n].first+maxLenLeft, refLen); ++s) {
+                                    for (int v = 0; v < 6; ++v)  {
+                                        rawProfile[6*(s-startPos[n].first)+v] = tree->allNodes[nodes[0].first->identifier]->msaFreq[s][v]  / globalRefWeight * refNum;
+                                    }
+                                }  
+                            }
                             std::pair<int,int> lens = std::make_pair(refLen-startPos[n].first, qryLen-startPos[n].second);
                             removeGappyColumns(rawProfile, tree, nodes[nIdx], util, option, gappyColumns[n], maxLenLeft, maxProfileLen, lens, profileLen[n]);
-                            if (util->nowProcess != 1) {
-                                for (int i = 0; i < 6*maxProfileLen; ++i)  {
-                                    hostFreq[gn][offsetf+i] = (i < 6*lens.first) ? rawProfile[i] : 0.0;
-                                }
+                            for (int i = 0; i < 6*maxProfileLen; ++i)  {
+                                hostFreq[gn][offsetf+i] = (i < 6*lens.first) ? rawProfile[i] : 0.0;
                             }
                             for (int i = 0; i < 6*maxProfileLen; ++i) {
                                 hostFreq[gn][offsetf+6*maxProfileLen+i] = (i < 6*lens.second) ? rawProfile[6*maxLenLeft+i] : 0.0;
@@ -450,6 +441,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                     }
                     hostSeqInfo[gn][0] = alnPairs;
                     hostSeqInfo[gn][1] = maxProfileLen;
+
                     
                     auto copyStart = std::chrono::high_resolution_clock::now();
                     cudaMemcpy(deviceFreq[gn],    hostFreq[gn],   12 * maxProfileLen * alnPairs * sizeof(float),   cudaMemcpyHostToDevice);
@@ -488,6 +480,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                         printf("ERROR: After kernel %s!\n", aerr.c_str());
                         exit(1);
                     }
+                    
                     tbb::this_task_arena::isolate( [&]{
                     tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
                     for (int n = range.begin(); n < range.end(); ++n) {
@@ -650,6 +643,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
         for (auto n: nodes) badNodes.push_back(n.second);
         mergeInsertions (tree, nodes[0].first, badNodes, util, alnBad);
     }
+
     // free memory
     for (int gn = 0; gn < gpuNum; ++gn)
     {

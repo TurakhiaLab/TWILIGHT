@@ -42,9 +42,9 @@ void parseArguments(int argc, char** argv)
         ("keep-temp,k", "Keep the temporary directory.")
         ("sum-of-pairs-score,s", "Calculate the sum-of-pairs score after the alignment.")
         ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
-        ("length-deviation", po::value<float>()->default_value(0.1), "Filters out sequences whose lengths deviate from the average by more than the specified fraction.")
-        ("max-ambig", po::value<float>()->default_value(0.1), "Filters out sequences with an ambiguous character proportion exceeding the specified threshold.")
-        ("no-filtering", "Do not exclude any sequences, regardless of ambiguity or length deviation.")
+        ("length-deviation", po::value<float>(), "Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded.")
+        ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
+        ("filter", "Exclude sequences with high ambiguity or length deviation.")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("cpu-only", "Run the program only on CPU.")
         ("help,h", "Print help messages")
@@ -90,7 +90,6 @@ int main(int argc, char** argv) {
     if (option->alnMode == 0) { // Twilight
         // Partition tree into subtrees
         T = readNewick(option->treeFile);
-        // printTree(T->root, -1);
         P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
         partitionTree(T->root, P);
         newT = reconsturctTree(T->root, P->partitionsRoot);
