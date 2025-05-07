@@ -215,7 +215,7 @@ cd workflow
 **Step 3:** Run TWILIGHT iterative mode.  
 Usage syntax
 ```bash
-snakemake --cores [num threads] --config SEQ=[sequence] OUT=[output] DIR=[directoryITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
+snakemake --cores [num threads] --config SEQ=[sequence] OUT=[output] DIR=[directory] ITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
 ```
 Example  
 - Using default configurations
