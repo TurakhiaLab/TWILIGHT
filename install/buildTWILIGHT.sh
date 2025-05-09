@@ -25,6 +25,9 @@ TBB_CMAKE_DIR=""
 
 # Find tbb
 find_tbb_cmake_dir() {
+    if [[ "$(uname)" == "Darwin" ]]; then # macOS
+        return 0
+    fi
     for libdir in lib lib64 lib32 libx32; do
         if [ -f "${TBB_INSTALL_DIR}/${libdir}/cmake/TBB/TBBConfig.cmake" ]; then
             TBB_CMAKE_DIR="${TBB_INSTALL_DIR}/${libdir}/cmake/TBB"
@@ -56,7 +59,17 @@ if ! find_tbb_cmake_dir; then
         exit 1
     fi
 else
-    echo "TBB already installed at: ${TBB_CMAKE_DIR}"
+    if [[ "$(uname)" == "Darwin" ]]; then # macOS
+        if brew list --versions tbb &> /dev/null; then
+            echo "TBB is installed via Homebrew:"
+            brew list --versions tbb
+            mkdir -p "${BUILD_DIR}"
+        else
+            echo "TBB is not found via Homebrew. Please use "bash ./install/installDependencies.sh" to install libraries."
+        fi
+    else
+        echo "TBB already installed at: ${TBB_CMAKE_DIR}"
+    fi
 fi
 
 # Get HIP version (only used for compiling on AMD GPU)
@@ -67,7 +80,11 @@ echo ${HIP_COMPILE_VERSION}
 # Build TWILIGHT
 cd "${BUILD_DIR}" || exit 1
 rm -rf CMake*
-cmake -DTBB_DIR="${TBB_CMAKE_DIR}" -DHIP_COMPILE_VERSION=${HIP_COMPILE_VERSION} $CMAKE_OPTIONS ..
+if [[ "$(uname)" == "Darwin" ]]; then
+    cmake -DTBB_DIR="$(brew --prefix tbb)/lib/cmake/tbb" -DHIP_COMPILE_VERSION=${HIP_COMPILE_VERSION} ..
+else
+    cmake -DTBB_DIR="${TBB_CMAKE_DIR}" -DHIP_COMPILE_VERSION=${HIP_COMPILE_VERSION} $CMAKE_OPTIONS ..
+fi
 make -j
 
 cd "${START_DIR}"

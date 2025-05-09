@@ -134,7 +134,7 @@ else()
 	    )
 	else()
 		message(STATUS "No CUDA or HIP detected — building CPU version.")
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated")
 		set(SRC_FILES src/twilight-main.cpp
 				      src/tree.cpp
 				      src/setting.cpp
