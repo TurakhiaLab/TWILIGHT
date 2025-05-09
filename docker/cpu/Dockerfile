@@ -31,12 +31,8 @@ WORKDIR /home/
 
 # TWILIGHT
 RUN git clone https://github.com/TurakhiaLab/TWILIGHT.git && \
-    mkdir ./TWILIGHT/build && \
-    cd ./TWILIGHT/build && \ 
-    wget https://github.com/oneapi-src/oneTBB/archive/2019_U9.tar.gz && \
-    tar -xvzf 2019_U9.tar.gz && \
-    cmake  -DTBB_DIR=${PWD}/oneTBB-2019_U9  -DCMAKE_PREFIX_PATH=${PWD}/oneTBB-2019_U9/cmake  .. && \
-    make -j
+    cd TWILIGHT && \
+    bash ./install/buildTWILIGHT.sh
 
 WORKDIR /home/TWILIGHT
 

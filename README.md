@@ -76,15 +76,15 @@ Otherwise,
 ```bash
 bash ./install/installDependencies.sh
 ```
-**Step 3:** Install TWILIGHT
+**Step 3:** Build and install TWILIGHT
 
 If CUDA-capable GPUs are detected, the GPU version will be built; otherwise, the CPU version will be used.
 ```bash
 bash ./install/buildTWILIGHT.sh
 ```
-**Step 4:** Enter `build` directory and run TWILIGHT
+**Step 4:** Enter `bin` directory and run TWILIGHT
 ```bash
-cd build
+cd bin
 ./twilight --help
 ```
 **Step 5 (optional):** Install TWILIGHT iterative mode
@@ -154,11 +154,11 @@ GPU version
 Since the prebuilt version included in the Docker image is for CPU only, please rebuild TWILIGHT within the container to enable GPU support.
 ```bash
 docker run --platform=linux/amd64 --gpus all -it twilight
-bash ./install/installTWILIGHT.sh # Within the container
+bash ./install/buildTWILIGHT.sh # Within the container
 ```
-**Step 4:** Enter `build` directory and run TWILIGHT
+**Step 4:** Enter `bin` directory and run TWILIGHT
 ```bash
-cd build
+cd bin
 ./twilight -h
 ```
 
@@ -167,7 +167,7 @@ cd build
 ### <a name="default"></a> Default Mode
 For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. 
 ```bash
-cd build
+cd bin
 ./twilight -h
 ```
 #### Default Configuration
