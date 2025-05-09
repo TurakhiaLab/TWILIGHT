@@ -1,7 +1,7 @@
 #ifndef ALIGN_HPP
 
 #include <hip/hip_runtime.h>
-#include "align.cuh"
+#include "align.hip.hpp"
 #endif
 
 __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32_t* num, int32_t* alnLen, int32_t *seqInfo,  float* gapOpen, float* gapExtend, float* param)
@@ -262,6 +262,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         int16_t tempI, tempD, tempH;
                         
                         // Use DPX instuctions to calculate Max
+                        /*
                         unsigned Ext = (delExt << 16) | (insExt & 0xFFFF);
                         unsigned Op =  (delOp << 16)  | (insOp & 0xFFFF);
                         unsigned ExtOp = __vibmax_s16x2(Ext, Op, &Dptr, &Iptr);
@@ -276,6 +277,21 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                         int32_t max32 = __vimax3_s32(mat32, ins32, del32);
                         tempH = (max32 >> 16) & 0xFFFF;
                         ptr = (max32) & 0x03;
+                        */
+                        tempI = max(insExt, insOp);
+			            Iptr = (insExt >= insOp);
+			            tempD = max(delExt, delOp);
+			            Dptr = (delExt >= delOp);
+			            tempH = max(match, max(tempI, tempD));
+			            if (match >= tempI) {
+			            	if (match >= tempD) ptr = 0;
+			            	else                ptr = 2;
+			            }
+			            else if (tempI > tempD) ptr = 1;
+			            else ptr = 2;
+			            D[(k%2)*fLen+offset] = tempD; 
+                        I[(k%2)*fLen+offset] = tempI;
+
                         if (tempH < max_score-p_xdrop) tempH = -inf;
                         S[(k%3)*fLen+offset] = tempH;
                         score = tempH;
@@ -326,7 +342,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
                     if (k <= p_marker) {
                         if (tx % 2 == 0) ptr = (ptr << 4) & 0xF0;
                         else             ptr = ptr & 0x0F;
-                        ptr += __shfl_xor_sync(0xffffffff, ptr, 1);
+                        ptr += __shfl_xor(ptr, 1);
                         if (tx < activeThread && tx%2 == 0) tb[tb_idx+rn*_THREAD_NUM/2+tx/2] = ptr;
                     }
                     __syncthreads();

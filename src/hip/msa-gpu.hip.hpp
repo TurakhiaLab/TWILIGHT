@@ -6,7 +6,7 @@
 #endif
 
 #ifndef ALIGN_HPP
-#include "align.cuh"
+#include "align.hip.hpp"
 #endif
 
 

@@ -17,6 +17,8 @@ endif()
 message(STATUS "TWILIGHT version ${twilight_VERSION}")
 configure_file(src/version.hpp.in ${CMAKE_SOURCE_DIR}/src/version.hpp)
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
+
 if(USE_CUDA)
 	message(STATUS "Build with CUDA")
 	find_package(CUDA 10.0 QUIET)
@@ -60,17 +62,19 @@ elseif(USE_HIP)
 	if(HIP_FOUND)
 		enable_language(HIP)
 	    message(STATUS "HIP found: ${HIP_VERSION}")
-		set(CMAKE_CXX_COMPILER "/opt/rocm-6.3.1/bin/hipcc")
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable")
-		set(SRC_FILES src/twilight-main.hip.cpp
+		add_definitions(-D__HIP_PLATFORM_AMD__)
+		set(CMAKE_CXX_COMPILER "/opt/rocm-${HIP_COMPILE_VERSION}/bin/hipcc")
+		include_directories("/opt/rocm-${HIP_COMPILE_VERSION}/include/")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated")
+		set(SRC_FILES src/hip/twilight-main.hip.cpp
 			  		  src/tree.cpp
 			  		  src/setting.cpp
 			  		  src/treePartition.cpp
 			  		  src/TALCO-XDrop.cpp
 			  		  src/util.cpp
 			  		  src/msa-cpu.cpp
-			  		  src/msa-gpu.hip.cpp
-			  		  src/align.hip.cpp
+			  		  src/hip/msa-gpu.hip.cpp
+			  		  src/hip/align.hip.cpp
 	    )	
 	else()
 	    message(FATAL_ERROR "No HIP found")
@@ -114,17 +118,19 @@ else()
 	elseif(HIP_FOUND)
 		enable_language(HIP)	
 	    message(STATUS "HIP found: ${HIP_VERSION}")
-		set(CMAKE_CXX_COMPILER "/opt/rocm-6.3.1/bin/hipcc")
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable")
-		set(SRC_FILES src/twilight-main.hip.cpp
+		add_definitions(-D__HIP_PLATFORM_AMD__)
+		set(CMAKE_CXX_COMPILER "/opt/rocm-${HIP_COMPILE_VERSION}/bin/hipcc")
+		include_directories("/opt/rocm-${HIP_COMPILE_VERSION}/include/")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated")
+		set(SRC_FILES src/hip/twilight-main.hip.cpp
 			  		  src/tree.cpp
 			  		  src/setting.cpp
 			  		  src/treePartition.cpp
 			  		  src/TALCO-XDrop.cpp
 			  		  src/util.cpp
 			  		  src/msa-cpu.cpp
-			  		  src/msa-gpu.hip.cpp
-			  		  src/align.hip.cpp
+			  		  src/hip/msa-gpu.hip.cpp
+			  		  src/hip/align.hip.cpp
 	    )
 	else()
 		message(STATUS "No CUDA or HIP detected — building CPU version.")

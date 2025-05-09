@@ -1,7 +1,7 @@
 #ifndef MSAGPU_HPP
 
 #include <hip/hip_runtime.h>
-#include "msa-gpu.cuh"
+#include "msa-gpu.hip.hpp"
 #endif
 
 void getGpuInfo(po::variables_map &vm, msa::option *option) {

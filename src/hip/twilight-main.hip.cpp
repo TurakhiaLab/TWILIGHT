@@ -5,7 +5,7 @@
 #endif
 
 #ifndef MSAGPU_HPP
-#include "msa-gpu.cuh"
+#include "msa-gpu.hip.hpp"
 #endif
 
 #include "../version.hpp"
