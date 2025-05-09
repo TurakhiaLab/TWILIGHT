@@ -80,7 +80,7 @@ bash ./install/installDependencies.sh
 
 If CUDA-capable GPUs are detected, the GPU version will be built; otherwise, the CPU version will be used.
 ```bash
-bash ./install/installTWILIGHT.sh
+bash ./install/buildTWILIGHT.sh
 ```
 **Step 4:** Enter `build` directory and run TWILIGHT
 ```bash
