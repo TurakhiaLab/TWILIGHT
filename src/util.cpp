@@ -98,9 +98,9 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
         util->lowQuality[i] = false;
     }
     float minLenTh = avgLen * (1-option->lenDev), maxLenTh = avgLen * (1+option->lenDev);
-
     std::atomic<int> numLowQ;
     numLowQ.store(0);
+    std::map<char, int> letterMap = (option->type == 'n') ? NUCLEOTIDE : PROTEIN;
     tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
     for (int i = range.begin(); i < range.end(); ++i) {
     // for (int i = 0; i < seqNum; ++i) {
@@ -110,11 +110,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
         if (!util->lowQuality[i]) {
             int countN = 0;
             for (int j = 0; j < len; ++j) {
-                if (util->alnStorage[0][i][j] != 'A' && util->alnStorage[0][i][j] != 'a' &&
-                    util->alnStorage[0][i][j] != 'C' && util->alnStorage[0][i][j] != 'c' && 
-                    util->alnStorage[0][i][j] != 'G' && util->alnStorage[0][i][j] != 'g' && 
-                    util->alnStorage[0][i][j] != 'T' && util->alnStorage[0][i][j] != 't' &&
-                    util->alnStorage[0][i][j] != 'U' && util->alnStorage[0][i][j] != 'u'  ) ++countN;
+                if (letterMap.find(toupper(util->alnStorage[0][i][j])) == letterMap.end()) ++countN;
             }
             util->lowQuality[i] = (countN > (len * option->maxAmbig));
         }

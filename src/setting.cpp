@@ -2,85 +2,126 @@
 #include "setting.hpp"
 #endif
 
-Params::Params(po::variables_map& vm) {
+
+Params::Params(po::variables_map& vm, char type) {
     bool userDefine = vm.count("matrix");
     float gapOp = vm["gap-open"].as<float>();
     float gapEx = vm["gap-extend"].as<float>();
-    float mat = vm["match"].as<float>();
-    float mis = vm["mismatch"].as<float>();
-    float trans = vm["transition"].as<float>();
-    float xdrop = round(vm["xdrop"].as<float>());
     float gapBo = vm.count("gap-ends") ? vm["gap-ends"].as<float>() : gapEx;
-    
+    float xdrop = round(vm["xdrop"].as<float>());
     if (gapOp > 0 || gapEx > 0 || gapBo > 0)  {
         std::cerr << "ERROR: Gap penalties should be less than or equal to 0.\n";
         exit(1);
     }
-    
+    if (xdrop <= 0)  {
+        std::cerr << "ERROR: XDrop value should be larger than 0.\n";
+        exit(1);
+    }
+    this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapBoundary = gapBo;
+    this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
+
+    this->matrixSize = (type == 'n') ? 5 : 21;
+    this->scoringMatrix = new float* [this->matrixSize];
+    for (int i = 0; i < this->matrixSize; ++i) this->scoringMatrix[i] = new float[this->matrixSize];
+    std::map<char, int> letterMap = (type == 'n') ? NUCLEOTIDE : PROTEIN;
+        
+            
     if (!userDefine) {
-        for (int i = 0; i < 5; ++i) {
-            for (int j = 0; j < 5; ++j) {
-                if (i == 4 || j == 4)        this->scoringMatrix[i][j] = vm.count("wildcard") ? mat : 0.0;
-                else if (i == j)             this->scoringMatrix[i][j] = mat;
-                else if (std::abs(i-j) == 2) this->scoringMatrix[i][j] = trans;
-                else                         this->scoringMatrix[i][j] = mis;
+        if (type == 'n') {
+            for (int i = 0; i < 5; ++i) {
+                for (int j = 0; j < 5; ++j) {
+                    if (i == 4 || j == 4)        this->scoringMatrix[i][j] = vm.count("wildcard") ? vm["match"].as<float>() : 0.0;
+                    else if (i == j)             this->scoringMatrix[i][j] = vm["match"].as<float>();
+                    else if (std::abs(i-j) == 2) this->scoringMatrix[i][j] = vm["transition"].as<float>();
+                    else                         this->scoringMatrix[i][j] = vm["mismatch"].as<float>();
+                }
             }
         }
-        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapBoundary = gapBo;
-        this->xdrop = (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
+        else if (type == 'p') {
+            float Nscore = 0.0;
+            for (int i = 0; i < 20; ++i) Nscore += BLOSUM62[i][i];
+            Nscore /= 20;
+            for (int i = 0; i < 21; ++i) {
+                for (int j = 0; j < 21; ++j) {
+                    if (i == 20 || j == 20) this->scoringMatrix[i][j] = vm.count("wildcard") ? 5 * Nscore : 0.0;
+                    else                    this->scoringMatrix[i][j] = 5 * BLOSUM62[i][j];
+                }
+            }
+        }
     }
     else {
         std::string matrixFileName = vm["matrix"].as<std::string>();
         std::ifstream matrixFile(matrixFileName);
         if (!matrixFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", matrixFileName.c_str());
+            fprintf(stderr, "ERROR: can't open %s\n", matrixFileName.c_str());
             exit(1);
         }
-        std::string dna;
-        std::vector<int> dnaVec;
-        int readCount = 0;
-        while (matrixFile >> dna) {
-            if (readCount < 4) {
-                if      (dna == "A" || dna == "a") dnaVec.push_back(0);
-                else if (dna == "C" || dna == "c") dnaVec.push_back(1);
-                else if (dna == "G" || dna == "g") dnaVec.push_back(2);
-                else if (dna == "T" || dna == "t" || dna == "U" || dna == "u") dnaVec.push_back(3);
-                else { std::cerr << "ERROR: Illegal nucleotide type \"" << dna << "\"\n"; exit(1);}
+        std::string word;
+        std::vector<int> charVec;
+        int readCount = 0, charNum = this->matrixSize-1;
+        while (matrixFile >> word) {
+            if (readCount < charNum) {
+                char letter = toupper(word[0]);
+                if (letterMap.find(letter) == letterMap.end()) {
+                    std::string seqType = (type == 'n') ? " for nucleotide sequences.\n" : " for protein sequences.\n";
+                    std::cerr << "Unrecognized letter \"" << letter << "\"" << seqType;
+                    exit(1);
+                }
+                charVec.push_back(letterMap[letter]);
                 readCount++;
             }
             else {
-                int x = (readCount-4) / 4;
-                int y = (readCount-4) % 4;
-                int i = dnaVec[x];
-                int j = dnaVec[y];
-                this->scoringMatrix[i][j] = std::stof(dna.c_str());
+                int x = (readCount-charNum) / charNum;
+                int y = (readCount-charNum) % charNum;
+                int i = charVec[x];
+                int j = charVec[y];
+                this->scoringMatrix[i][j] = std::stof(word.c_str());
                 readCount++;
             }
         }
         matrixFile.close();
-        float Nscore = vm.count("wildcard") ? (this->scoringMatrix[0][0] + this->scoringMatrix[1][1] + this->scoringMatrix[2][2] + this->scoringMatrix[3][3]) / 4 : 0.0;
-        for (int i = 0; i < 5; ++i) {
-            this->scoringMatrix[i][4] = Nscore;
-            this->scoringMatrix[4][i] = Nscore;
+        float Nscore = 0;
+        for (int i = 0; i < charNum; ++i) Nscore += this->scoringMatrix[i][i];
+        Nscore = vm.count("wildcard") ? (Nscore / charNum) : 0.0;
+        for (int i = 0; i < this->matrixSize; ++i) {
+            this->scoringMatrix[i][this->matrixSize-1] = Nscore;
+            this->scoringMatrix[this->matrixSize-1][i] = Nscore;
         }
-        this->gapOpen = gapOp; this->gapExtend = gapEx; this->gapBoundary = gapBo;
-        this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
     }
+    
     if (vm.count("verbose")) {
         std::cout << "======== Parameters ========\n";
-        std::cout << "    A    C    G    T    N   \n";
-        for (int i = 0; i < 5; ++i) {
-            for (int j = 0; j < 5; ++j) {
+        std::cout << std::setw(5) << " ";
+        for (size_t i = 0; i < this->matrixSize-1; ++i) {
+            auto letter = letterMap.begin();
+            std::advance(letter, i);
+            letter++;
+            std::cout << std::setw(5) << letter->first;
+        }
+        std::cout << std::setw(5) << ((type == 'n') ? 'N' : 'X');
+        std::cout << "\n";
+        for (size_t i = 0; i < this->matrixSize; ++i) {
+            auto letter = letterMap.begin();
+            std::advance(letter, i);
+            letter++;
+            if (i < this->matrixSize-1) std::cout << std::setw(5) << letter->first;
+            else std::cout << std::setw(5) << ((type == 'n') ? 'N' : 'X');
+            for (size_t j = 0; j < this->matrixSize; ++j) {
                 std::cout << std::setw(5) << this->scoringMatrix[i][j];
             }
-            std::cout << '\n';
+            std::cout << "\n";
         }
-        std::cout << "Gap-Open:     " << this->gapOpen << "\n"
-                  << "Gap-Extend:   " << this->gapExtend << "\n"
-                  << "Gap-Ends: " << this->gapBoundary << "\n"
-                  << "Xdrop:        " << this->xdrop << '\n';
+        std::cout << "Gap-Open:   " << this->gapOpen << "\n"
+                  << "Gap-Extend: " << this->gapExtend << "\n"
+                  << "Gap-Ends:   " << this->gapBoundary << "\n"
+                  << "Xdrop:      " << this->xdrop << '\n';
+        std::cout << "============================\n";
     }
-    std::cout << "============================\n";
+}
+
+Params::~Params() {
+    for (int i = 0; i < this->matrixSize; ++i) delete[] this->scoringMatrix[i];
+    delete [] scoringMatrix;
 }
 
 msa::option::option(po::variables_map& vm) {
@@ -195,6 +236,42 @@ msa::option::option(po::variables_map& vm) {
     else {
         this->psgop = false;
         this->psgopAuto = true;
+    }
+
+    if (vm.count("type")) {
+        if (vm["type"].as<std::string>() != "n" || vm["type"].as<std::string>() != "p") {
+            std::cerr << "ERROR: Unrecognized data type \"" << vm["type"].as<std::string>() << "\".\n";
+            exit(1);
+        }
+        else this->type = vm["type"].as<std::string>()[0];
+    }
+    else {
+        std::ifstream file(this->seqFile);
+        if (!file.is_open()) {
+            std::cerr << "Error: cannot open " << this->seqFile << std::endl;
+            exit(1);
+        }
+        std::string line;
+        int lineCount = 0;
+        bool fin = false;
+        this->type = 'n';
+        while (getline(file, line)) {
+            if (line.empty() || line[0] == '>') continue;
+            for (char c : line) {
+                c = toupper(c);
+                if (protein_only.count(c)) {
+                    this->type = 'p';
+                    fin = true;
+                    break;
+                }
+                if (nucleotide_only.count(c)) {
+                    fin = true;
+                    break;
+                }
+            }
+            ++lineCount;
+            if (fin || lineCount == 100) break;
+        }
     }
 
     float lenDev = 0;

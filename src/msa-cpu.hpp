@@ -19,7 +19,7 @@
 #include "treePartition.hpp"
 #endif
 
-const int32_t PROFILE_SIZE_TH = 1000;
+const int32_t PROFILE_LEN_TH = 1000;
         
 
 void msaOnSubtree  (Tree* T,             msa::utility* util, msa::option* option, partitionInfo_t* partition, Params& param);
@@ -32,7 +32,7 @@ void transitivityMerge(  Tree* tree, Tree* newtree, std::vector<std::pair<Node*,
 
 void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
 // void calculateProfileFreq(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t seqLen, int32_t offsetf, int32_t offsetg);
-void calculateProfileFreq(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t profileLen, std::pair<int, int> startPos);
+void calculateProfileFreq(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t profileLen, int32_t profileSize, std::pair<int, int> startPos, std::map<char, int>& letterMap);
 // void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, int32_t seqLen, int32_t offsetf, int32_t offsetg, Params& param);
 void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, int32_t seqLen, std::pair<int32_t,int32_t> offset, std::pair<int32_t,int32_t>lens, Params& param);
 

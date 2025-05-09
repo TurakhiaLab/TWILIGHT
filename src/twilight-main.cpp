@@ -23,6 +23,7 @@ void parseArguments(int argc, char** argv)
         ("max-group,g",  po::value<int>(), "Maximum number of leaves in a group within a subtree, used for performing transitivity merger in a subtree.")
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files.")
         ("remove-gappy,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
+        ("type", po::value<std::string>(), "Data type. n: nucleotide, p: protein. Will be automatically inferred if not provided.")
         // ("gappy-horizon,z", po::value<float>()->default_value(1), "Minimum number of consecutive gappy columns, which will be removed during alignment.")
         ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
         ("verbose,v", "Print out every detail process.")
@@ -30,7 +31,7 @@ void parseArguments(int argc, char** argv)
         ("match",      po::value<float>()->default_value(18), "Match score.")
         ("mismatch",   po::value<float>()->default_value(-8), "Mismatch penalty for transversions.")
         ("transition", po::value<float>()->default_value(5), "Score for transitions")
-        ("gap-open",   po::value<float>()->default_value(-50), "Gap-Open penalty")
+        ("gap-open",   po::value<float>()->default_value(-55), "Gap-Open penalty")
         ("gap-extend", po::value<float>()->default_value(-5), "Gap-Extend penalty")
         ("gap-ends",   po::value<float>(), "Gap penalty at ends, default set to the same as the gap extension penalty.")
         ("xdrop",      po::value<float>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty.")
@@ -75,9 +76,9 @@ int main(int argc, char** argv) {
     }
 
     msa::option* option = new msa::option(vm);
-    tbb::task_scheduler_init init(option->cpuNum);
+    tbb::global_control init(tbb::global_control::max_allowed_parallelism, option->cpuNum);
     msa::utility* util = new msa::utility;
-    Params* param = new Params(vm);
+    Params* param = new Params(vm, option->type);
 
     Tree* T = nullptr, * newT = nullptr;
     partitionInfo_t* P = nullptr;

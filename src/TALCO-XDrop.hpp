@@ -38,10 +38,11 @@
 
 namespace Talco_xdrop {
     struct Params {
-        float scoreMatrix [5][5];
+        float** scoreMatrix;
         float gapOpen;
         float gapBoundary;
         float gapExtend;
+        int32_t matrixSize;
         int32_t xdrop;
         int32_t fLen;
         int32_t marker;
@@ -52,28 +53,34 @@ namespace Talco_xdrop {
         }
         void updateFLen(int32_t new_flen) { this->fLen = new_flen;}
 
-        Params(float* t_param) {
-            for (int i = 0; i < 5; ++i) {
-                for (int j = 0; j < 5; ++j) {
-                    this->scoreMatrix[i][j] = t_param[i*5+j];
+        Params(float* t_param, int matrixSize) {
+            this->matrixSize = matrixSize;
+            this->scoreMatrix = new float * [matrixSize];
+            for (int i = 0; i < matrixSize; ++i) this->scoreMatrix[i] = new float [matrixSize];
+            for (int i = 0; i < matrixSize; ++i) {
+                for (int j = 0; j < matrixSize; ++j) {
+                    this->scoreMatrix[i][j] = t_param[i*matrixSize+j];
                 }
             }
-            this->gapOpen = t_param[25];
-            this->gapExtend = t_param[26];
-            this->gapBoundary = t_param[27];
-            this->xdrop = static_cast<int32_t> (1000 * -1 * t_param[26]);
+            this->gapOpen = t_param[matrixSize*matrixSize];
+            this->gapExtend = t_param[matrixSize*matrixSize+1];
+            this->gapBoundary = t_param[matrixSize*matrixSize+2];
+            this->xdrop = static_cast<int32_t> (1000 * -1 * this->gapExtend);
             this->fLen = (1 << 12);
             this->marker = (1 << 10); //reduce this value to save memory
+        }
+        ~Params() {
+            for (int i = 0; i < this->matrixSize; ++i) delete [] this->scoreMatrix[i];
+            delete [] this->scoreMatrix;
         }
     };
     
     void Align_freq (
-        Params params,
+        Params* params,
         const std::vector<std::vector<float>>& freqRef,
         const std::vector<std::vector<float>>& freqQry,
         const std::vector<std::vector<float>>& gapOp,
         const std::vector<std::vector<float>>& gapEx,
-        const std::vector<std::vector<float>>& gapCl,
         const std::pair<float, float>& num,
         std::vector<int8_t>& aln,
         int16_t& errorType
@@ -84,9 +91,8 @@ namespace Talco_xdrop {
         const std::vector<std::vector<float>>& query, 
         const std::vector<std::vector<float>>& gapOp,
         const std::vector<std::vector<float>>& gapEx,
-        const std::vector<std::vector<float>>& gapCl,
         const std::pair<float, float>& num,
-        Params params,
+        Params* params,
         int32_t &reference_idx,
         int32_t &query_idx,
         std::vector<int8_t> &aln,
