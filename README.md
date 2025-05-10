@@ -48,9 +48,9 @@ TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling
 </div>
 
 ## <a name="install"></a> Installation
-### <a name="script"></a> Using installation script (requires sudo access and only for Ubuntu)  
+### <a name="script"></a> Using installation script (requires sudo access if certain common libraries are not already installed)  
 
-This has been tested only on Ubuntu. Users without sudo access are advised to install TWILIGHT via [Conda](#conda). For users on other platforms or operating systems, please refer to the [Docker](#docker) section below for installation instructions.
+This has been tested on Ubuntu and Mac (Apple Silicon). Users without sudo access are advised to install TWILIGHT via [Conda](#conda). For users on other platforms or operating systems, please refer to the [Docker](#docker) section below for installation instructions.
 
 **Step 0:** Dependencies  
 - Git: `sudo apt install -y git` 
@@ -63,35 +63,50 @@ cd TWILIGHT
 ```
 **Step 2:** Install dependencies (requires sudo access)
 
-Skip this step if the below libraries are already installed.
+TWILIGHT depends on the following common system libraries, which are typically pre-installed on most development environments:
 ```bash
 - wget
 - build-essential 
 - cmake 
 - libboost-all-dev 
-- libtbb2 
-- protobuf-compiler
 ```
-Otherwise,
+It also requires:
 ```bash
-bash ./install/installDependencies.sh
+- libtbb-dev # Not always pre-installed on all systems
 ```
-**Step 3:** Build and install TWILIGHT
+For users who do not have sudo access and are missing **only** `libtbb-dev`, our script builds and installs TBB from source in the local user environment, with no root access required.
 
-If CUDA-capable GPUs are detected, the GPU version will be built; otherwise, the CPU version will be used.
+For Ubuntu users with sudo access, if any of the required libraries are missing, you can install them with:
+```bash
+sudo apt install -y wget build-essential libboost-all-dev cmake libtbb-dev
+```
+For Mac users, install dependencies using **Homebrew**:
+```bash
+xcode-select --install # if not already installed
+brew install wget boost cmake tbb
+```
+**Step 3:** Build TWILIGHT
+
+Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly.  
+Alternatively, users can manually specify the desired target platform.
+
+Automatic build:
 ```bash
 bash ./install/buildTWILIGHT.sh
 ```
-**Step 4:** Enter `bin` directory and run TWILIGHT
+Build for a specific platform:
 ```bash
-cd bin
-./twilight --help
+bash ./install/buildTWILIGHT.sh cuda # For NVIDIA GPUs
+bash ./install/buildTWILIGHT.sh hip  # For AMD GPUs
+```
+**Step 4:** The TWILIGHT executable is located in the `bin` directory and can be run as follows:
+```bash
+./bin/twilight --help
 ```
 **Step 5 (optional):** Install TWILIGHT iterative mode
 
 **Step 5.1** Create and activate a Conda environment (ensure Conda is installed first)
 ```bash
-cd ../ # Return to TWILIGHT home directory
 conda create -n twilight -y
 conda activate twilight
 ```
