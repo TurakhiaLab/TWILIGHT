@@ -6,14 +6,13 @@ RUN chmod 1777 /tmp
 RUN apt-get update && \
     apt-get install -y \
        	wget \
-	git \
+	    git \
         vim \
-	build-essential \
-	libboost-all-dev \
-	libtbb2 \
-	cmake \
-	protobuf-compiler && \
-    apt-get clean
+	    build-essential \
+	    libboost-all-dev \
+		libtbb-dev \
+	    cmake && \
+	apt-get clean
 
 WORKDIR /home/
 
@@ -32,11 +31,11 @@ SHELL ["conda", "run", "-n", "twilight", "/bin/bash", "-c"]
 RUN pip install snakemake
 RUN pip install numpy
 
-RUN conda install bioconda::fasttree -y # FastTree
-RUN conda install bioconda::mashtree -y # MashTree
-RUN conda install bioconda::mafft -y    # MAFFT
-RUN conda install bioconda::raxml -y    # RAxML
-RUN conda install bioconda::iqtree -y   # IQ-Tree
+RUN conda install bioconda::fasttree -y --quiet # FastTree
+RUN conda install bioconda::mashtree -y --quiet # MashTree
+RUN conda install bioconda::mafft -y --quiet    # MAFFT
+RUN conda install bioconda::raxml -y --quiet    # RAxML
+RUN conda install bioconda::iqtree -y --quiet   # IQ-Tree
 
 # TWILIGHT
 RUN git clone https://github.com/TurakhiaLab/TWILIGHT.git && \
