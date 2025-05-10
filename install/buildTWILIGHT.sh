@@ -37,6 +37,15 @@ find_tbb_cmake_dir() {
     return 1
 }
 
+# Check if libtbb-dev fis installed
+find_tbb_dev() {
+    if dpkg -l | grep -q libtbb-dev; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Download, build and install TBB
 install_tbb() {
     echo "Installing TBB..."
@@ -52,24 +61,31 @@ install_tbb() {
 }
 
 # Check for existing TBB installation
-if ! find_tbb_cmake_dir; then
-    install_tbb
+if ! find_tbb_dev; then
     if ! find_tbb_cmake_dir; then
-        echo "Error: Could not find TBB CMake config after installation."
-        exit 1
-    fi
-else
-    if [[ "$(uname)" == "Darwin" ]]; then # macOS
-        if brew list --versions tbb &> /dev/null; then
-            echo "TBB is installed via Homebrew:"
-            brew list --versions tbb
-            mkdir -p "${BUILD_DIR}"
-        else
-            echo "TBB is not found via Homebrew. Please use "bash ./install/installDependencies.sh" to install libraries."
+        echo "libtbb-dev not found. Install TBB from source."
+        install_tbb
+        if ! find_tbb_cmake_dir; then
+            echo "Error: Could not find TBB CMake config after installation."
+            exit 1
         fi
     else
-        echo "TBB already installed at: ${TBB_CMAKE_DIR}"
+        if [[ "$(uname)" == "Darwin" ]]; then # macOS
+            if brew list --versions tbb &> /dev/null; then
+                tbb_ver=$(brew list --versions tbb | cut -c5-100)
+                echo "Found TBB: Version: ${tbb_ver}"
+                mkdir -p "${BUILD_DIR}"
+            else
+                echo "TBB is not found via Homebrew. Please use "bash ./install/installDependencies.sh" to install libraries."
+            fi
+        else
+            echo "TBB already installed at: ${TBB_CMAKE_DIR}"
+        fi
     fi
+else 
+    tbb_ver=$(dpkg -s libtbb-dev | grep '^Version')
+    echo "Found TBB: ${tbb_ver}"
+    mkdir -p "${BUILD_DIR}"
 fi
 
 # Get HIP version (only used for compiling on AMD GPU)
@@ -83,7 +99,11 @@ rm -rf CMake*
 if [[ "$(uname)" == "Darwin" ]]; then
     cmake -DTBB_DIR="$(brew --prefix tbb)/lib/cmake/tbb" -DHIP_COMPILE_VERSION=${HIP_COMPILE_VERSION} ..
 else
-    cmake -DTBB_DIR="${TBB_CMAKE_DIR}" -DHIP_COMPILE_VERSION=${HIP_COMPILE_VERSION} $CMAKE_OPTIONS ..
+    if find_tbb_dev; then
+        cmake -DHIP_COMPILE_VERSION=${HIP_COMPILE_VERSION} $CMAKE_OPTIONS ..
+    else
+        cmake -DTBB_DIR="${TBB_CMAKE_DIR}" -DHIP_COMPILE_VERSION=${HIP_COMPILE_VERSION} $CMAKE_OPTIONS ..
+    fi
 fi
 make -j
 
