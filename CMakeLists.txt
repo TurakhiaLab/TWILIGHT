@@ -83,7 +83,7 @@ else()
 	message(STATUS "Auto-detecting hardware and selecting compute backend.")
 	find_package(CUDA 10.0 QUIET)
 	find_package(HIP QUIET)
-	if(CUDA_FOUND)
+	if(CMAKE_CUDA_COMPILER)
 		message(STATUS "CUDA found: ${CUDA_VERSION}")
 		enable_language(CUDA)
 		TRY_RUN(
