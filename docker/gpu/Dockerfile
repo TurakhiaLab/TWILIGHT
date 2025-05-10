@@ -40,7 +40,7 @@ RUN conda install bioconda::iqtree -y --quiet   # IQ-Tree
 # TWILIGHT
 RUN git clone https://github.com/TurakhiaLab/TWILIGHT.git && \
     cd TWILIGHT && \
-    bash ./install/buildTWILIGHT.sh
+    bash ./install/buildTWILIGHT.sh cuda
 
 WORKDIR /home/TWILIGHT
 

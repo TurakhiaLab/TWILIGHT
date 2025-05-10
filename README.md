@@ -101,7 +101,8 @@ bash ./install/buildTWILIGHT.sh hip  # For AMD GPUs
 ```
 **Step 4:** The TWILIGHT executable is located in the `bin` directory and can be run as follows:
 ```bash
-./bin/twilight --help
+cd bin
+./twilight --help
 ```
 **Step 5 (optional):** Install TWILIGHT iterative mode
 
@@ -159,19 +160,17 @@ GPU version (using nvidia/cuda as base image)
 cd docker/gpu
 docker build -t twilight .
 ```
-**Step 3:** Build and run docker container
+**Step 3:** Start and run docker container
 
 CPU version
 ```bash
 docker run --platform=linux/amd64 -it twilight
 ```
 GPU version  
-Since the prebuilt version included in the Docker image is for CPU only, please rebuild TWILIGHT within the container to enable GPU support.
 ```bash
 docker run --platform=linux/amd64 --gpus all -it twilight
-bash ./install/buildTWILIGHT.sh # Within the container
 ```
-**Step 4:** Enter `bin` directory and run TWILIGHT
+**Step 4:** Run TWILIGHT
 ```bash
 cd bin
 ./twilight -h
