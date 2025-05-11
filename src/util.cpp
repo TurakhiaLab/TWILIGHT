@@ -772,7 +772,7 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     matchAvg /= 4.0;
     normScore /= ((seqNum * (seqNum-1)) / 2);
     // normScore /= alnLen;
-    normScore /= matchAvg;
+    // normScore /= matchAvg;
     return normScore;
 }   
 

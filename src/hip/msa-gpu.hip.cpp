@@ -301,7 +301,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                 tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
                 for (int s = r.begin(); s < r.end(); ++s) {
                     int letterIndex = letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s]));
-                    tree->allNodes[nodes[0].first->identifier]->msaFreq[s][param.matrixSize-1] += 1.0 * w;
+                    tree->allNodes[nodes[0].first->identifier]->msaFreq[s][letterIndex] += 1.0 * w;
                 }
                 });
                 });
