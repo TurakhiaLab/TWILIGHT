@@ -5,6 +5,8 @@ project(twilight LANGUAGES CXX)
 option(USE_CUDA "Build with CUDA" OFF)
 option(USE_HIP "Build with HIP" OFF)
 
+include(CheckLanguage)
+
 # Configure TWILIGHT version
 set(twilight_VERSION "?.?.?")
 execute_process(COMMAND head -n1 ${CMAKE_SOURCE_DIR}/version.txt OUTPUT_VARIABLE VERSION)
@@ -21,9 +23,10 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
 if(USE_CUDA)
 	message(STATUS "Build with CUDA")
-	find_package(CUDA 10.0 QUIET)
-	if(CUDA_FOUND)
+	check_language(CUDA)
+	if(CMAKE_CUDA_COMPILER)
 		enable_language(CUDA)
+		message(STATUS "CUDA compiler detected at: ${CMAKE_CUDA_COMPILER}")
 		TRY_RUN(
 			FIND_GPU_RESULT
 			FIND_GPU_COMPILE_RESULT
@@ -81,10 +84,10 @@ elseif(USE_HIP)
 	endif()
 else()
 	message(STATUS "Auto-detecting hardware and selecting compute backend.")
-	find_package(CUDA 10.0 QUIET)
 	find_package(HIP QUIET)
+	check_language(CUDA)
 	if(CMAKE_CUDA_COMPILER)
-		message(STATUS "CUDA found: ${CUDA_VERSION}")
+		message(STATUS "CUDA compiler detected at: ${CMAKE_CUDA_COMPILER}")
 		enable_language(CUDA)
 		TRY_RUN(
     		FIND_GPU_RESULT

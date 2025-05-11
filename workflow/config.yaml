@@ -14,7 +14,7 @@ mask_gappy: 0.995                         # Minimum proportion of gappy sites th
 
 # Path for executable files
 # please make sure you have the correct paths
-twilight: "../build/twilight"
+twilight: "../bin/twilight"
 mashtree: "mashtree"
 fasttree: "FastTreeMP"
 iqtree: "iqtree2"
@@ -27,7 +27,8 @@ max_group: 2147483647    # Default: INT32_MAX
 max_subtree: 2147483647  # Default: INT32_MAX
 rgc: 0.95                # Threshold for removing gappy columns, recommand higher threshold for similar sequences
 gapopen: -50      
-gapextend: -5     
+gapextend: -5
+gapends: -5
 matrix: ""   
 
 # FastTree command options
