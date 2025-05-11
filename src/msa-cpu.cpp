@@ -229,7 +229,6 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
     hostParam[paramSize-2] = param.gapBoundary;
     hostParam[paramSize-1] = param.xdrop;
 
-    std::map<char, int> letterMap = (option->type == 'n') ? NUCLEOTIDE : PROTEIN;
     int profileSize = param.matrixSize + 1;
   
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
@@ -249,7 +248,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
         float refNum = 0, qryNum = 0;
         if (util->nowProcess < 2) {
             std::pair<int,int> startPos (std::make_pair(0,0));
-            calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, seqLen, profileSize, startPos, letterMap);
+            calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, option->type, seqLen, profileSize, startPos);
             std::pair<int,int> lens = std::make_pair(refLen, qryLen), rawLens (std::make_pair(0, 0)), offset (std::make_pair(0, 0));
             removeGappyColumns(hostFreq, tree, nodes[nIdx], util, option, gappyColumns, seqLen, seqLen, lens, rawLens);
             newRef = lens.first, newQry = lens.second;
@@ -532,7 +531,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     hostParam[paramSize-2] = param.gapBoundary;
     hostParam[paramSize-1] = param.xdrop;
     int profileSize = param.matrixSize + 1;
-    std::map<char, int> letterMap = (option->type == 'n') ? NUCLEOTIDE : PROTEIN;
     
 
     tbb::spin_rw_mutex fallbackMutex;
@@ -555,13 +553,8 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 tbb::this_task_arena::isolate( [&]{
                 tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
                 for (int s = r.begin(); s < r.end(); ++s) {
-                    if (letterMap.find(toupper(util->alnStorage[storage][sIdx][s])) != letterMap.end()) {
-                        int letterIdx = letterMap[util->alnStorage[storage][sIdx][s]];
-                        tree->allNodes[nodes[0].first->identifier]->msaFreq[s][letterIdx] += 1.0 * w;
-                    }
-                    else {
-                        tree->allNodes[nodes[0].first->identifier]->msaFreq[s][param.matrixSize-1] += 1.0 * w;
-                    }
+                    int letterIndex = letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s]));
+                    tree->allNodes[nodes[0].first->identifier]->msaFreq[s][letterIndex] += 1.0 * w;
                 }
                 });
                 });
@@ -592,7 +585,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         
 
         std::pair<int,int> startPos (std::make_pair(0,0));
-        calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, seqLen, profileSize, startPos, letterMap);
+        calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, option->type, seqLen, profileSize, startPos);
         if (util->nowProcess == 1) {
             int32_t refNum = tree->allNodes[nodes[0].first->identifier]->msaIdx.size();
             for (int s = 0; s < util->seqsLen[nodes[0].first->identifier]; ++s) {
@@ -1145,7 +1138,7 @@ double calColumnSimilarity(Tree* tree, Node* node, msa::utility* util, Params& p
 }   
 
 
-void calculateProfileFreq(float* profile, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, int32_t profileLen, int32_t profileSize, std::pair<int, int> startPos, std::map<char, int>& letterMap) {
+void calculateProfileFreq(float* profile, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, char type, int32_t profileLen, int32_t profileSize, std::pair<int, int> startPos) {
     int32_t refLen = util->seqsLen[nodes.first->identifier];
     int32_t qryLen = util->seqsLen[nodes.second->identifier];    
     int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
@@ -1171,13 +1164,8 @@ void calculateProfileFreq(float* profile, Tree* tree, std::pair<Node*, Node*>& n
                     tbb::parallel_for(tbb::blocked_range<int>(startPos.first, refLen), [&](tbb::blocked_range<int> r) {
                     for (int s = r.begin(); s < r.end(); ++s) {
                         int t = s - startPos.first;
-                        if (letterMap.find(toupper(util->alnStorage[storage][sIdx][s])) != letterMap.end()) {
-                            int letterIdx = letterMap[util->alnStorage[storage][sIdx][s]];
-                            profile[profileSize*t+letterIdx] += 1.0 * w;
-                        }
-                        else {
-                            profile[profileSize*t+profileSize-2] += 1.0 * w;
-                        }
+                        int letterIndex = letterIdx(type, toupper(util->alnStorage[storage][sIdx][s]));
+                        profile[profileSize*t+letterIndex] += 1.0 * w;
                     }
                     });
                     });
@@ -1204,13 +1192,8 @@ void calculateProfileFreq(float* profile, Tree* tree, std::pair<Node*, Node*>& n
                 tbb::parallel_for(tbb::blocked_range<int>(startPos.second, qryLen), [&](tbb::blocked_range<int> r) {
                 for (int s = r.begin(); s < r.end(); ++s) {
                     int t = s - startPos.second;
-                    if (letterMap.find(toupper(util->alnStorage[storage][sIdx][s])) != letterMap.end()) {
-                        int letterIdx = letterMap[util->alnStorage[storage][sIdx][s]];
-                        profile[profileSize*(profileLen+t)+letterIdx]+=1.0*w;
-                    }
-                    else {
-                        profile[profileSize*(profileLen+t)+profileSize-2]+=1.0*w;
-                    }
+                    int letterIndex = letterIdx(type, toupper(util->alnStorage[storage][sIdx][s]));
+                    profile[profileSize*(profileLen+t)+letterIndex]+=1.0*w;
                 }
                 });
                 });

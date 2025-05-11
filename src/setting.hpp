@@ -22,10 +22,8 @@
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
 
-const std::unordered_set<char> protein_only = {'E', 'F', 'I', 'J', 'L', 'P', 'Q', 'Z'};
-const std::unordered_set<char> nucleotide_only = {'U'};
-const std::map<char, int> PROTEIN = {{'A',0}, {'C',1}, {'D',2}, {'E',3}, {'F',4}, {'G',5}, {'H',6}, {'I',7}, {'K',8}, {'L',9}, {'M',10}, {'N',11}, {'P',12}, {'Q',13}, {'R',14}, {'S',15}, {'T',16}, {'V',17}, {'W',18}, {'Y',19}, {'-',21}}; // 20 for all other characters (ambiguous)
-const std::map<char, int> NUCLEOTIDE = {{'A', 0}, {'C', 1}, {'G', 2}, {'T', 3}, {'U', 3}, {'-', 5}}; // 4 for all other characters (ambiguous)
+char checkOnly(char inChar);
+int letterIdx(char type, char inChar);
 
 const float BLOSUM62[20][20] = {
 //    A   C   D   E   F   G   H   I   K   L   M   N   P   Q   R   S   T   V   W   Y

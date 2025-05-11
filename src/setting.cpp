@@ -3,6 +3,27 @@
 #endif
 
 
+char checkOnly(char inChar) {
+    std::unordered_set<char> protein_only = {'E', 'F', 'I', 'J', 'L', 'P', 'Q', 'Z'};
+    if (inChar == 'U') return 'n';
+    if (protein_only.find(inChar) != protein_only.end()) return 'p';
+    return 'x';
+}
+
+int letterIdx(char type, char inChar) {
+    if (type == 'n') {
+        std::map<char, int> NUCLEOTIDE = {{'A', 0}, {'C', 1}, {'G', 2}, {'T', 3}, {'U', 3}, {'-', 5}}; // 4 for all other characters (ambiguous)
+        if (NUCLEOTIDE.find(inChar) == NUCLEOTIDE.end()) return 4;
+        else return NUCLEOTIDE[inChar];
+    }
+    else {
+        std::map<char, int> PROTEIN = {{'A',0}, {'C',1}, {'D',2}, {'E',3}, {'F',4}, {'G',5}, {'H',6}, {'I',7}, {'K',8}, {'L',9}, {'M',10}, {'N',11}, {'P',12}, {'Q',13}, {'R',14}, {'S',15}, {'T',16}, {'V',17}, {'W',18}, {'Y',19}, {'-',21}}; // 20 for all other characters (ambiguous)
+        if (PROTEIN.find(inChar) == PROTEIN.end()) return 20;
+        else return PROTEIN[inChar];
+    }
+    
+}
+
 Params::Params(po::variables_map& vm, char type) {
     bool userDefine = vm.count("matrix");
     float gapOp = vm["gap-open"].as<float>();
@@ -23,7 +44,6 @@ Params::Params(po::variables_map& vm, char type) {
     this->matrixSize = (type == 'n') ? 5 : 21;
     this->scoringMatrix = new float* [this->matrixSize];
     for (int i = 0; i < this->matrixSize; ++i) this->scoringMatrix[i] = new float[this->matrixSize];
-    std::map<char, int> letterMap = (type == 'n') ? NUCLEOTIDE : PROTEIN;
         
             
     if (!userDefine) {
@@ -62,12 +82,13 @@ Params::Params(po::variables_map& vm, char type) {
         while (matrixFile >> word) {
             if (readCount < charNum) {
                 char letter = toupper(word[0]);
-                if (letterMap.find(letter) == letterMap.end()) {
+                int ambig = (type == 'n') ? 4 : 20;
+                if (letterIdx(type, letter) == ambig) {
                     std::string seqType = (type == 'n') ? " for nucleotide sequences.\n" : " for protein sequences.\n";
                     std::cerr << "Unrecognized letter \"" << letter << "\"" << seqType;
                     exit(1);
                 }
-                charVec.push_back(letterMap[letter]);
+                charVec.push_back(letterIdx(type, letter));
                 readCount++;
             }
             else {
@@ -87,6 +108,14 @@ Params::Params(po::variables_map& vm, char type) {
             this->scoringMatrix[i][this->matrixSize-1] = Nscore;
             this->scoringMatrix[this->matrixSize-1][i] = Nscore;
         }
+    }
+
+    std::map<char, int> letterMap;
+    if (type == 'n') {
+        letterMap = {{'A', 0}, {'C', 1}, {'G', 2}, {'T', 3}, {'U', 3}, {'-', 5}};
+    }
+    else {
+        letterMap = {{'A',0}, {'C',1}, {'D',2}, {'E',3}, {'F',4}, {'G',5}, {'H',6}, {'I',7}, {'K',8}, {'L',9}, {'M',10}, {'N',11}, {'P',12}, {'Q',13}, {'R',14}, {'S',15}, {'T',16}, {'V',17}, {'W',18}, {'Y',19}, {'-',21}}; // 20 for all other characters (ambiguous)
     }
     
     if (vm.count("verbose")) {
@@ -259,12 +288,9 @@ msa::option::option(po::variables_map& vm) {
             if (line.empty() || line[0] == '>') continue;
             for (char c : line) {
                 c = toupper(c);
-                if (protein_only.count(c)) {
-                    this->type = 'p';
-                    fin = true;
-                    break;
-                }
-                if (nucleotide_only.count(c)) {
+                char seqType = checkOnly(c);
+                if (seqType != 'x') {
+                    this->type = seqType;
                     fin = true;
                     break;
                 }

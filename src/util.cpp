@@ -100,7 +100,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     float minLenTh = avgLen * (1-option->lenDev), maxLenTh = avgLen * (1+option->lenDev);
     std::atomic<int> numLowQ;
     numLowQ.store(0);
-    std::map<char, int> letterMap = (option->type == 'n') ? NUCLEOTIDE : PROTEIN;
+    int ambig = (option->type == 'n') ? 4 : 20;
     tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
     for (int i = range.begin(); i < range.end(); ++i) {
     // for (int i = 0; i < seqNum; ++i) {
@@ -110,7 +110,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
         if (!util->lowQuality[i]) {
             int countN = 0;
             for (int j = 0; j < len; ++j) {
-                if (letterMap.find(toupper(util->alnStorage[0][i][j])) == letterMap.end()) ++countN;
+                if (letterIdx(option->type, toupper(util->alnStorage[0][i][j])) == ambig) ++countN;
             }
             util->lowQuality[i] = (countN > (len * option->maxAmbig));
         }

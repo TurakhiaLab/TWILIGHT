@@ -241,7 +241,6 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
     hostParam[paramSize-2] = param.gapBoundary;
     hostParam[paramSize-1] = param.xdrop;
     
-    std::map<char, int> letterMap = (option->type == 'n') ? NUCLEOTIDE : PROTEIN;
     int profileSize = param.matrixSize + 1;
     
     
@@ -299,13 +298,8 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                 tbb::this_task_arena::isolate( [&]{
                 tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
                 for (int s = r.begin(); s < r.end(); ++s) {
-                    if (letterMap.find(toupper(util->alnStorage[storage][sIdx][s])) != letterMap.end()) {
-                        int letterIdx = letterMap[util->alnStorage[storage][sIdx][s]];
-                        tree->allNodes[nodes[0].first->identifier]->msaFreq[s][letterIdx] += 1.0 * w;
-                    }
-                    else {
-                        tree->allNodes[nodes[0].first->identifier]->msaFreq[s][param.matrixSize-1] += 1.0 * w;
-                    }
+                    int letterIndex = letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s]));
+                    tree->allNodes[nodes[0].first->identifier]->msaFreq[s][param.matrixSize-1] += 1.0 * w;
                 }
                 });
                 });
@@ -392,7 +386,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                             int32_t maxLenLeft = std::max(refLen-startPos[n].first, qryLen-startPos[n].second);
                             float* rawProfile = new float [profileSize * 2 * maxLenLeft];
                             for (int i = 0; i < profileSize * 2 * maxLenLeft; ++i) rawProfile[i] = 0;
-                            calculateProfileFreq(rawProfile, tree, nodes[nIdx], util, maxLenLeft, profileSize, startPos[n], letterMap);
+                            calculateProfileFreq(rawProfile, tree, nodes[nIdx], util, option->type, maxLenLeft, profileSize, startPos[n]);
                             if (util->nowProcess == 1) {
                                 for (int s = startPos[n].first; s < std::min(startPos[n].first+maxLenLeft, refLen); ++s) {
                                     for (int v = 0; v < profileSize; ++v)  {
