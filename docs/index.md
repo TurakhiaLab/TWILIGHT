@@ -4,7 +4,7 @@
 </div>
 
 ## <b>Introduction</b> 
-### <b>Overview</b> 
+### <b>Overview</b><a name="overview"></a>
 TWILIGHT (**T**all and **Wi**de A**lig**nments at **H**igh **T**hroughput) is an innovative MSA tool designed to leverage massive parallelism for efficient handling of tall and wide alignment tasks. It is able to scale to millions of long nucleotide sequences (>10000 bases). TWILIGHT can run on CPU-only platforms (Linux/Mac) or take advantage of CUDA-capable GPUs for further acceleration.
 
 By default, TWILIGHT requires an unaligned sequence file in FASTA format and an input guide tree in Newick format to generate the output alignment in FASTA format (Fig. 1a, see [**TWILIGHT Default Mode**](#default) for more details). When a guide tree is unavailable, users can utilize the iterative mode, which provides a Snakemake workflow to estimate guide trees using external tools (Fig. 1b, see [**TWILIGHT Iterative Mode**](#iterative) for more details).
@@ -46,9 +46,10 @@ TWILIGHT employs parallelization techniques on both CPU and GPU to maximize effi
 ### **Installation summary (choose your installation method)**
 
 TWILIGHT offers multiple installation methods for different platforms and hardware setups:
-- Conda is recommended for most users needing the [default mode](#default) and *partial* [iterative mode](#iterative) support, as some tree tools may be unavailable on certain platforms.
+
+- Conda is recommended for most users needing the [default mode](#overview) and *partial* [iterative mode](#overview) support, as some tree tools may be unavailable on certain platforms.
 - Install script is required for AMD GPU support.
-- Docker (built from the provided Dockerfile) is recommended for full support for [iterative mode](#iterative).
+- Docker (built from the provided Dockerfile) is recommended for full support for [iterative mode](#overview).
 
 | Platform / Setup       | [Conda](#conda) | [Script](#script) | [Docker](#docker) |
 |------------------------|-----------------|-------------------|-------------------|
@@ -59,11 +60,11 @@ TWILIGHT offers multiple installation methods for different platforms and hardwa
 | NVIDIA GPU             | ✅               | ✅                | ✅                |
 | AMD GPU                | ❌               | ✅                | ❌                |
 
-!!!Note
-    🟡 The Docker image is currently built for the `linux/amd64` platform. While it can run on `arm64` systems (e.g., Apple Silicon or Linux aarch64) via emulation, this may lead to reduced performance.
+!!!🟡
+    The Docker image is currently built for the `linux/amd64` platform. While it can run on `arm64` systems (e.g., Apple Silicon or Linux aarch64) via emulation, this may lead to reduced performance.
 
-!!!Note
-    ⚠️ To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
+!!!⚠️
+    To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
 
 
 ### **Using Conda** <a name=conda></a>
@@ -300,19 +301,17 @@ TWILIGHT iterative mode estimate guide trees using external tools.
 
 !!!Note
     Default options in `workflow/config.yaml` will be used if the configuration is not specified. You can also modify `workflow/config.yaml` to set your options.
-
+    
 !!!Note
-    For people who install TWILIGHT via Conda, please replace the executable path `"../build/twilight"` with `"twilight"` in `workflow/config.yaml`.
+    For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance.  
 
 #### **Run TWILIGHT iterative mode**
 1. Enter into `workflow` directory
 ```bash
 cd $TWILIGHT_HOME/workflow
 ```
-2. Update the `workflow/config.yaml` file  
+2. (optional) Update the `workflow/config.yaml` file  
 In addition to command line options, `workflow/config.yaml` provides additional options for functionalities in TWILIGHT and substitution models for tree inference tools. See `workflow/config.yaml` for more details.  
-!!!Note
-    For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance.  
 3. Run
     * Usage syntax
     ```bash
