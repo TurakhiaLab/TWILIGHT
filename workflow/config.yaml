@@ -7,9 +7,9 @@ init_tree: "parttree"                     # Tree from unaligned sequences, optio
 iter_tree: "fasttree"                     # Tree from MSA, options: "raxml", "fasttree", "iqtree"
 num_threads: 32                           # Number of threads
 iterations: 3                             # Number of iterations: 1-5
-final_tree: "no"                          # Estimate tree after the final MSA, "yes" or "no"
+final_tree: "yes"                          # Estimate tree after the final MSA, "yes" or "no"
 work_dir: "working_dir"                   # Directory to store MSA and tree files
-keep_dir: "yes"                           # Keep working directory
+keep_dir: "no"                           # Keep working directory
 mask_gappy: 0.995                         # Minimum proportion of gappy sites that would be mask before proceed to tree inference step
 
 # Path for executable files
@@ -18,7 +18,7 @@ twilight: "../bin/twilight"
 mashtree: "mashtree"
 fasttree: "FastTreeMP"
 iqtree: "iqtree2"
-raxml: "raxmlHPC-PTHREADS-AVX2"
+raxml: "raxmlHPC"
 mafft: "mafft"
 
 # TWILIGHT command options
