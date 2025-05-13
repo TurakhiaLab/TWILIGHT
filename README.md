@@ -23,6 +23,7 @@
 ## Table of Contents
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
 - [Installation](#install)
+  - [Summary](#summary) 
   - [Using Installation Script](#script)
   - [Using Conda](#conda)
   - [Using Dockerfile](#docker)
@@ -48,6 +49,18 @@ TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling
 </div>
 
 ## <a name="install"></a> Installation
+### <a name="summary"></a> Installation summary (choose your installation method)
+
+TWILIGHT supports multiple installation methods to suit different platforms and hardware setups. Use the table below to choose the best option for your system:
+| Platform / Setup | [Script](#script) | [Conda](#conda) | [Docker](#docker) |
+|------------------|-------------------|-----------------|-------------------|
+| Linux            | ✅                | ✅              | ✅                |
+| macOS            | ✅                | ✅              | ✅                |
+| NVIDIA GPU       | ✅                | ✅              | ✅                |
+| AMD GPU          | ✅                | ❌              | ❌                |
+
+⚠️ To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
+
 ### <a name="script"></a> Using installation script (requires sudo access if certain common libraries are not already installed)  
 
 This has been tested on Ubuntu and Mac (Apple Silicon). Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or [Docker](#docker).
@@ -81,8 +94,6 @@ For Mac users, install dependencies using **Homebrew**:
 xcode-select --install # if not already installed
 brew install wget boost cmake tbb
 ```
-
-⚠️ To enable **GPU support**, the appropriate toolkit, libraries, and drivers must be installed and properly configured (CUDA for NVIDIA GPU or ROCm for AMD GPU).
 
 **Step 3:** Build TWILIGHT
 
@@ -221,7 +232,7 @@ Options for tree inference tools:
 ```bash
 cd workflow
 ```
-**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For people who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`.
+**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`.
 
 **Step 3:** Run TWILIGHT iterative mode.  
 Usage syntax
