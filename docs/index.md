@@ -43,111 +43,152 @@ TWILIGHT employs parallelization techniques on both CPU and GPU to maximize effi
 <a name="install"></a>
 ## <b>Installation Methods</b>
 
-### **Using installation script (requires sudo access)**
-This has been tested only on Ubuntu. Users on other platforms or systems please refer to the next section to install TWILIGHT using Docker.  
+### **Installation summary (choose your installation method)**
 
-0. Dependencies
-    - Git: `sudo apt install -y git`  
-    - Conda (optional)  
+TWILIGHT offers multiple installation methods for different platforms and hardware setups:
+- Conda is recommended for most users needing the [default mode](#default) and *partial* [iterative mode](#iterative) support, as some tree tools may be unavailable on certain platforms.
+- Install script is required for AMD GPU support.
+- Docker (built from the provided Dockerfile) is recommended for full support for [iterative mode](#iterative).
+
+| Platform / Setup       | [Conda](#conda) | [Script](#script) | [Docker](#docker) |
+|------------------------|-----------------|-------------------|-------------------|
+| Linux (x86_64)         | ✅               | ✅                | ✅                |
+| Linux (aarch64)        | ✅               | ✅                | 🟡                |
+| macOS (Intel Chip)     | ✅               | ✅                | ✅                |
+| macOS (Apple Silicon)  | ✅               | ✅                | 🟡                |
+| NVIDIA GPU             | ✅               | ✅                | ✅                |
+| AMD GPU                | ❌               | ✅                | ❌                |
+
+!!!Note
+    🟡 The Docker image is currently built for the `linux/amd64` platform. While it can run on `arm64` systems (e.g., Apple Silicon or Linux aarch64) via emulation, this may lead to reduced performance.
+
+!!!Note
+    ⚠️ To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
+
+
+### **Using Conda** <a name=conda></a>
+
+TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
+
+0. <a name=installconda></a> Install Conda (if not installed)
+    ```bash
+    # Replace <PLATFORM> with the actual platform of your system
+    # See https://repo.anaconda.com/miniconda/ for details
+    wget https://repo.anaconda.com/miniconda/Miniconda3-latest-<PLATFORM>.sh
+    chmod +x Miniconda3-latest-<PLATFORM>.sh
+    ./Miniconda3-latest-<PLATFORM>.sh
+    export PATH="$HOME/miniconda3/bin:$PATH"
+    # Reload shell configuration
+    source ~/.bashrc  # For Bash (Most Linux)
+    source ~/.zshrc   # For Zsh (Default in Mac)
+    ```
+1. Create and activate a Conda environment
+    ```bash
+    conda create -n twilight -y
+    conda activate twilight
+    # Set up channels
+    conda config --add channels defaults
+    conda config --add channels bioconda
+    conda config --add channels conda-forge
+    conda config --set channel_priority strict
+    # Install TWILIGHT
+    conda install bioconda::twilight
+    ```
+2. Install TWILIGHT iterative mode
+    ```bash
+    git clone https://github.com/TurakhiaLab/TWILIGHT.git
+    cd TWILIGHT
+    bash ./install/installIterative.sh
+    ```
+
+### **Using installation script (requires sudo access)**
+Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or [Docker](#docker).
+
 1. Clone the repository
-```bash
-git clone https://github.com/TurakhiaLab/TWILIGHT.git
-cd TWILIGHT
-```
+    ```bash
+    git clone https://github.com/TurakhiaLab/TWILIGHT.git
+    cd TWILIGHT
+    ```
 2. Install dependencies (requires sudo access)  
-Skip this step if the below libraries are already installed.  
-```bash
-- wget
-- build-essential 
-- cmake 
-- libboost-all-dev 
-- libtbb2 
-- protobuf-compiler
-```
-Otherwise,
-```bash
-bash ./install/installDependencies.sh
-```
-4. Install TWILIGHT  
-If CUDA-capable GPUs are detected, the GPU version will be built; otherwise, the CPU version will be used.
-```bash
-bash ./install/installTWILIGHT.sh
-```
-5. Run TWILIGHT
-```bash
-cd build
-./twilight --help
-```
-6. (optional) Install TWILIGHT iterative mode 
-    1. Create and activate a Conda environment (ensure Conda is installed first) 
-```bash
-conda create -n twilight -y
-conda activate twilight
-```
-    2. Install Snakemake and tree inference tools
-```bash
-bash ./install/installIterative.sh
-```
+    TWILIGHT depends on the following common system libraries, which are typically pre-installed on most development    environments:
+    ```bash
+    - wget
+    - build-essential 
+    - cmake 
+    - libboost-all-dev 
+    ```
+    It also requires `libtbb-dev`, which is not always pre-installed on all systems. For users who do not have sudo     access and are missing **only** `libtbb-dev`, our script builds and installs TBB from source in the local user  environment, with **no sudo access required**.
+
+    For Ubuntu users with sudo access, if any of the required libraries are missing, you can install them with:
+    ```bash
+    sudo apt install -y wget build-essential libboost-all-dev cmake libtbb-dev
+    ```
+    For Mac users, install dependencies using **Homebrew**:
+    ```bash
+    xcode-select --install # if not already installed
+    brew install wget boost cmake tbb
+    ```
+3. Build TWILIGHT
+    Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly. Alternatively, users can manually specify the desired target platform.
+
+    Automatic build:
+    ```bash
+    bash ./install/buildTWILIGHT.sh
+    ```
+    Build for a specific platform:
+    ```bash
+    bash ./install/buildTWILIGHT.sh cuda # For NVIDIA GPUs
+    bash ./install/buildTWILIGHT.sh hip  # For AMD GPUs
+    ```
+4. The TWILIGHT executable is located in the `bin` directory and can be run as follows:
+    ```bash
+    cd bin
+    ./twilight --help
+    ```
+5. (optional) Install TWILIGHT iterative mode (ensure [Conda is installed](#installconda) first)
+    ```bash
+    # Create and activate a Conda environment 
+    conda create -n twilight -y
+    conda activate twilight
+    # Install Snakemake and tree inference tools
+    bash ./install/installIterative.sh
+    ```
+
 !!!Note
     **TWILIGHT** is built using CMake and depends upon libraries such as Boost, oneTBB, etc. If users face version issues, try using the docker methods detailed below.
 
-
-### **Using Conda**
-TWILIGHT is currently available for installation via Conda on the linux/amd64 platform only. Users on other platforms please refer to the Docker section.
-
-**Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
-```bash
-conda create -n twilight -y
-conda activate twilight
-```
-**Step 2:** Install TWILIGHT
-```bash
-conda install bioconda::twilight
-```
-**Step 3 (optional):** Install TWILIGHT iterative mode
-```bash
-git clone https://github.com/TurakhiaLab/TWILIGHT.git
-cd TWILIGHT
-bash ./install/installIterative.sh
-```
-
-### **Using Dockerfile**
+### **Using Dockerfile** <a name=docker></a> 
 The Dockerfile installed all the dependencies and tools for TWILIGHT default/iterative mode.  
 
-0. Dependencies
-    - Git: `sudo apt install -y git`   
-    - Docker  
 1. Clone the repository  
-```bash
-git clone https://github.com/TurakhiaLab/TWILIGHT.git
-cd TWILIGHT
-```
+    ```bash
+    git clone https://github.com/TurakhiaLab/TWILIGHT.git
+    cd TWILIGHT
+    ```
 2. Build the docker image  
-    - CPU version  
-```bash
-cd docker/cpu
-docker build -t twilight .
-```
-    - GPU version (using nvidia/cuda as base image)  
-```bash
-cd docker/gpu
-docker build -t twilight .
-```
-3. Build and run docker container   
-    - CPU version
-```bash
-docker run --platform=linux/amd64 -it twilight
-```
-    - GPU version  
-Since the prebuilt version included in the Docker image is for CPU only, please rebuild TWILIGHT within the container to enable GPU support.
-```bash
-docker run --platform=linux/amd64 --gpus all -it twilight
-bash ./install/installTWILIGHT.sh # Within the container
-```
+    CPU version  
+    ```bash
+    cd docker/cpu
+    docker build -t twilight .
+    ```
+    GPU version (using nvidia/cuda as base image)  
+    ```bash
+    cd docker/gpu
+    docker build -t twilight .
+    ```
+3. Start and run docker container   
+    CPU version
+    ```bash
+    docker run --platform=linux/amd64 -it twilight
+    ```
+    GPU version  
+    ```bash
+    docker run --platform=linux/amd64 --gpus all -it twilight
+    ```
 4. Run TWILIGHT
-```bash
-./twilight --help
-```
+    ```bash
+    ./twilight --help
+    ```
 
 ## <a name="Run TWILIGHT"></a> **Run TWILIGHT**
 
@@ -173,10 +214,11 @@ bash ./install/installTWILIGHT.sh # Within the container
 | `-x`, `--matrix`                 | User-specified substitution matrix path.                                                                             |
 | `-k`, `--keep-temp`              | Keep the temporary directory.                                                                                        |
 | `-s`, `--sum-of-pairs-score`     | Calculate the sum-of-pairs-score after alignment.                                                                    |
+| `--type`                         | Data type. `n` for nucleotide sequences and `p` for protein sequences. Will be automatically inferred if not provided.                          |
 | `--no-align-gappy`               | Do not align gappy columns. This will create a longer MSA (larger file).                                             |
-| `length-deviation`               | Filters out sequences whose lengths deviate from the average by more than the specified fraction. Default: 0.1.                                             |
-| `max-ambig`               | Filters out sequences with an ambiguous character proportion exceeding the specified threshold. Default: 0.1.                                        |
-| `no-filtering`               | Do not exclude any sequences, regardless of ambiguity or length deviation.                                       |
+| `length-deviation`               | Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded. Default: disabled. |
+| `max-ambig`               | Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded. Default: 0.1.  |
+| `--filter`               | Exclude sequences with high ambiguity or length deviation. Default: disabled. |
 | `--merge`                        | Method to merge subtrees. `t` for Transitivity Merger and `p` for Pregressive Alignment. Default: `p`.               |
 | `--match`                        | Match score. Default: 18.                                                                                            | 
 | `--mismatch`                     | Mismatch penalty (transversions). Default: -8.                                                                       | 
@@ -186,6 +228,7 @@ bash ./install/installTWILIGHT.sh # Within the container
 | `--gap-ends`                   | Penalty for gaps at both ends. Default: the same as gap-extend penalty.                                                                                     |
 | `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty. Default: 600.                  |
 | `--output-type`                  | Way to present MSA. `FASTA` for FASTA format and `CIGAR` for CIGAR-like compressed format. Default: `FASTA`.         |
+| `--check`                  | Check the final alignment. Sequences with no legal alignment will be displayed.       |
 | `-h`, `--help`                   | Print help messages.                                                                                                 |
 | `--version`                   | Show TWILIGHT version.                                                                                                 |
 | **Options only for GPU version**                                                                                                                        |
@@ -199,7 +242,7 @@ bash ./install/installTWILIGHT.sh # Within the container
 
 Enter into the build directory (assuming `$TWILIGHT_HOME` directs to the TWILIGHT repository directory)  
 ```bash
-cd $TWILIGHT_HOME/build
+cd $TWILIGHT_HOME/bin
 ./twilight -h
 ```
 #### **Default Configuration**  
@@ -266,8 +309,10 @@ TWILIGHT iterative mode estimate guide trees using external tools.
 ```bash
 cd $TWILIGHT_HOME/workflow
 ```
-2. (optional) Update the `workflow/config.yaml` file  
+2. Update the `workflow/config.yaml` file  
 In addition to command line options, `workflow/config.yaml` provides additional options for functionalities in TWILIGHT and substitution models for tree inference tools. See `workflow/config.yaml` for more details.  
+!!!Note
+    For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance.  
 3. Run
     * Usage syntax
     ```bash
