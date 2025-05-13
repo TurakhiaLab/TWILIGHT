@@ -24,8 +24,8 @@
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
 - [Installation](#install)
   - [Summary](#summary) 
-  - [Using Installation Script](#script)
   - [Using Conda](#conda)
+  - [Using Install Script](#script)
   - [Using Dockerfile](#docker)
 - [Run TWILIGHT](#run)
   - [Default mode](#default)
@@ -39,7 +39,7 @@
 
 TWILIGHT (**T**all and **Wi**de A**lig**nments at **H**igh **T**hroughput) is a tool designed for ultrafast and ultralarge multiple sequence alignment. It is able to scale to millions of long nucleotide sequences (>10000 bases). TWILIGHT can run on CPU-only platforms (Linux/Mac) or take advantage of CUDA-capable GPUs for further acceleration.
 
-By default, TWILIGHT requires an unaligned sequence file in FASTA format and an input guide tree in Newick format to generate the output alignment in FASTA format (Fig. 1a). When a guide tree is unavailable, users can utilize the iterative mode, which provides a Snakemake workflow to estimate guide trees using external tools (Fig 1b.).
+By default, TWILIGHT requires an unaligned sequence file in FASTA format and an input guide tree in Newick format to generate the output alignment in FASTA format (Fig. 1a, <a name="default"></a>**default mode**). When a guide tree is unavailable, TWILIGHT provides a Snakemake workflow to estimate guide trees using external tools (Fig 1b, <a name="iter"></a>**iterative mode**).
 
 TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling strategies to band alignments (Fig. 1e). Combined with a divide-and-conquer technique (Fig. 1a), a novel heuristic dealing with gappy columns (Fig. 1d) and support for GPU acceleration (Fig. 1f), TWILIGHT demonstrates exceptional speed and memory efficiency.
 
@@ -51,23 +51,49 @@ TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling
 ## <a name="install"></a> Installation
 ### <a name="summary"></a> Installation summary (choose your installation method)
 
-TWILIGHT supports multiple installation methods to suit different platforms and hardware setups. Use the table below to choose the best option for your system:
-| Platform / Setup | [Script](#script) | [Conda](#conda) | [Docker](#docker) |
-|------------------|-------------------|-----------------|-------------------|
-| Linux            | ✅                | ✅              | ✅                |
-| macOS            | ✅                | ✅              | ✅                |
-| NVIDIA GPU       | ✅                | ✅              | ✅                |
-| AMD GPU          | ✅                | ❌              | ❌                |
+TWILIGHT offers multiple installation methods for different platforms and hardware setups:
+- Conda is recommended for most users needing the [default mode](#default) and *partial* [iterative mode](#iter) support, as some tree tools may be unavailable on certain platforms.
+- Install script is required for AMD GPU support.
+- Docker (built from the provided Dockerfile) is recommended for full support for [iterative mode](#iter).
+
+| Platform / Setup       | [Conda](#conda) | [Script](#script) | [Docker](#docker) |
+|------------------------|-----------------|-------------------|-------------------|
+| Linux (x86_64)         | ✅               | ✅                | ✅                |
+| Linux (aarch64)        | ✅               | ✅                | 🟡                |
+| macOS (Intel Chip)     | ✅               | ✅                | ✅                |
+| macOS (Apple Silicon)  | ✅               | ✅                | 🟡                |
+| NVIDIA GPU             | ✅               | ✅                | ✅                |
+| AMD GPU                | ❌               | ✅                | ❌                |
+
+🟡 The Docker image is currently built for the `linux/amd64` platform. While it can run on `arm64` systems (e.g., Apple Silicon or Linux aarch64) via emulation, this may lead to reduced performance.
 
 ⚠️ To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
 
+### <a name="conda"></a> Using Conda
+TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
+
+**Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
+```bash
+conda create -n twilight -y
+conda activate twilight
+# Set up channels
+conda config --add channels defaults
+conda config --add channels bioconda
+conda config --add channels conda-forge
+conda config --set channel_priority strict
+# Install TWILIGHT
+conda install bioconda::twilight
+```
+**Step 2 (optional):** Install TWILIGHT iterative mode
+```bash
+git clone https://github.com/TurakhiaLab/TWILIGHT.git
+cd TWILIGHT
+bash ./install/installIterative.sh
+```
+
 ### <a name="script"></a> Using installation script (requires sudo access if certain common libraries are not already installed)  
 
-This has been tested on Ubuntu and Mac (Apple Silicon). Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or [Docker](#docker).
-
-**Step 0:** Dependencies  
-- Git: `sudo apt install -y git` 
-- Conda: Optional, for iterative mode  
+Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or [Docker](#docker).
 
 **Step 1:** Clone the repository
 ```bash
@@ -113,50 +139,24 @@ bash ./install/buildTWILIGHT.sh hip  # For AMD GPUs
 cd bin
 ./twilight --help
 ```
-**Step 5 (optional):** Install TWILIGHT iterative mode
-
-**Step 5.1** Create and activate a Conda environment (ensure Conda is installed first)
+**Step 5 (optional)** Install TWILIGHT iterative mode (ensure Conda is installed first)
 ```bash
+# Create and activate a Conda environment 
 conda create -n twilight -y
 conda activate twilight
-```
-**Step 5.2** Install Snakemake and tree inference tools
-```bash
-bash ./install/installIterative.sh
-```
-
-### <a name="conda"></a> Using Conda
-TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
-
-**Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
-```bash
-conda create -n twilight -y
-conda activate twilight
-```
-**Step 2:** Install TWILIGHT
-```bash
-conda install bioconda::twilight
-```
-**Step 3 (optional):** Install TWILIGHT iterative mode
-```bash
-git clone https://github.com/TurakhiaLab/TWILIGHT.git
-cd TWILIGHT
+# Install Snakemake and tree inference tools
 bash ./install/installIterative.sh
 ```
 
 ### <a name="docker"></a> Using Dockerfile
 The Dockerfile installed all the dependencies and tools for TWILIGHT default/iterative mode. 
 
-**Step 0:** Dependencies
-- Git: `sudo apt install -y git` 
-- Docker
-
 **Step 1:** Clone the repository
 ```bash
 git clone https://github.com/TurakhiaLab/TWILIGHT.git
 cd TWILIGHT
 ```
-**Step 2:** Build a docker image
+**Step 2:** Build a docker image (ensure Docker is installed first)
 
 CPU version
 ```bash
@@ -202,7 +202,8 @@ Example
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
 ```
 #### Divide-and-Conquer Method
-TWILIGHT divides tree into subtrees with at most *m* leaves, which is specified by the user, and align subtrees sequentially to reduce the CPU’s main memory usage.
+TWILIGHT divides tree into subtrees with at most *m* leaves, which is specified by the user, and align subtrees sequentially to reduce the CPU’s main memory usage.  
+
 Usage syntax
 ```bash
 ./twilight -t <path to tree file> -i <path to sequence file> -o <path to output file> -m <maximum subtree size>
@@ -213,6 +214,7 @@ Example
 ```
 #### Merge Multiple MSA Files
 To merge multiple MSAs, please move the MSA files into a folder.  
+
 Usage syntax
 ```bash
 ./twilight -f <path to the folder> -o <path to output file>
@@ -232,7 +234,7 @@ Options for tree inference tools:
 ```bash
 cd workflow
 ```
-**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`.
+**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance. 
 
 **Step 3:** Run TWILIGHT iterative mode.  
 Usage syntax
