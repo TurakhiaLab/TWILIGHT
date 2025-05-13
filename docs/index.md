@@ -102,7 +102,7 @@ TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Pa
     bash ./install/installIterative.sh
     ```
 
-### **Using installation script (requires sudo access)**
+### **Using installation script (requires sudo access)** <a name=script></a>
 Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or [Docker](#docker).
 
 1. Clone the repository
