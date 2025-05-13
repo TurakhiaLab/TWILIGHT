@@ -50,7 +50,7 @@ TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling
 ## <a name="install"></a> Installation
 ### <a name="script"></a> Using installation script (requires sudo access if certain common libraries are not already installed)  
 
-This has been tested on Ubuntu and Mac (Apple Silicon). Users without sudo access are advised to install TWILIGHT via [Conda](#conda). For users on other platforms or operating systems, please refer to the [Docker](#docker) section below for installation instructions.
+This has been tested on Ubuntu and Mac (Apple Silicon). Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or [Docker](#docker).
 
 **Step 0:** Dependencies  
 - Git: `sudo apt install -y git` 
@@ -70,11 +70,7 @@ TWILIGHT depends on the following common system libraries, which are typically p
 - cmake 
 - libboost-all-dev 
 ```
-It also requires:
-```bash
-- libtbb-dev # Not always pre-installed on all systems
-```
-For users who do not have sudo access and are missing **only** `libtbb-dev`, our script builds and installs TBB from source in the local user environment, with no root access required.
+It also requires `libtbb-dev`, which is not always pre-installed on all systems. For users who do not have sudo access and are missing **only** `libtbb-dev`, our script builds and installs TBB from source in the local user environment, with **no sudo access required**.
 
 For Ubuntu users with sudo access, if any of the required libraries are missing, you can install them with:
 ```bash
@@ -85,10 +81,12 @@ For Mac users, install dependencies using **Homebrew**:
 xcode-select --install # if not already installed
 brew install wget boost cmake tbb
 ```
+
+⚠️ To enable **GPU support**, the appropriate toolkit, libraries, and drivers must be installed and properly configured (CUDA for NVIDIA GPU or ROCm for AMD GPU).
+
 **Step 3:** Build TWILIGHT
 
-Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly.  
-Alternatively, users can manually specify the desired target platform.
+Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly. Alternatively, users can manually specify the desired target platform.
 
 Automatic build:
 ```bash
@@ -117,7 +115,7 @@ bash ./install/installIterative.sh
 ```
 
 ### <a name="conda"></a> Using Conda
-TWILIGHT is currently available for installation via Conda on the linux/amd64 platform only. Users on other platforms please refer to the [Docker](#docker) section.
+TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
 
 **Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
 ```bash
@@ -134,7 +132,6 @@ git clone https://github.com/TurakhiaLab/TWILIGHT.git
 cd TWILIGHT
 bash ./install/installIterative.sh
 ```
-
 
 ### <a name="docker"></a> Using Dockerfile
 The Dockerfile installed all the dependencies and tools for TWILIGHT default/iterative mode. 
@@ -224,7 +221,7 @@ Options for tree inference tools:
 ```bash
 cd workflow
 ```
-**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For people who install TWILIGHT via Conda, please replace the executable path `"../build/twilight"` with `"twilight"` in `config.yaml`.
+**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For people who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`.
 
 **Step 3:** Run TWILIGHT iterative mode.  
 Usage syntax
