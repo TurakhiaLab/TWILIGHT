@@ -60,11 +60,11 @@ TWILIGHT offers multiple installation methods for different platforms and hardwa
 | NVIDIA GPU             | ✅               | ✅                | ✅                |
 | AMD GPU                | ❌               | ✅                | ❌                |
 
-!!!🟡
-    The Docker image is currently built for the `linux/amd64` platform. While it can run on `arm64` systems (e.g., Apple Silicon or Linux aarch64) via emulation, this may lead to reduced performance.
+!!!Note
+    🟡 The Docker image is currently built for the `linux/amd64` platform. While it can run on `arm64` systems (e.g., Apple Silicon or Linux aarch64) via emulation, this may lead to reduced performance.
 
-!!!⚠️
-    To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
+!!!Note
+    ⚠️ To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
 
 
 ### **Using Conda** <a name=conda></a>
@@ -154,9 +154,6 @@ Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or
     # Install Snakemake and tree inference tools
     bash ./install/installIterative.sh
     ```
-
-!!!Note
-    **TWILIGHT** is built using CMake and depends upon libraries such as Boost, oneTBB, etc. If users face version issues, try using the docker methods detailed below.
 
 ### **Using Dockerfile** <a name=docker></a> 
 The Dockerfile installed all the dependencies and tools for TWILIGHT default/iterative mode.  
