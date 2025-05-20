@@ -224,7 +224,11 @@ void Talco_xdrop::Tile (
 
         float denominator = refNum * qryNum;
 
-        
+        bool type = (reference[0].size() == 6) ? 0 : 1; // 0: dna/rna, 1: protein
+        float gapOpen = param->gapOpen;
+        float gapExtend = param->gapExtend;
+        float gapOpenEnd = (param->alnType == 0) ? gapOpen : 0;
+        float gapExtendEnd = (param->alnType == 0) ? gapExtend : 0;
         int32_t L[3], U[3];
         int32_t *S[3], *I[2], *D[2];
         int32_t *CS[3], *CI[2], *CD[2];
@@ -234,9 +238,7 @@ void Talco_xdrop::Tile (
         int32_t ftr_addr = 0;
         int32_t last_k = 0;
         int32_t prev_conv_s = -1;
-        float scoreMat [25];
-        float gapExtend = param->gapExtend;
-        for (int i = 0; i < 5; ++i) for (int j = 0; j < 5; ++j) scoreMat[i*5+j] = param->scoreMatrix[i][j];
+    
         for (size_t sIndx=0; sIndx<3; sIndx++) { // Allocate memory for S, I, D, and CS array
             S[sIndx] = new int32_t [fLen];
             CS[sIndx] = new int32_t [fLen];
@@ -344,16 +346,28 @@ void Talco_xdrop::Tile (
                     (tile == 0 && (i == 0 || j == 0 ))) {
                     int32_t similarScore = 0;
                     float numerator = 0;
-                    for (int l = 0; l < 6; ++l) {
-                        for (int m = 0; m < 6; ++m) {
-                            if (m == 5 && l == 5)      numerator += 0;
-                            else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
-                            else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*scoreMat[m*5+l];
+                    if (type == 0) {
+                        for (int l = 0; l < 6; ++l) {
+                            for (int m = 0; m < 6; ++m) {
+                                if (m == 5 && l == 5)      numerator += 0;
+                                else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
+                                else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
+                            }
                         }
-                    }  
+                    }
+                    else {
+                        for (int l = 0; l < 22; ++l) {
+                            for (int m = 0; m < 22; ++m) {
+                                if (m == 21 && l == 21)      numerator += 0;
+                                else if (m == 21 || l == 21) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
+                                else                         numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
+                            }
+                        }
+                    }
+                      
 
                     similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
-                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param->gapBoundary * std::max(reference_idx + j, query_idx + i);
+                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param->gapOpen + param->gapExtend * (std::max(reference_idx + j, query_idx + i) - 1);
                     else if (offsetDiag < 0)               match = similarScore;
                     else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
@@ -364,12 +378,12 @@ void Talco_xdrop::Tile (
                 int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
 
                 if (query_idx + i == query.size() - 1) {
-                    pos_gapOpen_ref = param->gapBoundary;
-                    pos_gapExtend_ref = param->gapBoundary;
+                    pos_gapOpen_ref = gapOpenEnd;
+                    pos_gapExtend_ref = gapExtendEnd;
                 }
                 if (reference_idx + j == reference.size() - 1) {
-                    pos_gapOpen_qry = param->gapBoundary;
-                    pos_gapExtend_qry = param->gapBoundary;
+                    pos_gapOpen_qry = gapOpenEnd;
+                    pos_gapExtend_qry = gapExtendEnd
                 }
 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
@@ -396,7 +410,7 @@ void Talco_xdrop::Tile (
                     D[k%2][offset] = delExt;
                     Dptr = true;
                 }
-
+                
                 if (match >= I[k%2][offset]) {
                     if (match >= D[k%2][offset]) {
                         S[k%3][offset] = match;
@@ -416,6 +430,7 @@ void Talco_xdrop::Tile (
                     ptr = 2;
                 }
                 
+               
                 if (S[k%3][offset] < max_score-param->xdrop) {
                     S[k%3][offset] = -inf;
                 }

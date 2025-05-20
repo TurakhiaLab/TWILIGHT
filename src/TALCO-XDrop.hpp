@@ -46,7 +46,7 @@ namespace Talco_xdrop {
         int32_t xdrop;
         int32_t fLen;
         int32_t marker;
-        int type;
+        int alnType; // 0: global, 1: global-local
 
         void updateXDrop(int32_t new_xdrop) { 
             this->xdrop = new_xdrop;

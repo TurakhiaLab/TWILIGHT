@@ -12,6 +12,7 @@
 #include <map>
 #include <unordered_map>
 #include <unordered_set>
+#include <array>
 
 #include <boost/program_options.hpp> 
 #include <tbb/global_control.h>

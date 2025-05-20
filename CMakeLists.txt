@@ -53,6 +53,7 @@ if(USE_CUDA)
 					  src/TALCO-XDrop.cpp
 					  src/util.cpp
 					  src/msa-cpu.cpp
+					  src/align-util.cpp
 					  src/cuda/msa-gpu.cu
 					  src/cuda/align.cu
 		)
@@ -76,6 +77,7 @@ elseif(USE_HIP)
 			  		  src/TALCO-XDrop.cpp
 			  		  src/util.cpp
 			  		  src/msa-cpu.cpp
+					  src/align-util.cpp
 			  		  src/hip/msa-gpu.hip.cpp
 			  		  src/hip/align.hip.cpp
 	    )	
@@ -111,7 +113,8 @@ else()
 					      src/TALCO-XDrop.cpp
 					      src/util.cpp
 					      src/msa-cpu.cpp
-						  src/cuda/msa-gpu.cu
+					      src/align-util.cpp
+				              src/cuda/msa-gpu.cu
 					      src/cuda/align.cu
 			)
 		else()
@@ -132,6 +135,7 @@ else()
 			  		  src/TALCO-XDrop.cpp
 			  		  src/util.cpp
 			  		  src/msa-cpu.cpp
+					  src/align-util.cpp
 			  		  src/hip/msa-gpu.hip.cpp
 			  		  src/hip/align.hip.cpp
 	    )
@@ -145,6 +149,7 @@ else()
 				      src/TALCO-XDrop.cpp
 				      src/util.cpp
 				      src/msa-cpu.cpp
+				      src/align-util.cpp
 	    )	
 	endif()
 endif()

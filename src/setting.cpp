@@ -2,26 +2,52 @@
 #include "setting.hpp"
 #endif
 
-
 char checkOnly(char inChar) {
-    std::unordered_set<char> protein_only = {'E', 'F', 'I', 'J', 'L', 'P', 'Q', 'Z'};
-    if (inChar == 'U') return 'n';
-    if (protein_only.find(inChar) != protein_only.end()) return 'p';
-    return 'x';
+    switch (inChar) {
+        case 'E': return 'p';
+        case 'F': return 'p';
+        case 'I': return 'p';
+        case 'J': return 'p';
+        case 'L': return 'p';
+        case 'P': return 'p';
+        case 'Q': return 'p';
+        case 'Z': return 'p';
+        case 'U': return 'n';
+        default:  return 'x';
+    }
 }
 
-int letterIdx(char type, char inChar) {
-    if (type == 'n') {
-        std::map<char, int> NUCLEOTIDE = {{'A', 0}, {'C', 1}, {'G', 2}, {'T', 3}, {'U', 3}, {'-', 5}}; // 4 for all other characters (ambiguous)
-        if (NUCLEOTIDE.find(inChar) == NUCLEOTIDE.end()) return 4;
-        else return NUCLEOTIDE[inChar];
+constexpr std::array<int, 256> make_aa_lookup() {
+    std::array<int, 256> table{};
+    table['A'] = 1; table['C'] = 2; table['D'] = 3; table['E'] = 4;
+    table['F'] = 5; table['G'] = 6; table['H'] = 7; table['I'] = 8;
+    table['K'] = 9; table['L'] = 10; table['M'] = 11; table['N'] = 12;
+    table['P'] = 13; table['Q'] = 14; table['R'] = 15; table['S'] = 16;
+    table['T'] = 17; table['V'] = 18; table['W'] = 19; table['Y'] = 20;
+    table['-'] = 22;
+    return table;
+}
+
+constexpr std::array<int, 256> make_nb_lookup() {
+    std::array<int, 256> table{};
+    table['A'] = 1; table['C'] = 2; table['G'] = 3; 
+    table['T'] = 4; table['U'] = 4; table['-'] = 6; 
+    return table;
+}
+
+constexpr auto aa_lookup = make_aa_lookup();
+constexpr auto nb_lookup = make_nb_lookup();
+
+
+int letterIdx(char type, char c) {
+    if (type == 'p') {
+        int val = aa_lookup[static_cast<unsigned char>(c)];
+        return (val == 0) ? 20 : val - 1;
     }
     else {
-        std::map<char, int> PROTEIN = {{'A',0}, {'C',1}, {'D',2}, {'E',3}, {'F',4}, {'G',5}, {'H',6}, {'I',7}, {'K',8}, {'L',9}, {'M',10}, {'N',11}, {'P',12}, {'Q',13}, {'R',14}, {'S',15}, {'T',16}, {'V',17}, {'W',18}, {'Y',19}, {'-',21}}; // 20 for all other characters (ambiguous)
-        if (PROTEIN.find(inChar) == PROTEIN.end()) return 20;
-        else return PROTEIN[inChar];
-    }
-    
+        int val = nb_lookup[static_cast<unsigned char>(c)];
+        return (val == 0) ? 4 : val - 1;
+    }   
 }
 
 Params::Params(po::variables_map& vm, char type) {
