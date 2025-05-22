@@ -200,7 +200,7 @@ void Talco_xdrop::Tile (
     const int &tile,
     int16_t& errorType // 1: xdrop, 2: exceed anti-doagonal limit
     ) {
-        
+                
         // Initialising variables
         int32_t inf = 2*param->xdrop + 1;
         int32_t marker = param->marker;
@@ -229,6 +229,22 @@ void Talco_xdrop::Tile (
         float gapExtend = param->gapExtend;
         float gapOpenEnd = (param->alnType == 0) ? gapOpen : 0;
         float gapExtendEnd = (param->alnType == 0) ? gapExtend : 0;
+        const float LEN_DIFF_TH = 0.15;
+        float len_diff = (reference.size() > query.size()) ? reference.size() - query.size() : query.size() - reference.size();
+        len_diff /= static_cast<float>(std::max(reference.size(), query.size()));
+        // if (tile == 0 && len_diff > LEN_DIFF_TH) std::cout << reference.size() << ',' << query.size() << ',' << len_diff << '\n';
+        bool ref_short = (reference.size() < query.size());
+        float gapOpenHead_ref = (ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapOpen;
+        float gapExtendHead_ref = (ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapExtend;
+        float gapOpenHead_qry = (!ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapOpen;
+        float gapExtendHead_qry = (!ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapExtend;
+        // if (tile == 0 && len_diff > LEN_DIFF_TH) std::cout << gapOpenHead_ref << ',' << gapExtendHead_ref  << ',' << gapOpenHead_qry << ',' << gapExtendHead_qry << '\n' ;
+        
+        float gapOpenTail_ref = (param->alnType == 1) ? 0 : gapOpenHead_ref;
+        float gapExtendTail_ref = (param->alnType == 1) ? 0 : gapExtendHead_ref;
+        float gapOpenTail_qry = (param->alnType == 1) ? 0 : gapOpenHead_qry;
+        float gapExtendTail_qry = (param->alnType == 1) ? 0 : gapExtendHead_qry;
+        
         int32_t L[3], U[3];
         int32_t *S[3], *I[2], *D[2];
         int32_t *CS[3], *CI[2], *CD[2];
@@ -238,7 +254,7 @@ void Talco_xdrop::Tile (
         int32_t ftr_addr = 0;
         int32_t last_k = 0;
         int32_t prev_conv_s = -1;
-    
+
         for (size_t sIndx=0; sIndx<3; sIndx++) { // Allocate memory for S, I, D, and CS array
             S[sIndx] = new int32_t [fLen];
             CS[sIndx] = new int32_t [fLen];
@@ -367,7 +383,14 @@ void Talco_xdrop::Tile (
                       
 
                     similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
-                    if  (tile == 0 && (i == 0 || j == 0 )) match = similarScore + param->gapOpen + param->gapExtend * (std::max(reference_idx + j, query_idx + i) - 1);
+                    if  (tile == 0 && (i == 0 || j == 0 )) {
+                        if (i == 0 && j > 0)      match = similarScore + gapOpenHead_ref + gapExtendHead_ref * (reference_idx+j - 1);
+                        else if (i > 0 && j == 0) match = similarScore + gapOpenHead_qry + gapExtendHead_qry * (query_idx+i - 1);
+                        else                      match = similarScore;
+                        // match = similarScore + param->gapExtend * std::max(reference_idx + j, query_idx + i);
+                        // if (i == 0 && j == 0) match = similarScore;
+                        // else                  match = similarScore + param->gapOpen + param->gapExtend * (std::max(0, std::max(reference_idx + j, query_idx + i) - 1));
+                    }
                     else if (offsetDiag < 0)               match = similarScore;
                     else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
@@ -378,12 +401,12 @@ void Talco_xdrop::Tile (
                 int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
 
                 if (query_idx + i == query.size() - 1) {
-                    pos_gapOpen_ref = gapOpenEnd;
-                    pos_gapExtend_ref = gapExtendEnd;
+                    pos_gapOpen_ref = gapOpenTail_ref;
+                    pos_gapExtend_ref = gapExtendTail_ref;
                 }
                 if (reference_idx + j == reference.size() - 1) {
-                    pos_gapOpen_qry = gapOpenEnd;
-                    pos_gapExtend_qry = gapExtendEnd
+                    pos_gapOpen_qry = gapOpenTail_qry;
+                    pos_gapExtend_qry = gapExtendTail_qry;
                 }
 
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
@@ -410,6 +433,8 @@ void Talco_xdrop::Tile (
                     D[k%2][offset] = delExt;
                     Dptr = true;
                 }
+
+                // if (tile == 0 && param->alnType == 0 && k < 20) std::cout << '(' << i << ',' << j << ')' << match << ',' << I[k%2][offset] << ',' << D[k%2][offset] << '\n';
                 
                 if (match >= I[k%2][offset]) {
                     if (match >= D[k%2][offset]) {

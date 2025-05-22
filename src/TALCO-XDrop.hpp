@@ -68,6 +68,7 @@ namespace Talco_xdrop {
             this->xdrop = static_cast<int32_t> (1000 * -1 * this->gapExtend);
             this->fLen = (1 << 12);
             this->marker = (1 << 10); //reduce this value to save memory
+            this->alnType = 0;
         }
         ~Params() {
             for (int i = 0; i < this->matrixSize; ++i) delete [] this->scoreMatrix[i];
