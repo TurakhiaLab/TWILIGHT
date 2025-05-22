@@ -2,9 +2,6 @@
 #define ALNUTIL_HPP
 
 #include <fstream>
-#include <complex>
-#include <tuple>
-#include "pocketfft_hdronly.h"
 
 #ifndef TREE_HPP
 #include "tree.hpp"
