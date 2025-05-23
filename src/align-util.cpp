@@ -535,14 +535,14 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
     }
     // Clustalw's method
     float minGOP = param.gapOpen * 0.2;
-    float scale = (option->type == 'n') ? 0.3 : 1.0;
+    float scale = (option->type == 'n') ? 1.0 : 1.0;
     if (option->psgop) {
         for (int s = 0; s < seqLen; ++s) {
             if (s < refLen) {
                 float gapRatio = hostFreq[offsetf+profileSize*s+profileSize-1];
                 if (gapRatio > 0) {
                     hostGapOp[offsetg+s] = param.gapOpen * scale * ((refNum-gapRatio)*1.0 / refNum);
-                    hostGapEx[offsetg+s] = param.gapExtend * 0.5;
+                    hostGapEx[offsetg+s] = param.gapExtend * scale * ((refNum-gapRatio)*1.0 / refNum);
                     // hostGapEx[offsetg+s] = param.gapOpen * ((refNum-gapRatio)*1.0 / refNum);
                 }
                 else {
@@ -560,7 +560,7 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                 float gapRatio = hostFreq[offsetf+profileSize*(seqLen+s)+profileSize-1];
                 if (gapRatio > 0) {
                     hostGapOp[offsetg+seqLen+s] = param.gapOpen * scale * ((qryNum-gapRatio) * 1.0 / qryNum);
-                    hostGapEx[offsetg+seqLen+s] = param.gapExtend * 0.5;
+                    hostGapEx[offsetg+seqLen+s] = param.gapExtend * scale * ((qryNum-gapRatio) * 1.0 / qryNum);
                     // hostGapEx[offsetg+seqLen+s] = param.gapOpen * ((qryNum-gapRatio) * 1.0 / qryNum);
                 }
                 else {
