@@ -536,7 +536,7 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
     }
     // Clustalw's method
     float minGOP = param.gapOpen * 0.2;
-    float scale = (option->type == 'n') ? 0.5 : 1.0;
+    float scale = (option->type == 'n') ? 1.0 : 1.0;
     if (option->psgop) {
         for (int s = 0; s < seqLen; ++s) {
             if (s < refLen) {
