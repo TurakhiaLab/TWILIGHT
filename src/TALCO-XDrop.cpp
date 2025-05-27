@@ -244,6 +244,15 @@ void Talco_xdrop::Tile (
         float gapExtendTail_ref = (param->alnType == 1) ? 0 : gapExtendHead_ref;
         float gapOpenTail_qry = (param->alnType == 1) ? 0 : gapOpenHead_qry;
         float gapExtendTail_qry = (param->alnType == 1) ? 0 : gapExtendHead_qry;
+        // float gapOpenHead_ref   = 0;
+        // float gapExtendHead_ref = 0; 
+        // float gapOpenHead_qry   = 0; 
+        // float gapExtendHead_qry = 0; 
+        
+        // float gapOpenTail_ref   = 0;
+        // float gapExtendTail_ref = 0;
+        // float gapOpenTail_qry   = 0;
+        // float gapExtendTail_qry = 0;
         
         int32_t L[3], U[3];
         int32_t *S[3], *I[2], *D[2];
@@ -397,8 +406,22 @@ void Talco_xdrop::Tile (
 
                 int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(gapOp[0][reference_idx+j]));
                 int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(gapOp[1][query_idx+i]));
+                // float gapRef = reference[reference_idx+j][reference[0].size()-1];
+                // float gapQry = query[query_idx+i][query[0].size()-1];
+                
+                
                 int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
                 int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
+                // int32_t pos_gapExtend_ref = (reference[reference_idx+j][21] > 0) ? gapExtend / 2 : gapExtend;
+                // int32_t pos_gapExtend_qry = (query[query_idx+i][21] > 0) ? gapExtend / 2 : gapExtend;
+
+                // int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(param->gapOpen * (refNum-gapRef) * 1.0 / refNum));
+                // int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(param->gapOpen * (qryNum-gapQry) * 1.0 / qryNum));
+                // int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(param->gapExtend * (refNum-gapRef) * 1.0 / refNum));
+                // int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(param->gapExtend * (qryNum-gapQry) * 1.0 / qryNum));
+                // int32_t pos_gapClose_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
+                // int32_t pos_gapClose_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
+
 
                 if (query_idx + i == query.size() - 1) {
                     pos_gapOpen_ref = gapOpenTail_ref;
@@ -455,11 +478,32 @@ void Talco_xdrop::Tile (
                     ptr = 2;
                 }
                 
-               
+                /*
+                int32_t tempI = I[k%2][offset] + pos_gapClose_qry;
+                int32_t tempD = D[k%2][offset] + pos_gapClose_ref;
+                if (match >= tempI) {
+                    if (match >= tempD) {
+                        S[k%3][offset] = match;
+                        ptr = 0;
+                    }
+                    else {
+                        S[k%3][offset] = tempD;
+                        ptr = 2;
+                    }
+                }
+                else if (tempI > tempD) {
+                    S[k%3][offset] = tempI;
+                    ptr = 1;
+                }
+                else {
+                    S[k%3][offset] = tempD;
+                    ptr = 2;
+                }
+                
                 if (S[k%3][offset] < max_score-param->xdrop) {
                     S[k%3][offset] = -inf;
                 }
-
+                */
                 score = S[k%3][offset];
                 
                 if (max_score_prime < score) {

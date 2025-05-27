@@ -625,6 +625,13 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         free(hostFreq);
         free(hostGapOp);
         free(hostGapEx);
+
+        // if (nIdx == 0) {
+        //     for (auto a: gapEx[1]) std::cout << a << ',';
+        //     std::cout << '\n';
+        //     for (auto a: gapOp[0]) std::cout << a << ',';
+        //     std::cout << '\n';
+        // }
         
         std::pair<float, float> num = std::make_pair(static_cast<float>(refNum), static_cast<float>(qryNum));
         Talco_xdrop::Params* talco_params = new Talco_xdrop::Params(hostParam, param.matrixSize);
