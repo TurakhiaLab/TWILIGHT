@@ -375,7 +375,7 @@ void Talco_xdrop::Tile (
                         for (int l = 0; l < 6; ++l) {
                             for (int m = 0; m < 6; ++m) {
                                 if (m == 5 && l == 5)      numerator += 0;
-                                else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
+                                else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*0;
                                 else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
                             }
                         }

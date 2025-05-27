@@ -544,6 +544,7 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                 if (gapRatio > 0) {
                     hostGapOp[offsetg+s] = param.gapOpen * scale * ((refNum-gapRatio)*1.0 / refNum);
                     hostGapEx[offsetg+s] = param.gapExtend * ((refNum-gapRatio)*1.0 / refNum);
+                    // hostGapEx[offsetg+s] = param.gapOpen * ((refNum-gapRatio)*1.0 / refNum);
                 }
                 else {
                     hostGapOp[offsetg+s] = param.gapOpen;
@@ -561,6 +562,7 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                 if (gapRatio > 0) {
                     hostGapOp[offsetg+seqLen+s] = param.gapOpen * scale * ((qryNum-gapRatio) * 1.0 / qryNum);
                     hostGapEx[offsetg+seqLen+s] = param.gapExtend * ((qryNum-gapRatio) * 1.0 / qryNum);
+                    // hostGapEx[offsetg+seqLen+s] = param.gapOpen * ((qryNum-gapRatio) * 1.0 / qryNum);
                 }
                 else {
                     hostGapOp[offsetg+seqLen+s] = param.gapOpen;
