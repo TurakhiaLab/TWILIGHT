@@ -129,7 +129,7 @@ Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or
     xcode-select --install # if not already installed
     brew install wget boost cmake tbb
     ```
-3. Build TWILIGHT
+3. Build TWILIGHT  
     Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly. Alternatively, users can manually specify the desired target platform.
 
     Automatic build:
@@ -215,8 +215,8 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 | `-s`, `--sum-of-pairs-score`     | Calculate the sum-of-pairs-score after alignment.                                                                    |
 | `--type`                         | Data type. `n` for nucleotide sequences and `p` for protein sequences. Will be automatically inferred if not provided.                          |
 | `--no-align-gappy`               | Do not align gappy columns. This will create a longer MSA (larger file).                                             |
-| `length-deviation`               | Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded. Default: disabled. |
-| `max-ambig`               | Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded. Default: 0.1.  |
+| `--length-deviation`               | Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded. Default: disabled. |
+| `--max-ambig`               | Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded. Default: 0.1.  |
 | `--filter`               | Exclude sequences with high ambiguity or length deviation. Default: disabled. |
 | `--merge`                        | Method to merge subtrees. `t` for Transitivity Merger and `p` for Pregressive Alignment. Default: `p`.               |
 | `--match`                        | Match score. Default: 18.                                                                                            | 
