@@ -284,7 +284,7 @@ TWILIGHT iterative mode estimate guide trees using external tools.
 
 | **Configuration <br>(used with `--config`)**    | **Description and Options**                                                                                   |
 |-----------------------------------------------------|---------------------------------------------------------------------------------------------------| 
-| `TYPE`                            | Input sequence type (`n` for nucleotide and `p` for protein sequences).    |                                                               
+| `TYPE`                            | Input sequence type, options: `n` for nucleotide or `p` for protein sequences. (required)    |                                                               
 | `SEQ`                            | Input unaligned sequences path (FASTA format).                                                                       |
 | `OUT`                            | Output MSA file path.                                                                                                |
 | `DIR`                            | Directory for storing temporary files.                                                                               |
@@ -302,9 +302,6 @@ TWILIGHT iterative mode estimate guide trees using external tools.
     
 !!!Note
     For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance. 
-
-!!!Note
-    Since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required in TWILIGHT iterative mode: use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.
 
 #### **Run TWILIGHT iterative mode**
 1. Enter into `workflow` directory
