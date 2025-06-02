@@ -2,6 +2,7 @@
 This is a snakemake workflow for TWILIGHT iterative mode.
 
 OPTIONS
+TYPE:     Input datatype, n (nucleotide) or p (protein), required
 SEQ:      Input unaligned sequence file path
 OUT:      Output MSA file path
 DIR:      Directory for storing temporary files
@@ -49,6 +50,7 @@ def checkConfig(iter, inittree, itertree):
 		exit(1)
 
 configfile: "config.yaml"  
+config["type"] = config.get("TYPE", config["type"])
 config["sequences"] = config.get("SEQ", config["sequences"])
 config["work_dir"] = config.get("DIR", config["work_dir"])
 config["output_msa"]=config.get("OUT", config["output_msa"])
@@ -61,8 +63,22 @@ finalMSA  = config["work_dir"]+"/msa_iter"+str(iterations)+".fa"
 finalTree = config["work_dir"]+"/tree_iter"+str(iterations)+".nwk"
 finalFile = finalTree if config["final_tree"] == "yes" else finalMSA
 
+if str(config["type"]) != "n" and str(config["type"]) != "p":
+	print("ERROR: Unknown datatype. Please specify sequence type, n (nucleotide) or p (protein).", file=sys.stderr)
+	exit(1)
+
+if str(config["type"]) == "p" and str(init_tree) == "mashtree":
+	print("ERROR: MashTree does not support protein sequences.", file=sys.stderr)
+	exit(1)
+
 checkFiles(config["work_dir"], config["output_msa"], config["output_tree"], config["final_tree"])
 checkConfig(iterations, init_tree, iter_tree)
+# FastTree 
+config["ft_model"]= "" if str(config["type"]) == "p" else "-gtr -nt"
+# RAxML
+config["rx_model"]= "PROTGAMMAAUTO" if str(config["type"]) == "p" else "GTRGAMMA"
+# IQ-Tree
+config["iq_model"]= "" # Auto-selected by IQ-Tree
 
 include: "rules/twilight.smk"
 

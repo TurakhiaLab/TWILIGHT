@@ -1,15 +1,16 @@
 
 # Main configuration
+type: "unknown"                           # Input datatype, n (nucleotide) or p (protein), required
 sequences: "../dataset/RNASim.fa"         # input unaligned sequence file
 output_msa: "final_msa.aln"               # Output MSA file name
 output_tree: "final_tree.nwk"             # Output final tree
-init_tree: "parttree"                     # Tree from unaligned sequences, options: "maffttree", "parttree", "mashtree"
+init_tree: "maffttree"                    # Tree from unaligned sequences, options: "maffttree", "parttree", "mashtree"
 iter_tree: "fasttree"                     # Tree from MSA, options: "raxml", "fasttree", "iqtree"
-num_threads: 32                           # Number of threads
+num_threads: 8                            # Number of threads
 iterations: 3                             # Number of iterations: 1-5
-final_tree: "yes"                          # Estimate tree after the final MSA, "yes" or "no"
+final_tree: "no"                          # Estimate tree after the final MSA, "yes" or "no"
 work_dir: "working_dir"                   # Directory to store MSA and tree files
-keep_dir: "no"                           # Keep working directory
+keep_dir: "yes"                           # Keep working directory
 mask_gappy: 0.995                         # Minimum proportion of gappy sites that would be mask before proceed to tree inference step
 
 # Path for executable files
@@ -25,18 +26,7 @@ mafft: "mafft"
 psgop: "yes"            # Recommand "no" for short-branched sequences and "yes" otherwise
 max_group: 2147483647    # Default: INT32_MAX
 max_subtree: 2147483647  # Default: INT32_MAX
-rgc: 0.95                # Threshold for removing gappy columns, recommand higher threshold for similar sequences
+rgc: 0.95              # Threshold for removing gappy columns, recommand higher threshold for similar sequences
 gapopen: -50      
 gapextend: -5
-gapends: -5
-matrix: ""   
-
-# FastTree command options
-ft_model: "GTR"          # "GTR" or "JC" (Jukes-Cantor)
-
-# IQTree command options
-iq_model: "GTR+F"        # See the iqtree manual for more information, 
-                         # setting to "AUTO" lets iqtree find the best model
-
-# RAxML command options
-rx_model: "GTR"          # Default: "GTR", other options: "JC69", "K80" or "HKY85"
+matrix: ""

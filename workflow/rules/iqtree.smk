@@ -5,7 +5,7 @@ rule iqtree_iter1:
     params:
         iqtree_exe=config["iqtree"],
         temp=config["work_dir"],
-        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        model="",
         threshold=config["mask_gappy"],
         tempFile=config["work_dir"]+"/msa_iter1.mask.fa"
     threads: config["num_threads"]
@@ -24,7 +24,7 @@ rule iqtree_iter2:
     params:
         iqtree_exe=config["iqtree"],
         temp=config["work_dir"],
-        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        model="",
         threshold=config["mask_gappy"],
         tempFile=config["work_dir"]+"/msa_iter2.mask.fa"
     threads: config["num_threads"]
@@ -43,7 +43,7 @@ rule iqtree_iter3:
     params:
         iqtree_exe=config["iqtree"],
         temp=config["work_dir"],
-        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        model="",
         threshold=config["mask_gappy"],
         tempFile=config["work_dir"]+"/msa_iter3.mask.fa"
     threads: config["num_threads"]
@@ -62,7 +62,7 @@ rule iqtree_iter4:
     params:
         iqtree_exe=config["iqtree"],
         temp=config["work_dir"],
-        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        model="",
         threshold=config["mask_gappy"],
         tempFile=config["work_dir"]+"/msa_iter4.mask.fa"
     threads: config["num_threads"]
@@ -81,7 +81,7 @@ rule iqtree_iter5:
     params:
         iqtree_exe=config["iqtree"],
         temp=config["work_dir"],
-        model="" if config["iq_model"] == "AUTO" else "-m " + config["iq_model"],
+        model="",
         threshold=config["mask_gappy"],
         tempFile=config["work_dir"]+"/msa_iter5.mask.fa"
     threads: config["num_threads"]

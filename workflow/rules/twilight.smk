@@ -13,13 +13,12 @@ rule twilight_iter1:
         rgc=config["rgc"],
         gop=config["gapopen"],
         gex=config["gapextend"],
-        gend=config["gapends"],
         matrix="" if config["matrix"]=="" else "-x "+config["matrix"]
 
     threads: config["num_threads"]
     shell:
         '''
-        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-ends {params.gend} --gap-extend {params.gex} {params.matrix} -v
+        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-extend {params.gex} {params.matrix} -v
         '''
 
 rule twilight_iter2:
@@ -36,12 +35,11 @@ rule twilight_iter2:
         rgc=config["rgc"],
         gop=config["gapopen"],
         gex=config["gapextend"],
-        gend=config["gapends"],
         matrix="" if config["matrix"]=="" else "-x "+config["matrix"]               
     threads: config["num_threads"]
     shell:
         '''
-        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-ends {params.gend} --gap-extend {params.gex} {params.matrix} -v 
+        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-extend {params.gex} {params.matrix} -v
         '''
    
 rule twilight_iter3:
@@ -58,12 +56,11 @@ rule twilight_iter3:
         rgc=config["rgc"],
         gop=config["gapopen"],
         gex=config["gapextend"],
-        gend=config["gapends"],
         matrix="" if config["matrix"]=="" else "-x "+config["matrix"]               
     threads: config["num_threads"]
     shell:
         '''
-        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-ends {params.gend} --gap-extend {params.gex} {params.matrix} -v
+        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-extend {params.gex} {params.matrix} -v
         '''
 
 rule twilight_iter4:
@@ -80,12 +77,11 @@ rule twilight_iter4:
         rgc=config["rgc"],
         gop=config["gapopen"],
         gex=config["gapextend"],
-        gend=config["gapends"],
         matrix="" if config["matrix"]=="" else "-x "+config["matrix"]               
     threads: config["num_threads"]
     shell:
         '''
-        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-ends {params.gend} --gap-extend {params.gex} {params.matrix} -v
+        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-extend {params.gex} {params.matrix} -v
         '''
 
 rule twilight_iter5:
@@ -102,10 +98,9 @@ rule twilight_iter5:
         rgc=config["rgc"],
         gop=config["gapopen"],
         gex=config["gapextend"],
-        gend=config["gapends"],
         matrix="" if config["matrix"]=="" else "-x "+config["matrix"]               
     threads: config["num_threads"]
     shell:
         '''
-        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-ends {params.gend} --gap-extend {params.gex} {params.matrix} -v
+        {params.twilight_exe} -i {input.seq} -t {input.tree} -o {output.msa} -C {threads} -p {params.psgop} -g {params.max_group} -m {params.max_subtree} -r {params.rgc} --gap-open {params.gop} --gap-extend {params.gex} {params.matrix} -v
         '''
