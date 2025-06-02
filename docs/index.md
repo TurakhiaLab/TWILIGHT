@@ -206,6 +206,7 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 | `-g`, `--max-group`              | Maximum number of leaves in a group within a subtree. Groups are merged using transitivity merger.                   |
 | `-d`, `--temp-dir`               | Directory for storing temporary files. Used when `-f` or `-m` is specified.                                          |
 | `-r`, `--remove-gappy`           | Threshold for removing gappy columns. Set to 1 to disable this feature. Default: 0.95. <br> It is recommended to set a higher threshold (i.e. 0.999) or to 1 when the alignment is known to be less gappy.                                           |
+| `--type`               | Data type. `n`: nucleotide, `p`: protein. Will be automatically inferred if not provided.                                       |
 | `-w`, `--wildcard`               | Treat unknown or ambiguous bases as wildcards and align them to usual letters.                                       |
 | `-v`, `--verbose`                | Print out every detail process.                                                                                      | 
 | `-p`, `--pgsop`                  | Position-specific gap open penalty. `y` for enable and `n` for disable. Default: `y`| 
@@ -220,10 +221,9 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 | `--merge`                        | Method to merge subtrees. `t` for Transitivity Merger and `p` for Pregressive Alignment. Default: `p`.               |
 | `--match`                        | Match score. Default: 18.                                                                                            | 
 | `--mismatch`                     | Mismatch penalty (transversions). Default: -8.                                                                       | 
-| `--transition`                   | Transition score. Default: 5.                                                                                        |
+| `--transition`                   | Transition score. Default: -4.                                                                                        |
 | `--gap-open`                     | Gap-open penalty. Default: -50.                                                                                      |
 | `--gap-extend`                   | Gap-extend penalty. Default: -5.                                                                                     |
-| `--gap-ends`                   | Penalty for gaps at both ends. Default: the same as gap-extend penalty.                                                                                     |
 | `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty. Default: 600.                  |
 | `--output-type`                  | Way to present MSA. `FASTA` for FASTA format and `CIGAR` for CIGAR-like compressed format. Default: `FASTA`.         |
 | `--check`                  | Check the final alignment. Sequences with no legal alignment will be displayed.       |

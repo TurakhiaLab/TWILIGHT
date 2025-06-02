@@ -20,6 +20,11 @@
 
 </div>
 
+## What's New
+
+**TWILIGHT v0.1.4 adds support for protein sequence alignment!**
+
+
 ## Table of Contents
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
 - [Installation](#install)
