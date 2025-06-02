@@ -284,6 +284,7 @@ TWILIGHT iterative mode estimate guide trees using external tools.
 
 | **Configuration <br>(used with `--config`)**    | **Description and Options**                                                                                   |
 |-----------------------------------------------------|---------------------------------------------------------------------------------------------------| 
+| `TYPE`                            | Input sequence type (`n` for nucleotide and `p` for protein sequences).    |                                                               
 | `SEQ`                            | Input unaligned sequences path (FASTA format).                                                                       |
 | `OUT`                            | Output MSA file path.                                                                                                |
 | `DIR`                            | Directory for storing temporary files.                                                                               |
@@ -300,7 +301,10 @@ TWILIGHT iterative mode estimate guide trees using external tools.
     Default options in `workflow/config.yaml` will be used if the configuration is not specified. You can also modify `workflow/config.yaml` to set your options.
     
 !!!Note
-    For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance.  
+    For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance. 
+
+!!!Note
+    Since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required in TWILIGHT iterative mode: use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.
 
 #### **Run TWILIGHT iterative mode**
 1. Enter into `workflow` directory
@@ -312,16 +316,16 @@ In addition to command line options, `workflow/config.yaml` provides additional 
 3. Run
     * Usage syntax
     ```bash
-    snakemake --cores [num threads] --config SEQ=[sequence] OUT=[output] DIR=[directory] ITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
+    snakemake --cores [num threads] --config TYPE=[n/p] SEQ=[sequence] OUT=[output] DIR=[directory] ITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
     ```
     * Example  
     Using default configurations  
     ```bash
-    snakemake --cores 8 --config SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir
+    snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir
     ```
     Specifying all command line options
     ```bash
-    snakemake --cores 8 --config SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir ITER=2 INITTREE=maffttree ITERTREE=raxml OUTTREE=RNASim.tree GETTREE=yes
+    snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir ITER=2 INITTREE=maffttree ITERTREE=raxml OUTTREE=RNASim.tree GETTREE=yes
     ```
 
 ## <b>Contributions</b>
