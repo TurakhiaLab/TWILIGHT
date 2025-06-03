@@ -499,11 +499,11 @@ void Talco_xdrop::Tile (
                     S[k%3][offset] = tempD;
                     ptr = 2;
                 }
-                
+                */
                 if (S[k%3][offset] < max_score-param->xdrop) {
                     S[k%3][offset] = -inf;
                 }
-                */
+                
                 score = S[k%3][offset];
                 
                 if (max_score_prime < score) {

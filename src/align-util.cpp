@@ -535,7 +535,6 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
         qryNum = static_cast<int32_t>(round(qryNum_f));
     }
     // Clustalw's method
-    float minGOP = param.gapOpen * 0.2;
     float scale = (option->type == 'n') ? 0.5 : 1.0;
     if (option->psgop) {
         for (int s = 0; s < seqLen; ++s) {
@@ -586,100 +585,6 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
     return;
 }
 
-
-/*
-void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, int32_t seqLen, std::pair<int32_t,int32_t> offset, std::pair<int32_t,int32_t> lens, Params& param) {
-    int32_t refLen = lens.first;
-    int32_t qryLen = lens.second;
-    int32_t offsetf = offset.first;
-    int32_t offsetg = offset.second; 
-    int32_t refNum = tree->allNodes[nodes.first->identifier]->msaIdx.size();
-    int32_t qryNum = tree->allNodes[nodes.second->identifier]->msaIdx.size();
-    int32_t profileSize = (option->type == 'n') ? 6 : 22;
-    if (util->nowProcess == 2) {
-        float refNum_f = 0, qryNum_f = 0;
-        int subtreeRef = util->seqsIdx[nodes.first->identifier];
-        int subtreeQry = util->seqsIdx[nodes.second->identifier]; 
-        if (tree->allNodes[nodes.first->identifier]->msaFreq.empty()) {
-            tree->allNodes[nodes.first->identifier]->msaFreq = util->profileFreq[subtreeRef];
-        }
-        if (tree->allNodes[nodes.second->identifier]->msaFreq.empty()) {
-            tree->allNodes[nodes.second->identifier]->msaFreq = util->profileFreq[subtreeQry];
-        }
-        for (int t = 0; t < 6; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
-        for (int t = 0; t < 6; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
-        refNum = static_cast<int32_t>(round(refNum_f));
-        qryNum = static_cast<int32_t>(round(qryNum_f));
-    }
-    // MAFFT's method
-    float minGOP = param.gapOpen * 0.2;
-    if (option->psgop) {
-        float refWeight = 0.0, qryWeight = 0.0;
-        for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        
-        for (int s = 0; s < seqLen; ++s) {
-            if (s < refLen) {
-                float gapOpenRatio = 0.0, gapCloseRatio = 0.0;
-                for (auto sIdx: tree->allNodes[nodes.first->identifier]->msaIdx) { 
-                    int storage = util->seqsStorage[sIdx];
-                    std::string name = util->seqsName[sIdx];
-                    float w = tree->allNodes[name]->weight;
-                    if (s > 0) {
-                        if (letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s-1])) != profileSize-1 && 
-                            letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s]))   == profileSize-1) gapOpenRatio += w;
-                    }
-                    if (s < refLen-1) {
-                        if (letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s]))   == profileSize-1 && 
-                            letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s+1])) != profileSize-1) gapCloseRatio += w;
-                    }
-                }
-                hostGapOp[offsetg+s] = param.gapOpen * (1.0 - (gapOpenRatio/refWeight));
-                // hostGapOp[offsetg+s] = param.gapOpen * scale * ((refNum-gapRatio)*1.0 / refNum);
-                hostGapEx[offsetg+s] = param.gapOpen * (1.0 - (gapCloseRatio/refWeight));
-            }
-            else {
-                hostGapOp[offsetg+s] = 0.0;
-                hostGapEx[offsetg+s] = 0.0;
-            }
-            if (s < qryLen) {
-                float gapOpenRatio = 0.0, gapCloseRatio = 0.0;
-                for (auto sIdx: tree->allNodes[nodes.second->identifier]->msaIdx) { 
-                    int storage = util->seqsStorage[sIdx];
-                    std::string name = util->seqsName[sIdx];
-                    float w = tree->allNodes[name]->weight;
-                    if (s > 0) {
-                        if (letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s-1])) != profileSize-1 && 
-                            letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s]))   == profileSize-1) gapOpenRatio += w;
-                    }
-                    if (s < qryLen-1) {
-                        if (letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s]))   == profileSize-1 && 
-                            letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][s+1])) != profileSize-1) gapCloseRatio += w;
-                    }
-                }
-                hostGapOp[offsetg+seqLen+s] = param.gapOpen * (1.0 - (gapOpenRatio/qryWeight));
-                // hostGapOp[offsetg+seqLen+s] = param.gapOpen * scale * ((qryNum-gapRatio) * 1.0 / qryNum);
-                hostGapEx[offsetg+seqLen+s] = param.gapOpen * (1.0 - (gapCloseRatio/qryWeight));
-            }
-            else {
-                hostGapOp[offsetg+seqLen+s] = 0.0;
-                hostGapEx[offsetg+seqLen+s] = 0.0;
-            }
-        }   
-    }
-    else {
-        for (int s = 0; s < seqLen; ++s) {
-            hostGapOp[offsetg+s] = (s < refLen) ? param.gapOpen   : 0;
-            hostGapEx[offsetg+s] = (s < refLen) ? param.gapExtend : 0;
-        }
-        for (int s = 0; s < seqLen; ++s) {
-            hostGapOp[offsetg+seqLen+s] = (s < qryLen) ? param.gapOpen   : 0;
-            hostGapEx[offsetg+seqLen+s] = (s < qryLen) ? param.gapExtend : 0;
-        }
-    }   
-    return;
-}
-*/
 
 void removeGappyColumns(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>>& gappyColumns, int32_t profileLen, int32_t maxProfileLen, std::pair<int,int>& lens, std::pair<int,int>& rawLens) {
     float gappyVertical = option->gappyVertical;
