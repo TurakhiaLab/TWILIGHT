@@ -44,7 +44,7 @@
 
 TWILIGHT (**T**all and **Wi**de A**lig**nments at **H**igh **T**hroughput) is a tool designed for ultrafast and ultralarge multiple sequence alignment. It is able to scale to millions of long nucleotide sequences (>10000 bases). TWILIGHT can run on CPU-only platforms (Linux/Mac) or take advantage of CUDA-capable GPUs for further acceleration.
 
-By default, TWILIGHT requires an unaligned sequence file in FASTA format and an input guide tree in Newick format to generate the output alignment in FASTA format (Fig. 1a, <a name="default"></a>**default mode**). When a guide tree is unavailable, TWILIGHT provides a Snakemake workflow to estimate guide trees using external tools (Fig 1b, <a name="iter"></a>**iterative mode**).
+By default, TWILIGHT requires an unaligned sequence file in FASTA format and an input guide tree in Newick format to generate the output alignment in FASTA format (Fig. 1a, <a name="default_mode"></a>**default mode**). When a guide tree is unavailable, TWILIGHT provides a Snakemake workflow to estimate guide trees using external tools (Fig 1b, <a name="iter"></a>**iterative mode**).
 
 TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling strategies to band alignments (Fig. 1e). Combined with a divide-and-conquer technique (Fig. 1a), a novel heuristic dealing with gappy columns (Fig. 1d) and support for GPU acceleration (Fig. 1f), TWILIGHT demonstrates exceptional speed and memory efficiency.
 
@@ -57,7 +57,7 @@ TWILIGHT adopts the progressive alignment algorithm (Fig. 1c) and employs tiling
 ### <a name="summary"></a> Installation summary (choose your installation method)
 
 TWILIGHT offers multiple installation methods for different platforms and hardware setups:
-- Conda is recommended for most users needing the [default mode](#default) and *partial* [iterative mode](#iter) support, as some tree tools may be unavailable on certain platforms.
+- Conda is recommended for most users needing the [default mode](#default_mode) and *partial* [iterative mode](#iter) support, as some tree tools may be unavailable on certain platforms.
 - Install script is required for AMD GPU support.
 - Docker (built from the provided Dockerfile) is recommended for full support for [iterative mode](#iter).
 
