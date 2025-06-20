@@ -56,6 +56,7 @@ config["work_dir"] = config.get("DIR", config["work_dir"])
 config["output_msa"]=config.get("OUT", config["output_msa"])
 config["final_tree"]=config.get("GETTREE", config["final_tree"])
 config["output_tree"]=config.get("OUTTREE", config["output_tree"])
+config["num_threads"]=workflow.cores
 iterations = int(config.get("ITER", config["iterations"]))
 init_tree = config.get("INITTREE", config["init_tree"])
 iter_tree = config.get("ITERTREE", config["iter_tree"])
