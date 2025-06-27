@@ -3,6 +3,10 @@
     <img src="images/logo.png"/>
 </div>
 
+## <b>TWILIGHT Video Tutorial</b>
+
+<iframe width="1000" height="600" src="https://www.youtube.com/embed/1sR741TvZnM?si=oJoiqvqWPsVpkt-B" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+
 ## <b>Introduction</b> 
 ### <b>Overview</b><a name="overview"></a>
 TWILIGHT (**T**all and **Wi**de A**lig**nments at **H**igh **T**hroughput) is an innovative MSA tool designed to leverage massive parallelism for efficient handling of tall and wide alignment tasks. It is able to scale to millions of long nucleotide sequences (>10000 bases). TWILIGHT can run on CPU-only platforms (Linux/Mac) or take advantage of CUDA-capable GPUs for further acceleration.
