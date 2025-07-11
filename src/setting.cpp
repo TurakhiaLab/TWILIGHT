@@ -301,9 +301,17 @@ msa::option::option(po::variables_map& vm) {
         else this->type = vm["type"].as<std::string>()[0];
     }
     else {
-        std::ifstream file(this->seqFile);
+        std::string seqFile = "";
+        if (this->msaDir == "") seqFile = this->seqFile;
+        else {
+            for (const auto& file : fs::directory_iterator(this->msaDir)) {
+                seqFile = file.path().string();
+                break;
+            }
+        }
+        std::ifstream file(seqFile);
         if (!file.is_open()) {
-            std::cerr << "Error: cannot open " << this->seqFile << std::endl;
+            std::cerr << "Error: cannot open " << seqFile << std::endl;
             exit(1);
         }
         std::string line;
@@ -366,7 +374,7 @@ msa::option::option(po::variables_map& vm) {
     }
     
     this->outFile = vm["output"].as<std::string>();
-    if (fs::exists(this->outFile)) {
+    if (fs::exists(this->outFile) && !vm.count("overwrite")) {
         std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
         exit(1);
     }

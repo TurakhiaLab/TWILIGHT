@@ -49,18 +49,6 @@ const float BLOSUM62[20][20] = {
     {-3, -2, -4, -3,  1, -2, -2, -3, -3, -2, -1, -4, -4, -2, -3, -3, -2, -3, 11,  2 },
     {-2, -2, -3, -2,  3, -3,  2, -1, -2, -1, -1, -2, -3, -1, -2, -2, -2, -1,  2,  7 }};
 
-struct Params 
-{
-    float gapOpen;
-    float gapExtend; //for gap-affine
-    float gapBoundary; // gap penalty at ends
-    float xdrop; //optional for now
-    float** scoringMatrix;
-    int matrixSize;
-    Params(po::variables_map& vm, char type);
-    ~Params();
-};
-
 namespace msa
 {
     struct option
@@ -138,5 +126,18 @@ namespace msa
         void debug(int& debugNum);
     };
 } 
+
+struct Params 
+{
+    float gapOpen;
+    float gapExtend; //for gap-affine
+    float gapBoundary; // gap penalty at ends
+    float xdrop; //optional for now
+    float scaleFactor;
+    float** scoringMatrix;
+    int matrixSize;
+    Params(po::variables_map& vm, char type);
+    ~Params();
+};
 
 #endif

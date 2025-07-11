@@ -47,6 +47,7 @@ void parseArguments(int argc, char** argv)
         ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
         ("filter", "Exclude sequences with high ambiguity or length deviation.")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
+        ("overwrite", "Force overwriting the output file.")
         ("cpu-only", "Run the program only on CPU.")
         ("help,h", "Print help messages")
         ("version", "Show program version");
@@ -91,6 +92,7 @@ int main(int argc, char** argv) {
     if (option->alnMode == 0) { // Twilight
         // Partition tree into subtrees
         T = readNewick(option->treeFile);
+        // printTree(T->root, -1);
         P = new partitionInfo_t(option->maxSubtree, 0, 0, "centroid"); 
         partitionTree(T->root, P);
         newT = reconsturctTree(T->root, P->partitionsRoot);

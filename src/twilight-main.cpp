@@ -45,6 +45,7 @@ void parseArguments(int argc, char** argv)
         ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
         ("filter", "Exclude sequences with high ambiguity or length deviation.")
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
+        ("overwrite", "Force overwriting the output file.")
         ("help,h", "Print help messages")
         ("version", "Show program version");
 }
