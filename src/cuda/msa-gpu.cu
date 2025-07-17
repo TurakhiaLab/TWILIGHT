@@ -4,7 +4,11 @@
 
 void getGpuInfo(po::variables_map &vm, msa::option *option) {
     int maxGpuNum;
-    cudaGetDeviceCount(&maxGpuNum);
+    cudaError_t err = cudaGetDeviceCount(&maxGpuNum);
+    if (err != cudaSuccess) {
+        std::cerr << "No GPU detected." << std::endl;
+        maxGpuNum = 0; // or handle accordingly
+    }
     int gpuNum = (vm.count("gpu")) ? vm["gpu"].as<int>() : maxGpuNum;
     if (gpuNum < 0)
     {
