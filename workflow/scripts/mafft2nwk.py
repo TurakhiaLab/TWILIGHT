@@ -13,9 +13,9 @@ with open(args.seq, "r") as seqFile:
     inContent = seqFile.read().splitlines()
     order = 1
     for c in inContent:
-        if len(c) > 0:
+        if len(c) > 0:        
             if c[0] == '>':
-                seqOrder[order] = c[1:]
+                seqOrder[order] = c[1:].rstrip()
                 order += 1
             
 if args.parttree:
