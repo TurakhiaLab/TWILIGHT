@@ -22,7 +22,12 @@
 
 ## What's New
 
-**TWILIGHT v0.1.4 adds support for protein sequence alignment!**
+- **TWILIGHT v0.1.4 adds support for protein sequence alignment!**  
+- **[Conda Issue on Linux]** If you’re experiencing issues with the Conda-installed TWILIGHT, please visit [this page](https://anaconda.org/bioconda/twilight/files) to download version v0.1.4a that matches your hardware and reinstall TWILIGHT. For example,
+```bash
+wget https://anaconda.org/bioconda/twilight/0.1.4a/download/linux-64/twilight-0.1.4a-h6bb9b41_0.tar.bz2
+conda install ./twilight-0.1.4a-h6bb9b41_0.tar.bz2 --no-deps
+```
 
 
 ## Table of Contents
