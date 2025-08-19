@@ -8,7 +8,7 @@
 #include <stack>
 #include <unordered_map>
 #include <algorithm>
-
+#include <limits>
 
 class Node 
 {
@@ -57,6 +57,7 @@ public:
     Tree(Node* node);
     Tree(std::unordered_map<std::string,int>& seqsLen, std::unordered_map<std::string,int>& seqsIdx);
     Tree() {root = nullptr;}
+    Tree(std::vector<std::string>& refSeq, std::vector<std::string>& qrySeq);
     ~Tree();
 };
 

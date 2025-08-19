@@ -13,11 +13,16 @@ conda config --set channel_priority strict
 ARCH=$(uname -m)
 OS=$(uname -s)
 
-# Install tree inference tools with conda
+# Iterative mode
 conda install bioconda::fasttree -y # FastTree
-conda install mafft -y    # MAFFT
+conda install mafft -y              # MAFFT
 conda install bioconda::raxml -y    # RAxML
 conda install bioconda::iqtree -y   # IQ-Tree
+git clone https://github.com/somme89/rapidNJ.git ## Rapid NJ
+make -C rapidNJ/
+# Placement mode
+conda install bioconda::epa-ng -y   # EPA-NG
+conda install bioconda::gappa -y    # GAPPA
 
 if [[ "$OS" == "Linux" && "$ARCH" == "x86_64" ]]; then
     conda install bioconda::mashtree -y # MashTree

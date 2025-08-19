@@ -6,6 +6,7 @@
 #endif
 
 void msaOnSubtree  (Tree* T,             msa::utility* util, msa::option* option, partitionInfo_t* partition, Params& param);
+void placement(     Tree *T,             msa::utility *util, msa::option *option, partitionInfo_t *partition, Params &param);
 void alignSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option,                             Params& param);
 void mergeSubtrees (Tree* T, Tree* newT, msa::utility* util, msa::option* option,                             Params& param);
 

@@ -58,7 +58,7 @@ namespace msa
         int maxSubtree;
         int maxSubSubtree;
         int gappyHorizon;
-        int alnMode; //0: MSA from raw sequences, 1: merge multiple MSA files
+        int alnMode; //0: MSA from raw sequences, 1: merge multiple MSA files, 2: add new sequences to existing MSA
         float gappyVertical;
         float lenDev;
         float maxAmbig;
@@ -79,6 +79,7 @@ namespace msa
         std::string treeFile;
         std::string seqFile;
         std::string outFile;
+        std::string backboneAlnFile;
         std::string msaDir;
         std::string tempDir;
         std::string subtreeDir;
@@ -100,7 +101,8 @@ namespace msa
         std::unordered_map<int, bool> seqsStorage;
         std::map<int, std::vector<std::vector<float>>> profileFreq;
         std::unordered_map<std::string, std::string> seqsCIGAR;
-
+        std::unordered_map<std::string, std::string> backboneAln;
+        std::unordered_map<std::string, std::string> placedSeqs;
         std::unordered_map<int, bool> lowQuality;
         
         char** alnStorage[2] = {nullptr, nullptr};

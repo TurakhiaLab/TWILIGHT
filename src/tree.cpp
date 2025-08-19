@@ -135,7 +135,7 @@ Tree::Tree(std::string newickString) {
                 stop = true;
                 nc++;
                 // float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
-                float len = (branch.size() > 0) ? std::stof(branch) : 1.0;
+                float len = (branch.size() > 0) ? std::stof(branch) : 0.0;
                 if (len == 0) len = 1.0;
                 branchLen[level].push(len);
                 level--;
@@ -156,8 +156,8 @@ Tree::Tree(std::string newickString) {
         numOpen.push_back(no);
         numClose.push_back(nc);
         // float len = (branch.size() > 0) ? std::stof(branch) : -1.0;
-        float len = (branch.size() > 0) ? std::stof(branch) : 1.0;
-        if (len == 0) len = 1.0;
+        float len = (branch.size() > 0) ? std::stof(branch) : 0.0;
+        // if (len == 0) len = 1.0;
         branchLen[level].push(len);
 
         // Adjusting max and mean depths
@@ -221,6 +221,23 @@ Tree::Tree(std::string newickString) {
     treeRoot->branchLength = 0;
     root = treeRoot;
 
+    float minBrLen = std::numeric_limits<float>::max();
+    bool allZero = true;
+    for (auto node: this->allNodes) {
+        if (node.second->branchLength > 0 && node.second->branchLength < minBrLen) minBrLen = node.second->branchLength;
+        if (allZero) if(node.second->branchLength > 0) allZero = false;
+    }
+    if (allZero) {
+        for (auto node: this->allNodes) {
+            if (node.second->identifier != this->root->identifier) node.second->branchLength = 1.0;
+        }
+    }
+    else {
+        for (auto node: this->allNodes) {
+            if (node.second->identifier != this->root->identifier && node.second->branchLength == 0) node.second->branchLength = minBrLen;
+        }
+    }
+
     this->calLeafNum();
     this->calSeqWeight();
 }
@@ -269,6 +286,27 @@ Tree::Tree(std::unordered_map<std::string,int>& seqsLen, std::unordered_map<std:
         newNode->grpID = grpID;
         this->allNodes[nodeName] = newNode;
         this->allNodes[nodeName]->msaAln = std::vector<int8_t> (msaLen, 0);
+    }
+}
+
+Tree::Tree(std::vector<std::string>& refSeq, std::vector<std::string>& qrySeq) {
+    Node* treeRoot = new Node("node_1", 0.0);
+    this->root = treeRoot;
+    this->root->grpID = -1;
+    this->allNodes["node_1"] = treeRoot;
+    for (auto seq: refSeq) {
+        // int grpID = seq.second;
+        int grpID = this->root->grpID;
+        Node* newNode = new Node(seq, this->root, 1.0);
+        newNode->grpID = grpID;
+        this->allNodes[seq] = newNode;
+    }
+    for (auto seq: qrySeq) {
+        // int grpID = seq.second;
+        int grpID = this->root->grpID;
+        Node* newNode = new Node(seq, this->root, 1.0);
+        newNode->grpID = grpID;
+        this->allNodes[seq] = newNode;
     }
 }
 
@@ -336,3 +374,66 @@ void Tree::calSeqWeight() {
     
     return;
 };
+
+
+void ConvertToBinaryTree(Tree& tree) {
+    if (tree.root == nullptr) return;
+    
+    // Use a queue for level-order traversal
+    std::queue<Node*> nodeQueue;
+    nodeQueue.push(tree.root);
+    
+    while (!nodeQueue.empty()) {
+        Node* currentNode = nodeQueue.front();
+        nodeQueue.pop();
+        
+        // Add all children to the queue for processing
+        for (Node* child : currentNode->children) {
+            nodeQueue.push(child);
+        }
+        
+        // Skip nodes with 0, 1, or 2 children (already binary)
+        if (currentNode->children.size() <= 2) {
+            continue;
+        }
+        
+        // Process nodes with more than 2 children
+        std::vector<Node*> originalChildren = currentNode->children;
+        currentNode->children.clear(); // Clear the children vector to rebuild it
+        
+        // Group children in pairs and create new internal nodes
+        for (size_t i = 0; i < originalChildren.size(); i += 2) {
+            if (i + 1 < originalChildren.size()) {
+                // Create a new internal node for this pair
+                std::string newNodeId = tree.newInternalNodeId();
+                Node* newNode = new Node(newNodeId, currentNode, 0.0); // Branch length 0 for internal grouping nodes
+                
+                // Set the group ID to match the parent
+                newNode->grpID = currentNode->grpID;
+                
+                // Add the pair of children to this new node
+                newNode->children.push_back(originalChildren[i]);
+                newNode->children.push_back(originalChildren[i + 1]);
+                
+                // Update parent pointers for the children
+                originalChildren[i]->parent = newNode;
+                originalChildren[i + 1]->parent = newNode;
+                
+                // Add the new node to the tree's allNodes map
+                tree.allNodes[newNodeId] = newNode;
+                
+                // Add the new node to the queue for processing
+                nodeQueue.push(newNode);
+            } else {
+                // If there's an odd number of children, the last one gets added directly
+                currentNode->children.push_back(originalChildren[i]);
+                originalChildren[i]->parent = currentNode;
+            }
+        }
+    }
+    
+    // Recalculate leaf numbers and weights after restructuring
+    tree.calLeafNum();
+    tree.calSeqWeight();
+    return;
+}

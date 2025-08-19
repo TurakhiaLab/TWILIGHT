@@ -80,7 +80,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     seqNum = seqs.size();
     uint32_t avgLen = totalLen/seqNum;
     util->maxRawSeqLen = maxLen;
-    if (tree->m_numLeaves != seqNum) {
+    if (tree->m_numLeaves != seqNum && option->alnMode != 2) {
         fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
         int kk = 0;
         for (auto node: tree->allNodes) {
@@ -138,10 +138,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
 void readFrequency(msa::utility* util, msa::option* option) {
     auto freqReadStart = std::chrono::high_resolution_clock::now();
     std::string path = option->msaDir;
-    std::vector<std::string> seqs (0);
-    std::vector<std::string> subroots;
     std::vector<std::string> files;
-    std::vector<int> msaLens;
     int subtreeIdx = 0;
     int totalFile = 0;
     boost::system::error_code ec;
@@ -167,15 +164,13 @@ void readFrequency(msa::utility* util, msa::option* option) {
         }
         std::cout << "Start reading " << msaFileName << " (" << subtreeIdx+1 << '/' << totalFile << ")\n";
         kseq_t* kseq_rd = kseq_init(f_rd);
-        int seqNum = 0, msaLen;
+        int seqNum = 0, msaLen = 0;
         std::string seqName;
         while (kseq_read(kseq_rd) >= 0) {
             int seqLen = kseq_rd->seq.l;
             if (seqNum == 0) {
                 msaLen = seqLen;
                 seqName = kseq_rd->name.s;
-                subroots.push_back(seqName);
-                msaLens.push_back(msaLen);
                 util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
         
             }
@@ -204,22 +199,6 @@ void readFrequency(msa::utility* util, msa::option* option) {
         }
         kseq_destroy(kseq_rd);
         gzclose(f_rd);
-        // util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
-        // for (auto seq: seqs) {
-        //     tbb::this_task_arena::isolate( [&]{
-        //     tbb::parallel_for(tbb::blocked_range<int>(0, msaLen), [&](tbb::blocked_range<int> r) {
-        //     for (int j = r.begin(); j < r.end(); ++j) {
-        //         if      (seq[j] == 'A' || seq[j] == 'a') util->profileFreq[subtreeIdx][j][0]+=1.0;
-        //         else if (seq[j] == 'C' || seq[j] == 'c') util->profileFreq[subtreeIdx][j][1]+=1.0;
-        //         else if (seq[j] == 'G' || seq[j] == 'g') util->profileFreq[subtreeIdx][j][2]+=1.0;
-        //         else if (seq[j] == 'T' || seq[j] == 't' ||
-        //                  seq[j] == 'U' || seq[j] == 'u') util->profileFreq[subtreeIdx][j][3]+=1.0;
-        //         else if (seq[j] == '-')                  util->profileFreq[subtreeIdx][j][5]+=1.0;
-        //         else                                     util->profileFreq[subtreeIdx][j][4]+=1.0;
-        //     }
-        //     });
-        //     });
-        // }
         if (option->printDetail) {
             std::cout << "File " << subtreeIdx << '(' << msaFileName << ") Num: " << seqNum << ", Length: " << msaLen << '\n';
         }
@@ -227,17 +206,95 @@ void readFrequency(msa::utility* util, msa::option* option) {
         util->seqsIdx[seqName] = subtreeIdx;
         util->seqsName[subtreeIdx] = seqName;
         if (msaLen > util->seqLen) util->seqLen = msaLen;
-        seqs.clear();
         ++subtreeIdx;
     }
-    // for (int i = 0; i < subroots.size(); ++i) {
-    //     tree->allNodes[subroots[i]]->msaAln = std::vector<int8_t> (msaLens[i], 0);
-    // }
     auto freqReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds seqReadTime = freqReadEnd - freqReadStart;
     std::cout << "MSA files read in " <<  seqReadTime.count() / 1000000 << " ms\n";
     return;
 }
+
+void readMSA_and_Seqs(msa::utility* util, msa::option* option, Tree* tree) {
+    auto freqReadStart = std::chrono::high_resolution_clock::now();
+    int profileSize = (option->type = 'n') ? 6 : 22;
+    // Construct Tree
+    {
+        Node* treeRoot = new Node("node_1", 0.0);
+        tree->root = treeRoot;
+        tree->root->grpID = -1;
+        tree->allNodes["node_1"] = treeRoot;
+    }
+    // Read sequence file
+    {
+        std::string seqFileName = option->seqFile;
+        gzFile seq_rd = gzopen(seqFileName.c_str(), "r");
+        if (!seq_rd) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
+            exit(1);
+        }
+        kseq_t* kseq_rd_2 = kseq_init(seq_rd);
+        while (kseq_read(kseq_rd_2) >= 0) {
+            int seqLen = kseq_rd_2->seq.l;
+            util->placedSeqs[kseq_rd_2->name.s] = std::string(kseq_rd_2->seq.s, seqLen);
+        }
+        kseq_destroy(kseq_rd_2);
+        gzclose(seq_rd);
+        for (auto seq: util->placedSeqs) {
+            Node* newNode = new Node (seq.first, tree->root, 1.0);
+            newNode->grpID = tree->root->grpID;
+            tree->allNodes[seq.first] = newNode;
+        }
+    }
+    // Read Backbone MSA
+    {
+        std::string msaFileName = option->backboneAlnFile;
+        gzFile f_rd = gzopen(msaFileName.c_str(), "r");
+        if (!f_rd) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
+            exit(1);
+        }
+        kseq_t* kseq_rd = kseq_init(f_rd);
+        int seqNum = 0, msaLen = 0;
+        while (kseq_read(kseq_rd) >= 0) {
+            std::string seqName = kseq_rd->name.s;
+            int seqLen = kseq_rd->seq.l;
+            if (seqNum == 0) {
+                msaLen = seqLen;
+                tree->root->msaFreq = std::vector<std::vector<float>> (seqLen, std::vector<float> (profileSize, 0.0));
+            }
+            else {
+                if (seqLen != msaLen) {
+                    fprintf(stderr, "ERROR: sequence lengths do not match in %s\n", msaFileName.c_str());
+                    exit(1);
+                }
+            }
+            std::string seq = std::string(kseq_rd->seq.s, seqLen);
+            tbb::this_task_arena::isolate( [&]{
+            tbb::parallel_for(tbb::blocked_range<int>(0, seq.size()), [&](tbb::blocked_range<int> r) {
+            for (int j = r.begin(); j < r.end(); ++j) {
+                if      (seq[j] == 'A' || seq[j] == 'a') tree->root->msaFreq[j][0]+=1.0;
+                else if (seq[j] == 'C' || seq[j] == 'c') tree->root->msaFreq[j][1]+=1.0;
+                else if (seq[j] == 'G' || seq[j] == 'g') tree->root->msaFreq[j][2]+=1.0;
+                else if (seq[j] == 'T' || seq[j] == 't' ||
+                         seq[j] == 'U' || seq[j] == 'u') tree->root->msaFreq[j][3]+=1.0;
+                else if (seq[j] == '-')                  tree->root->msaFreq[j][5]+=1.0;
+                else                                     tree->root->msaFreq[j][4]+=1.0;
+            }
+            });
+            });
+            tree->root->msa.push_back(seqName);
+            ++seqNum;
+        }
+        kseq_destroy(kseq_rd);
+        gzclose(f_rd);
+    }
+
+    auto freqReadEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds seqReadTime = freqReadEnd - freqReadStart;
+    std::cout << "Backbone MSA and unaligned sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    return;
+}
+
 
 Tree* readNewick(std::string treeFileName)
 {
@@ -254,6 +311,84 @@ Tree* readNewick(std::string treeFileName)
 
     return T;
 }
+
+void readBackboneAln(msa::utility* util, msa::option* option, Tree* tree)
+{
+    auto alnReadStart = std::chrono::high_resolution_clock::now();
+    std::string fileName = option->backboneAlnFile;
+    gzFile f_rd = gzopen(fileName.c_str(), "r");
+    if (!f_rd) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+        exit(1);
+    }
+    kseq_t* kseq_rd = kseq_init(f_rd);
+
+    int seqNum = 0, alnLen = 0;
+    
+    while (kseq_read(kseq_rd) >= 0) {
+        std::string seqName_full = kseq_rd->name.s;
+        std::string seqName_noblank = seqName_full.substr(0, seqName_full.find(' '));
+        std::string seqName = "";
+        if (tree->allNodes.find(seqName_full) != tree->allNodes.end()) seqName = seqName_full;
+        else if (tree->allNodes.find(seqName_noblank) != tree->allNodes.end()) seqName = seqName_noblank;
+        if (seqName != "") {
+            if (alnLen == 0) alnLen = kseq_rd->seq.l;
+            else if (alnLen != kseq_rd->seq.l) {
+                std::cerr << "ERROR: Backbone MSA contains sequences of unequal lengths." << std::endl;
+                exit(1);
+            }
+            if (util->backboneAln.find(seqName) != util->backboneAln.end()) {
+                std::cerr << "ERROR: Sequence " << seqName << " already exists.\n";
+                exit(1);
+            }
+            util->backboneAln[seqName] = std::string(kseq_rd->seq.s, kseq_rd->seq.l);
+        }
+    }
+    kseq_destroy(kseq_rd);
+    gzclose(f_rd);
+
+    auto alnReadEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds alnReadTime = alnReadEnd - alnReadStart;
+    std::cout << "Backbone MSA read in " <<  alnReadTime.count() / 1000000 << " ms\n";
+    return;
+}
+
+void readNewSequences(msa::utility* util, msa::option* option, Tree* tree)
+{
+    auto seqReadStart = std::chrono::high_resolution_clock::now();
+    std::string fileName = option->seqFile;
+    gzFile f_rd = gzopen(fileName.c_str(), "r");
+    if (!f_rd) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+        exit(1);
+    }
+    kseq_t* kseq_rd = kseq_init(f_rd);
+
+    int seqNum = 0;
+    
+    while (kseq_read(kseq_rd) >= 0) {
+        std::string seqName_full = kseq_rd->name.s;
+        std::string seqName_noblank = seqName_full.substr(0, seqName_full.find(' '));
+        std::string seqName = "";
+        if (tree->allNodes.find(seqName_full) != tree->allNodes.end()) seqName = seqName_full;
+        else if (tree->allNodes.find(seqName_noblank) != tree->allNodes.end()) seqName = seqName_noblank;
+        if (seqName != "") {
+            if (util->placedSeqs.find(seqName) != util->placedSeqs.end()) {
+                std::cerr << "ERROR: Sequence " << seqName << " already exists.\n";
+                exit(1);
+            }
+            util->placedSeqs[seqName] = std::string(kseq_rd->seq.s, kseq_rd->seq.l);
+        }
+    }
+    kseq_destroy(kseq_rd);
+    gzclose(f_rd);
+
+    auto seqReadEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
+    std::cout << "New sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    return;
+}
+
 
 // Output 
 void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option)
@@ -425,6 +560,96 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             ++subtreeIdx;
         }
     }
+    else if (option->alnMode == 2) {
+        std::cout << "Final Alignment Length: " << tree->allNodes[tree->root->children[0]->identifier]->msaAln.size() << '\n';
+        std::string refName = "";
+        {
+            // Output updated backbone alignment
+            gzFile f_rd = gzopen(option->backboneAlnFile.c_str(), "r");
+            if (!f_rd) {
+                fprintf(stderr, "ERROR: cant open file: %s\n", option->backboneAlnFile.c_str());
+                exit(1);
+            }
+            fs::path p_backbone(option->backboneAlnFile);
+            std::string subtreeSeqFile = option->tempDir + '/' + p_backbone.filename().string().c_str() + ".final.aln";
+            if (option->printDetail) std::cout << "Start writing updated backbone alignment\n";
+            kseq_t* kseq_rd = kseq_init(f_rd);
+            int seqNum = 0;
+            while (kseq_read(kseq_rd) >= 0) {
+                int seqLen = kseq_rd->seq.l;
+                if (seqNum == 0) refName = kseq_rd->name.s;
+                std::string seq = std::string(kseq_rd->seq.s, seqLen);
+                seqs.push_back(std::make_pair(kseq_rd->name.s, seq));
+                ++seqNum;
+            }
+            kseq_destroy(kseq_rd);
+            gzclose(f_rd);
+            tbb::parallel_for(tbb::blocked_range<int>(0, seqs.size()), [&](tbb::blocked_range<int> range){ 
+            for (int n = range.begin(); n < range.end(); ++n) {
+                std::string seq = seqs[n].second, alnSeq = "";
+                int r = 0;
+                for (size_t j = 0; j < tree->allNodes[refName]->msaAln.size(); ++j) {
+                    if ((tree->allNodes[refName]->msaAln[j] & 0xFFFF) == 0 || (tree->allNodes[refName]->msaAln[j] & 0xFFFF) == 2) {
+                        alnSeq += seq[r];
+                        ++r;
+                    }
+                    else {
+                        alnSeq += '-';
+                    }
+                }
+                if (alnSeq.size() != tree->allNodes[refName]->msaAln.size()) {
+                    std::cout << "ERROR: length not match. alnSeq (" << alnSeq.size() << ") != msaAln (" << tree->allNodes[refName]->msaAln.size() << '\n'; 
+                }
+                assert(alnSeq.size() == tree->allNodes[refName]->msaAln.size());
+                seqs[n].second = alnSeq;
+            }
+            });
+            outputSubtreeSeqs(subtreeSeqFile, seqs);   
+            seqs.clear();
+        }
+        // Output alignment of newly added sequences
+        {
+            // Output updated backbone alignment
+            gzFile f_rd = gzopen(option->seqFile.c_str(), "r");
+            if (!f_rd) {
+                fprintf(stderr, "ERROR: cant open file: %s\n", option->backboneAlnFile.c_str());
+                exit(1);
+            }
+            fs::path p_new(option->seqFile);
+            std::string subtreeSeqFile = option->tempDir + '/' + p_new.filename().string() + ".final.aln";
+            if (option->printDetail) std::cout << "Start writing alignment of newly added sequences\n";
+            kseq_t* kseq_rd = kseq_init(f_rd);
+            while (kseq_read(kseq_rd) >= 0) {
+                int seqLen = kseq_rd->seq.l;
+                std::string seq = std::string(kseq_rd->seq.s, seqLen);
+                seqs.push_back(std::make_pair(kseq_rd->name.s, seq));
+            }
+            kseq_destroy(kseq_rd);
+            gzclose(f_rd);
+            tbb::parallel_for(tbb::blocked_range<int>(0, seqs.size()), [&](tbb::blocked_range<int> range){ 
+            for (int n = range.begin(); n < range.end(); ++n) {
+                std::string seq = seqs[n].second, alnSeq = "";
+                int r = 0;
+                for (size_t j = 0; j < tree->allNodes[seqs[n].first]->msaAln.size(); ++j) {
+                    if ((tree->allNodes[seqs[n].first]->msaAln[j] & 0xFFFF) == 0 || (tree->allNodes[seqs[n].first]->msaAln[j] & 0xFFFF) == 2) {
+                        alnSeq += seq[r];
+                        ++r;
+                    }
+                    else {
+                        alnSeq += '-';
+                    }
+                }
+                if (alnSeq.size() != tree->allNodes[refName]->msaAln.size()) {
+                    std::cout << "ERROR: length not match. alnSeq (" << alnSeq.size() << ") != msaAln (" << tree->allNodes[refName]->msaAln.size() << '\n'; 
+                }
+                assert(alnSeq.size() == tree->allNodes[refName]->msaAln.size());
+                seqs[n].second = alnSeq;
+            }
+            });
+            outputSubtreeSeqs(subtreeSeqFile, seqs);   
+            seqs.clear();
+        }
+    }
     return;
 }
 
@@ -435,27 +660,39 @@ void outputSubAln(msa::utility* util, msa::option* option, Tree* T, int subtreeI
         fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
         exit(1);
     }
-    std::vector<std::string> seqs;
-    for (auto seq: util->seqsIdx)
-        seqs.push_back(seq.first);
-    size_t seqLen = util->seqsLen[T->root->identifier];
-    std::cout << "Subalignment Length: " << seqLen << '\n';
-    std::sort(seqs.begin(), seqs.end(), cmp);
-    for (int s = 0; s < seqs.size(); ++s) {
-        int sIdx = util->seqsIdx[seqs[s]];
-        int storage = util->seqsStorage[sIdx];
-        if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
-            outFile << '>' << seqs[s] << "\n";
-            outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
-            outFile << '\n';
+    if (option->alnMode != 2) {
+        std::vector<std::string> seqs;
+        for (auto seq: util->seqsIdx)
+            seqs.push_back(seq.first);
+        size_t seqLen = util->seqsLen[T->root->identifier];
+        std::cout << "Subalignment Length: " << seqLen << '\n';
+        std::sort(seqs.begin(), seqs.end(), cmp);
+        for (int s = 0; s < seqs.size(); ++s) {
+            int sIdx = util->seqsIdx[seqs[s]];
+            int storage = util->seqsStorage[sIdx];
+            if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+                outFile << '>' << seqs[s] << "\n";
+                outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
+                outFile << '\n';
+            }
         }
-        // util->seqFree(sIdx);
+    }
+    else {
+        size_t seqLen = util->backboneAln.begin()->second.size();
+        std::cout << "Subalignment Length: " << seqLen << '\n';
+        for (auto seq: util->backboneAln) {
+            outFile << '>' << seq.first << '\n';
+            outFile << seq.second << '\n';
+        }
+        for (auto seq: util->placedSeqs) {
+            outFile << '>' << seq.first << '\n';
+            outFile << seq.second << '\n';
+        }
     }
     // util->seqsFree();
     outFile.close();
     return;
 }
-
 
 void outputAln(msa::utility* util, msa::option* option, Tree* T) {
     std::string fileName = option->outFile;
@@ -473,56 +710,250 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
         }
         return;
     }
-    std::ofstream outFile(fileName);
-    if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-        exit(1);
-    }
-    std::vector<std::string> seqs;
-    for (auto seq: util->seqsIdx)
-        seqs.push_back(seq.first);
-    size_t seqLen = util->seqsLen[T->root->identifier];
-    std::cout << "Final Alignment Length: " << seqLen << '\n';
-    std::sort(seqs.begin(), seqs.end(), cmp);
-    for (int s = 0; s < seqs.size(); ++s) {
-        int sIdx = util->seqsIdx[seqs[s]];
-        int storage = util->seqsStorage[sIdx];
-        if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
-            outFile << '>' << seqs[s] << "\n";
-            if (option->outType == "FASTA") {
-                outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
-            }
-            else if (option->outType == "CIGAR") {
-                std::string cigar = "";
-                char type = (util->alnStorage[storage][sIdx][0] == '-') ? 'D' : 'M';
-                int num = 0;
-                int i = 0;
-                while (util->alnStorage[storage][sIdx][i] != 0) {
-                    if (util->alnStorage[storage][sIdx][i] == '-') {
-                        if (type == 'M') {
-                            cigar += (std::to_string(num) + type);
-                            type = 'D'; num = 1;
-                        }
-                        else if (type == 'D') ++num;
-                    }
-                    else {
-                        if (type == 'M') ++num;
-                        else {
-                            cigar += (std::to_string(num) + type);
-                            type = 'M'; num = 1;
-                        }
-                    }
-                    ++i;
-                }
-                cigar += (std::to_string(num) + type);
-                outFile << cigar;
-            }
-            outFile << '\n';
+    if (option->alnMode != 2) {
+        std::ofstream outFile(fileName);
+        if (!outFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+            exit(1);
         }
-        util->seqFree(sIdx);
+        std::vector<std::string> seqs;
+        for (auto seq: util->seqsIdx)
+            seqs.push_back(seq.first);
+        size_t seqLen = util->seqsLen[T->root->identifier];
+        std::cout << "Final Alignment Length: " << seqLen << '\n';
+        std::sort(seqs.begin(), seqs.end(), cmp);
+        for (int s = 0; s < seqs.size(); ++s) {
+            int sIdx = util->seqsIdx[seqs[s]];
+            int storage = util->seqsStorage[sIdx];
+            if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+                outFile << '>' << seqs[s] << "\n";
+                if (option->outType == "FASTA") {
+                    outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
+                }
+                else if (option->outType == "CIGAR") {
+                    std::string cigar = "";
+                    char type = (util->alnStorage[storage][sIdx][0] == '-') ? 'D' : 'M';
+                    int num = 0;
+                    int i = 0;
+                    while (util->alnStorage[storage][sIdx][i] != 0) {
+                        if (util->alnStorage[storage][sIdx][i] == '-') {
+                            if (type == 'M') {
+                                cigar += (std::to_string(num) + type);
+                                type = 'D'; num = 1;
+                            }
+                            else if (type == 'D') ++num;
+                        }
+                        else {
+                            if (type == 'M') ++num;
+                            else {
+                                cigar += (std::to_string(num) + type);
+                                type = 'M'; num = 1;
+                            }
+                        }
+                        ++i;
+                    }
+                    cigar += (std::to_string(num) + type);
+                    outFile << cigar;
+                }
+                outFile << '\n';
+            }
+            util->seqFree(sIdx);
+        }
+        util->seqsFree();
+        outFile.close();
     }
-    util->seqsFree();
-    outFile.close();
+    else {
+        size_t seqLen = (option->treeFile != "") ? util->backboneAln.begin()->second.size() : T->root->msaAln.size();
+        std::cout << "Alignment Length: " << seqLen << '\n';
+        bool writeOutput = true;
+        int catResult = 0;
+        if (!option->deleteTemp) {
+            writeOutput = false;
+            fs::path p_backbone(option->backboneAlnFile);
+            std::string backboneFile = option->tempDir + '/' + p_backbone.filename().string() + ".final.aln";
+            std::ofstream refFile(backboneFile);
+            if (!refFile) {
+                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+                exit(1);
+            }
+            if (option->treeFile != "") {
+                for (auto seq: util->backboneAln) {
+                    if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                    refFile << '>' << seq.first << '\n';
+                    refFile << seq.second << '\n';
+                }
+            }
+            else {
+                std::vector<std::pair<std::string, std::string>> refSeq;
+                std::string msaFileName = option->backboneAlnFile;
+                gzFile f_rd = gzopen(msaFileName.c_str(), "r");
+                if (!f_rd) {
+                    fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
+                    exit(1);
+                }
+                kseq_t* kseq_rd = kseq_init(f_rd);
+                int batchSize = 10000;
+                while (kseq_read(kseq_rd) >= 0) {
+                    std::string seqName = kseq_rd->name.s;
+                    int seqLen = kseq_rd->seq.l;
+                    refSeq.push_back({seqName, std::string(kseq_rd->seq.s, seqLen)});
+                    if (refSeq.size() % batchSize == 0) {
+                        tbb::this_task_arena::isolate( [&]{
+                        tbb::parallel_for(tbb::blocked_range<int>(0, refSeq.size()), [&](tbb::blocked_range<int> r) {
+                        for (int j = r.begin(); j < r.end(); ++j) {
+                            std::string updatedSeq = "";
+                            int rIdx = 0;
+                            for (auto a: T->root->msaAln) {
+                                if (a == 0) {
+                                    updatedSeq.push_back(refSeq[j].second[rIdx]);
+                                    rIdx++;
+                                }
+                                else updatedSeq.push_back('-');
+                            }
+                            refSeq[j].second = updatedSeq;
+                        }
+                        });
+                        });
+                        for (auto seq: refSeq) {
+                            refFile << '>' << seq.first << '\n';
+                            refFile << seq.second << '\n';
+                        }
+                        refSeq.clear();
+                    }
+                }
+                kseq_destroy(kseq_rd);
+                gzclose(f_rd);
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, refSeq.size()), [&](tbb::blocked_range<int> r) {
+                for (int j = r.begin(); j < r.end(); ++j) {
+                    std::string updatedSeq = "";
+                    int rIdx = 0;
+                    for (auto a: T->root->msaAln) {
+                        if (a == 0) {
+                            updatedSeq.push_back(refSeq[j].second[rIdx]);
+                            rIdx++;
+                        }
+                        else updatedSeq.push_back('-');
+                    }
+                    refSeq[j].second = updatedSeq;
+                }
+                });
+                });
+                for (auto seq: refSeq) {
+                    refFile << '>' << seq.first << '\n';
+                    refFile << seq.second << '\n';
+                }
+            }
+            refFile.close();
+            fs::path p_new(option->seqFile);
+            std::string newFile = option->tempDir + '/' + p_new.filename().string() + ".final.aln";
+            std::ofstream qryFile(newFile);
+            if (!qryFile) {
+                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+                exit(1);
+            }
+            for (auto seq: util->placedSeqs) {
+            if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                qryFile << '>' << seq.first << '\n';
+                qryFile << seq.second << '\n';
+            }
+            qryFile.close();
+            std::string command = "cat " + backboneFile + " " + newFile + " > " + option->outFile;
+            catResult = system(command.c_str());
+            if (catResult != 0) {
+                std::cerr << "ERROR: Unable to concatenate alignments.\n";
+                writeOutput = true;
+            }
+        }
+        if (writeOutput) {
+            std::ofstream outFile(fileName);
+            if (!outFile) {
+                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+                exit(1);
+            }
+            if (option->treeFile != "") {
+                for (auto seq: util->backboneAln) {
+                    if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                    outFile << '>' << seq.first << '\n';
+                    outFile << seq.second << '\n';
+                }
+            }
+            else {
+                std::vector<std::pair<std::string, std::string>> refSeq;
+                std::string msaFileName = option->backboneAlnFile;
+                gzFile f_rd = gzopen(msaFileName.c_str(), "r");
+                if (!f_rd) {
+                    fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
+                    exit(1);
+                }
+                kseq_t* kseq_rd = kseq_init(f_rd);
+                int batchSize = 10000;
+                while (kseq_read(kseq_rd) >= 0) {
+                    std::string seqName = kseq_rd->name.s;
+                    int seqLen = kseq_rd->seq.l;
+                    refSeq.push_back({seqName, std::string(kseq_rd->seq.s, seqLen)});
+                    if (refSeq.size() % batchSize == 0) {
+                        tbb::this_task_arena::isolate( [&]{
+                        tbb::parallel_for(tbb::blocked_range<int>(0, refSeq.size()), [&](tbb::blocked_range<int> r) {
+                        for (int j = r.begin(); j < r.end(); ++j) {
+                            std::string updatedSeq = "";
+                            int rIdx = 0;
+                            for (auto a: T->root->msaAln) {
+                                if (a == 0) {
+                                    updatedSeq.push_back(refSeq[j].second[rIdx]);
+                                    rIdx++;
+                                }
+                                else updatedSeq.push_back('-');
+                            }
+                            refSeq[j].second = updatedSeq;
+                        }
+                        });
+                        });
+                        for (auto seq: refSeq) {
+                            outFile << '>' << seq.first << '\n';
+                            outFile << seq.second << '\n';
+                        }
+                        refSeq.clear();
+                    }
+                }
+                kseq_destroy(kseq_rd);
+                gzclose(f_rd);
+                tbb::this_task_arena::isolate( [&]{
+                tbb::parallel_for(tbb::blocked_range<int>(0, refSeq.size()), [&](tbb::blocked_range<int> r) {
+                for (int j = r.begin(); j < r.end(); ++j) {
+                    std::string updatedSeq = "";
+                    int rIdx = 0;
+                    for (auto a: T->root->msaAln) {
+                        if (a == 0) {
+                            updatedSeq.push_back(refSeq[j].second[rIdx]);
+                            rIdx++;
+                        }
+                        else updatedSeq.push_back('-');
+                    }
+                    refSeq[j].second = updatedSeq;
+                }
+                });
+                });
+                for (auto seq: refSeq) {
+                    outFile << '>' << seq.first << '\n';
+                    outFile << seq.second << '\n';
+                }
+            }
+            for (auto seq: util->placedSeqs) {
+                if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                outFile << '>' << seq.first << '\n';
+                outFile << seq.second << '\n';
+            }
+            outFile.close();
+        }
+        if (catResult == 0 && option->deleteTemp) {
+            std::string command = "rm -rf " + option->tempDir;
+            int delResult = system(command.c_str());
+            if (delResult != 0) std::cerr << "ERROR: Unable to delete temporary files.\n";
+        }   
+        
+    }
+    
     return;
 }
 
@@ -582,6 +1013,24 @@ void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx)
 	std::ofstream outFile(subtreeTreeFile);
     if (!outFile) {
         fprintf(stderr, "ERROR: cant open file: %s\n", subtreeTreeFile.c_str());
+        exit(1);
+    }
+	outFile << out_str;
+	outFile.close();
+    return;
+}
+
+void outputPrunedTree(Tree* T, msa::option* option)
+{
+    fs::path o(option->outFile);
+    fs::path t(option->treeFile);
+    std::string prunedTreeFileName = (o.parent_path().string() == "") ? t.filename().string() + ".pruned.nwk" : o.parent_path().string() + "/" + t.filename().string() + ".pruned.nwk";
+    std::string out_str = "";
+	getSubtreeNewick(T->root, out_str);
+	out_str += ";\n";
+	std::ofstream outFile(prunedTreeFileName);
+    if (!outFile) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", prunedTreeFileName.c_str());
         exit(1);
     }
 	outFile << out_str;
@@ -686,30 +1135,58 @@ void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util) {
     return;
 }
 
-void storeFreq(msa::utility* util, Tree* T, int grpID) {
-    int seqLen = util->seqsLen[T->root->identifier];
-    // std::cout << "Alignment Length: " << seqLen << '\n';
-    util->profileFreq[grpID] = std::vector<std::vector<float>> (seqLen, std::vector<float> (6, 0.0));
-    float totalWeight = 0;
-    for (auto sIdx: T->root->msaIdx) totalWeight += T->allNodes[util->seqsName[sIdx]]->weight;
-    
-    for (int sIdx: T->root->msaIdx) {
-        int storage = util->seqsStorage[sIdx];
-        std::string name = util->seqsName[sIdx];
-        float w = T->allNodes[name]->weight / totalWeight * T->root->numLeaves;
-        tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
-        for (int j = r.begin(); j < r.end(); ++j) {
-        // for (int j = 0; j <  seqLen; ++j) {
-            if      (util->alnStorage[storage][sIdx][j] == 'A' || util->alnStorage[storage][sIdx][j] == 'a') util->profileFreq[grpID][j][0]+=1.0*w;
-            else if (util->alnStorage[storage][sIdx][j] == 'C' || util->alnStorage[storage][sIdx][j] == 'c') util->profileFreq[grpID][j][1]+=1.0*w;
-            else if (util->alnStorage[storage][sIdx][j] == 'G' || util->alnStorage[storage][sIdx][j] == 'g') util->profileFreq[grpID][j][2]+=1.0*w;
-            else if (util->alnStorage[storage][sIdx][j] == 'T' || util->alnStorage[storage][sIdx][j] == 't' ||
-                     util->alnStorage[storage][sIdx][j] == 'U' || util->alnStorage[storage][sIdx][j] == 'u') util->profileFreq[grpID][j][3]+=1.0*w;
-            else if (util->alnStorage[storage][sIdx][j] == '-')                                              util->profileFreq[grpID][j][5]+=1.0*w;
-            else                                                                                             util->profileFreq[grpID][j][4]+=1.0*w;
+void storeFreq(msa::utility* util,  msa::option* option, Tree* T, int grpID) {
+    int profileSize = option->type == 'n' ? 6 : 22; 
+    if (option->alnMode != 2) {
+        int seqLen = util->seqsLen[T->root->identifier];
+        // std::cout << "Alignment Length: " << seqLen << '\n';
+        util->profileFreq[grpID] = std::vector<std::vector<float>> (seqLen, std::vector<float> (profileSize, 0.0));
+        float totalWeight = 0;
+        for (auto sIdx: T->root->msaIdx) totalWeight += T->allNodes[util->seqsName[sIdx]]->weight;
+        for (int sIdx: T->root->msaIdx) {
+            int storage = util->seqsStorage[sIdx];
+            std::string name = util->seqsName[sIdx];
+            float w = T->allNodes[name]->weight / totalWeight * T->root->numLeaves;
+            tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
+            for (int j = r.begin(); j < r.end(); ++j) {
+            // for (int j = 0; j <  seqLen; ++j) {
+                int letterIndex = letterIdx(option->type, toupper(util->alnStorage[storage][sIdx][j]));
+                util->profileFreq[grpID][j][letterIndex] += 1.0 * w;                                                                                       util->profileFreq[grpID][j][4]+=1.0*w;
+            }
+            });
         }
-        });
     }
+    else {
+        int seqLen = util->backboneAln.begin()->second.size();
+        util->profileFreq[grpID] = std::vector<std::vector<float>> (seqLen, std::vector<float> (profileSize, 0.0));
+        float totalWeight = 0;
+        for (auto nodePair: T->allNodes) {
+            if (nodePair.second->is_leaf()) totalWeight += nodePair.second->weight;
+        }
+        for (auto seq: util->placedSeqs) {
+            std::string name = seq.first;
+            float w = T->allNodes[name]->weight / totalWeight * T->m_numLeaves;
+            tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
+            for (int j = r.begin(); j < r.end(); ++j) {
+            // for (int j = 0; j <  seqLen; ++j) {
+                int letterIndex = letterIdx(option->type, toupper(seq.second[j]));
+                util->profileFreq[grpID][j][letterIndex] += 1.0 * w; 
+            }
+            });
+        }
+        for (auto seq: util->backboneAln) {
+            std::string name = seq.first;
+            float w = T->allNodes[name]->weight / totalWeight * T->m_numLeaves;
+            tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
+            for (int j = r.begin(); j < r.end(); ++j) {
+            // for (int j = 0; j <  seqLen; ++j) {
+                int letterIndex = letterIdx(option->type, toupper(seq.second[j]));
+                util->profileFreq[grpID][j][letterIndex] += 1.0 * w; 
+            }
+            });
+        }
+    }
+    
     return;
 }
 
@@ -776,3 +1253,152 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param) {
     return normScore;
 }   
 
+Tree* pruneTree(Tree* T, std::string& seqFileName) {
+    
+    auto treePruneStart = std::chrono::high_resolution_clock::now();
+    
+    gzFile f_rd = gzopen(seqFileName.c_str(), "r");
+    if (!f_rd) {
+        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
+        exit(1);
+    }
+
+    kseq_t* kseq_rd = kseq_init(f_rd);
+
+    std::unordered_set<std::string> keepSequences;
+
+    size_t seqNum = 0;
+    
+    while (kseq_read(kseq_rd) >= 0) {
+        int seqLen = kseq_rd->seq.l;
+        std::string seqName_full = kseq_rd->name.s;
+        std::string seqName_noblank = seqName_full.substr(0, seqName_full.find(' '));
+        keepSequences.insert(seqName_full);
+        if (seqName_noblank != seqName_full) keepSequences.insert(seqName_noblank);
+        seqNum++;
+    }
+    kseq_destroy(kseq_rd);
+    gzclose(f_rd);
+
+    Tree* pT = new Tree();
+    pT->root = new Node(T->root->identifier, T->root->branchLength);
+    pT->root->grpID = -1;
+    pT->allNodes[pT->root->identifier] = pT->root;
+    
+    std::unordered_map<std::string, bool> keepNode;
+    
+    for (const auto& n : T->allNodes) {
+        if (n.second->is_leaf()) {
+            keepNode[n.second->identifier] = (keepSequences.find(n.second->identifier) != keepSequences.end());
+        }
+    }
+
+    std::function<bool(Node*)> hasKeepDescendant = [&](Node* node) -> bool {
+        if (node->is_leaf()) return keepNode[node->identifier];
+        bool keep = false;
+        for (Node* child : node->children) {
+            if (hasKeepDescendant(child)) {
+                keep = true;
+            }
+        }
+        keepNode[node->identifier] = keep;
+        return keep;
+    };
+    hasKeepDescendant(T->root);
+    
+    std::function<void(Node*, Node*)> buildPrunedTree = [&](Node* origNode, Node* newParent) {
+        if (!keepNode[origNode->identifier]) return;
+        
+        if (origNode->identifier == T->root->identifier) {
+            for (Node* child : T->root->children) {
+                buildPrunedTree(child, T->root);
+            }
+            return;
+        } 
+        else {
+            // Process children
+            std::vector<Node*> keepChildren;
+            for (Node* child : T->allNodes[origNode->identifier]->children) {
+                if (keepNode[child->identifier]) {
+                    keepChildren.push_back(child);
+                }
+            }
+
+            // Handle nodes with only one child (merge them)
+            if (keepChildren.size() == 0) {
+                if (origNode->is_leaf()) {
+                    Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
+                    newNode->grpID = -1;
+                    pT->allNodes[newNode->identifier] = newNode;
+                }
+                else return;
+            }
+            else if (keepChildren.size() == 1) {
+                Node* onlyChild = keepChildren[0];
+                float combinedLength = origNode->branchLength;
+                while (true) {
+                    std::vector<Node*> temp;
+                    combinedLength += onlyChild->branchLength;
+                    for (Node* child : onlyChild->children) {
+                        if (keepNode[child->identifier]) {
+                            temp.push_back(child);
+                        }
+                    }
+                    if (temp.size() > 1) {
+                        Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
+                        newChild->grpID = -1;
+                        pT->allNodes[newChild->identifier] = newChild;
+                        break;
+                    }
+                    else if (temp.empty()) {
+                        if (onlyChild->is_leaf()) {
+                            Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
+                            newChild->grpID = -1;
+                            pT->allNodes[newChild->identifier] = newChild;
+                            break;
+                        }
+                        else return;
+                    }
+                    onlyChild = temp[0];
+                }
+                // Process the child's children
+                for (Node* grandchild : T->allNodes[onlyChild->identifier]->children) {
+                    buildPrunedTree(grandchild, T->allNodes[onlyChild->identifier]);
+                }
+            } 
+            else {
+                Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
+                newNode->grpID = -1;
+                pT->allNodes[newNode->identifier] = newNode;
+                for (Node* child : T->allNodes[origNode->identifier]->children) {
+                    buildPrunedTree(child, T->allNodes[origNode->identifier]);
+                }
+            }
+        }
+    };
+    
+    buildPrunedTree(pT->root, nullptr);
+    
+    // Update tree properties
+    pT->m_numLeaves = 0;
+    for (const auto& nodePair : pT->allNodes) {
+        if (nodePair.second->is_leaf()) {
+            pT->m_numLeaves++;
+        }
+    }
+    
+    pT->calLeafNum();
+    pT->calSeqWeight();
+
+    std::cout << "Number of Leaves: " << T->m_numLeaves << " (before pruning) -> " << pT->m_numLeaves << " (after pruning)\n";
+    if (pT->m_numLeaves == 0) {
+        std::cerr << "ERROR: No sequences from the input sequence file are found in the tree file.\n";
+        exit(1);
+    }
+    if (pT->m_numLeaves != seqNum) std::cerr << "WARNING: " << (seqNum - pT->m_numLeaves) << " sequences are missing from the tree and will be ignored.\n";
+    delete T;
+    auto treePruneEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds treePruneTime = treePruneEnd - treePruneStart;
+    std::cout << "Tree pruned in: " <<  treePruneTime.count() / 1000000 << " ms\n";
+    return pT;
+}
