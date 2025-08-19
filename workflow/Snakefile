@@ -1,68 +1,112 @@
-'''
-This is a snakemake workflow for TWILIGHT iterative mode.
-
-OPTIONS
-TYPE:     Input datatype, n (nucleotide) or p (protein), required
-SEQ:      Input unaligned sequence file path
-OUT:      Output MSA file path
-DIR:      Directory for storing temporary files
-ITER:     Total number of iterations, ranging from 1 to 5.
-INITTREE: Tree method for initial tree, "parttree", "maffttree", or "mashtree"
-ITERTREE: Tree method for subsequent iterations, "fasttree", "iqtree", or "raxml"
-OUTTREE:  Output Tree file path
-GETTREE:  Estimate tree after the final MSA, "yes" or "no"
-See config.yaml for more options
-
-HOW TO RUN 
-Usage syntax:
-snakemake --cores [num threads] --config SEQ=[sequence] OUT=[output] DIR=[directory] ITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
-Example:
-snakemake --cores 8 --config SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir ITER=2 INITTREE=maffttree ITERTREE=raxml OUTTREE=RNASim.tree GETTREE=yes
-
-Unspecified options will use the default options written in config.yaml
-'''
-
 import os
+import shutil
 from snakemake.utils import min_version
-
 min_version("7.12.1")
 
-def checkFiles(dir, msa, tree, gettree):
-	if os.path.isdir(dir):
-		print("ERROR: %s already exists. Please use another directory name." % dir, file=sys.stderr)
-		exit(1)
-	if os.path.isfile(msa):
-		print("ERROR: %s already exists. Please use another file name." % msa, file=sys.stderr)
-		exit(1)
-	if gettree and os.path.isfile(tree):
-		print("ERROR: %s already exists. Please use another file name." % tree, file=sys.stderr)
-		exit(1)
+help_message = """
+TWILIGHT Iterative and Placement Mode
 
-def checkConfig(iter, inittree, itertree):
+Usage:
+    snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE [OPTION=VALUE ...]
+
+Hardware Usage:
+    --core    Number of CPU cores. Using all available cores if unspecified.
+
+Options (use with --config)
+Iterative Mode:
+    SEQ        Path to input unaligned sequence file. [Required]
+    ITER       Total number of iterations (1–5). Default: 3.
+    INITTREE   Tree estimation method for the initial guide tree: "parttree", "maffttree", or "mashtree".
+    ITERTREE   Tree estimation method for intermediate iterations: "rapidnj" or "fasttree".
+    FINALTREE  Final tree estimation method (skip if unspecified): "fasttree", "raxml" or "iqtree".
+Placement Mode:
+    ALN        Backbone alignment for placing new sequences. [Required]
+    SEQ        New sequences to be placed [Required]
+    TREE       Backbone tree [Optional, FastTree will be used for estimation if unspecified]
+    ITER       Total number of iterations (1–5). Default: 2.
+    FINALTREE  Final tree estimation method (skip if unspecified): "fasttree", "raxml" or "iqtree".
+General:
+    TYPE       Input data type: "n" (nucleotide) or "p" (protein). [Required]
+    OUT        Path to output MSA file. [Required]
+    DIR        Directory for storing temporary files.
+    KEEP       Keep the temporary files: "yes" or "no". (default: no)
+    OVERWRITE  Overwrite the existing file: "yes" or "no". (default: no)
+    
+NOTES
+    • Any unspecified option will use the default in config.yaml.
+    • ITER values above 5 are not supported.
+"""
+
+if len(config) == 0:
+    print(help_message)
+    sys.exit(0)
+
+def checkFiles(overwrite, dir, msa, gettree=False):
+	if (msa == ""):
+		print("ERROR: Please specify the output file name.", file=sys.stderr)
+		exit(1)
+	if overwrite == False:
+		if os.path.isdir(dir):
+			print("ERROR: %s already exists. Please use another directory name." % dir, file=sys.stderr)
+			exit(1)
+		if os.path.isfile(msa):
+			print("ERROR: %s already exists. Please use another file name for output MSA." % msa, file=sys.stderr)
+			exit(1)
+		if gettree:
+			tree = config["output_msa"]+".tree"
+			if os.path.isfile(tree):
+			    print("ERROR: %s already exists. Please use another file name for output MSA." % tree, file=sys.stderr)
+			    exit(1)
+	return
+
+def checkConfig(iter, inittree, itertree, finaltree):
 	if int(iter) <= 0 or int(iter) > 5:
 		print("ERROR: %d iterations not supported." % iter, file=sys.stderr)
 		exit(1)
 	if str(inittree) != "maffttree" and str(inittree) != "parttree" and str(inittree) != "mashtree":
-		print("ERROR: Unrecognized tree method for initial tree. Please choose from \"parttree\", \"maffttree\" and \"mashtree\".", file=sys.stderr)
+		print("ERROR: Unrecognized tree method for initial guide tree. Please choose from \"parttree\", \"maffttree\" and \"mashtree\".", file=sys.stderr)
 		exit(1)
-	if str(itertree) != "fasttree" and str(itertree) != "iqtree" and str(itertree) != "raxml":
-		print("ERROR: Unrecognized tree method for subsequent iterations. Please choose from \"fasttree\", \"iqtree\" and \"raxml\".", file=sys.stderr)
+	if str(itertree) != "fasttree" and str(itertree) != "rapidnj":
+		print("ERROR: Unrecognized tree method for subsequent iterations. Please choose from \"fasttree\" and \"rapidnj\".", file=sys.stderr)
 		exit(1)
+	if str(finaltree) != "":
+		if str(finaltree) != "fasttree" and str(finaltree) != "iqtree" and str(finaltree) != "raxml":
+			print("ERROR: Unrecognized final tree method. Please choose from \"fasttree\", \"iqtree\" and \"raxml\".", file=sys.stderr)
+			exit(1)
+	return
+
+def create_temp_dir(input_file):
+	base_name = os.path.splitext(os.path.basename(input_file))[0]
+	counter = 1
+	while True:
+		temp_dir_path = f"{base_name}_temp_dir_{counter}"
+		if not os.path.exists(temp_dir_path):
+			return temp_dir_path
+		counter += 1
+	return temp_dir_path
+
 
 configfile: "config.yaml"  
+
+config["num_threads"] = workflow.cores
+
 config["type"] = config.get("TYPE", config["type"])
 config["sequences"] = config.get("SEQ", config["sequences"])
-config["work_dir"] = config.get("DIR", config["work_dir"])
+config["backbone_aln"] = config.get("ALN", config["backbone_aln"])
+config["backbone_tree"] = config.get("TREE", config["backbone_tree"])
 config["output_msa"]=config.get("OUT", config["output_msa"])
-config["final_tree"]=config.get("GETTREE", config["final_tree"])
-config["output_tree"]=config.get("OUTTREE", config["output_tree"])
-config["num_threads"]=workflow.cores
-iterations = int(config.get("ITER", config["iterations"]))
+
+
+
+# 0: iterative, 1: placement
+mode = 0 if (config["backbone_aln"] == "") else 1
+iterations = int(config.get("ITER", (3 if mode == 0 else 2)))
 init_tree = config.get("INITTREE", config["init_tree"])
 iter_tree = config.get("ITERTREE", config["iter_tree"])
-finalMSA  = config["work_dir"]+"/msa_iter"+str(iterations)+".fa"
-finalTree = config["work_dir"]+"/tree_iter"+str(iterations)+".nwk"
-finalFile = finalTree if config["final_tree"] == "yes" else finalMSA
+final_tree = config.get("FINALTREE", config["final_tree"])
+overwrite = False if (config.get("OVERWRITE", config["overwrite"]) == "no") else True
+keepfile = False if (config.get("KEEP", config["keep_dir"]) == "no") else True
+
 
 if str(config["type"]) != "n" and str(config["type"]) != "p":
 	print("ERROR: Unknown datatype. Please specify sequence type, n (nucleotide) or p (protein).", file=sys.stderr)
@@ -72,41 +116,74 @@ if str(config["type"]) == "p" and str(init_tree) == "mashtree":
 	print("ERROR: MashTree does not support protein sequences.", file=sys.stderr)
 	exit(1)
 
-checkFiles(config["work_dir"], config["output_msa"], config["output_tree"], config["final_tree"])
-checkConfig(iterations, init_tree, iter_tree)
+checkFiles(overwrite, config["work_dir"], config["output_msa"], (config["final_tree"] != ""))
+checkConfig(iterations, init_tree, iter_tree, final_tree)
 # FastTree 
 config["ft_model"]= "" if str(config["type"]) == "p" else "-gtr -nt"
 # RAxML
 config["rx_model"]= "PROTGAMMAAUTO" if str(config["type"]) == "p" else "GTRGAMMA"
 # IQ-Tree
 config["iq_model"]= "" # Auto-selected by IQ-Tree
+config["epa_model"]= "Blosum62" if str(config["type"]) == "p" else "GTR"
+
+
+config["work_dir"] = config.get("DIR", create_temp_dir(config["sequences"]))
+if overwrite == False and os.path.exists(config["work_dir"]):
+	print("ERROR: %s already exists. Please use another directory name." % config["work_dir"], file=sys.stderr)
+	exit(1)
+if os.path.exists(config["work_dir"]):
+    shutil.rmtree(config["work_dir"])
+os.makedirs(config["work_dir"])
+print(config["work_dir"], "is created for storing intermediate files.")
+			
+config["iter_tree"] = iter_tree
+config["final_tree"] = final_tree
+config["iterations"] = iterations
+print(config["iter_tree"] , config["final_tree"] )
+finalMSA  = config["work_dir"]+"/msa_iter"+str(iterations)+".fa"
+finalTree = config["work_dir"]+"/tree_iter"+str(iterations)+".nwk"
+finalFile = finalTree if str(final_tree) != "" else finalMSA
+output_tree = config["output_msa"]+".tree"
 
 include: "rules/twilight.smk"
 
-if (init_tree == "mashtree"):
-	include: "rules/mashtree.smk"
-elif (init_tree == "maffttree"):
-	include: "rules/maffttree.smk"
-elif (init_tree == "parttree"):
-	include: "rules/parttree.smk"
-
-if (iter_tree == "fasttree"):
-	include: "rules/fasttree.smk"
-elif (iter_tree == "iqtree"):
-	include: "rules/iqtree.smk"
-elif (iter_tree == "raxml"):
-	include: "rules/raxml.smk"
+# Iterative Mode
+if mode == 0:
+	if (init_tree == "mashtree"):
+		include: "rules/mashtree.smk"
+	if (init_tree == "maffttree"):
+		include: "rules/maffttree.smk"
+	if (init_tree == "parttree"):
+		include: "rules/parttree.smk"
+	if (final_tree == "fasttree" or iter_tree == "fasttree"):
+		include: "rules/fasttree.smk"
+	if (final_tree == "iqtree"):
+		include: "rules/iqtree.smk"
+	if (final_tree == "raxml"):
+		include: "rules/raxml.smk"
+	if (iter_tree == "rapidnj"):
+		include: "rules/rapidnj.smk"
+# Placement
+elif mode == 1:
+	include: "rules/placement.smk"
+	if (final_tree == "raxml"):
+		include: "rules/raxml.smk"
+	if (final_tree == "iqtree"):
+		include: "rules/iqtree.smk"
+	if (final_tree == "fasttree" or config["backbone_tree"] == ""):
+		include: "rules/fasttree.smk"
+	
 
 rule all:
 	input: finalFile
 	params: 
 		outputFile=config["output_msa"],
 		tempFinal=finalMSA,
-		moveTree="" if config["final_tree"] != "yes" else ("mv " + finalTree + " " + config["output_tree"]),
-		deleteDir="" if config["keep_dir"] == "yes" else ("rm -rf " + config["work_dir"])
+		moveTree="" if config["final_tree"] == "" else ("cp " + finalTree + " " + output_tree),
+		deleteDir="" if keepfile else ("rm -rf " + config["work_dir"])
 	shell:
 		'''
-        mv {params.tempFinal} {params.outputFile}
+        cp {params.tempFinal} {params.outputFile}
 		{params.moveTree}
 		{params.deleteDir}
         '''
