@@ -11,6 +11,7 @@
 
 
 const int MAX_PROFILE_LEN = (1 << 16);
+const int MAX_PROFILE_LEN_P = (1 << 14);
 
 void getGpuInfo (po::variables_map& vm, msa::option* option);
 void msaGpu(  Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param);

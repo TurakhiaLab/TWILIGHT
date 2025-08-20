@@ -47,15 +47,15 @@ def checkFiles(overwrite, dir, msa, gettree=False):
 		exit(1)
 	if overwrite == False:
 		if os.path.isdir(dir):
-			print("ERROR: %s already exists. Please use another directory name." % dir, file=sys.stderr)
+			print("ERROR: %s already exists. Please use another directory name or set OVERWRITE=yes." % dir, file=sys.stderr)
 			exit(1)
 		if os.path.isfile(msa):
-			print("ERROR: %s already exists. Please use another file name for output MSA." % msa, file=sys.stderr)
+			print("ERROR: %s already exists. Please use another file name or set OVERWRITE=yes." % msa, file=sys.stderr)
 			exit(1)
 		if gettree:
 			tree = config["output_msa"]+".tree"
 			if os.path.isfile(tree):
-			    print("ERROR: %s already exists. Please use another file name for output MSA." % tree, file=sys.stderr)
+			    print("ERROR: %s already exists. Please use another file name or set OVERWRITE=yes." % tree, file=sys.stderr)
 			    exit(1)
 	return
 

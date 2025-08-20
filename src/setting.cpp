@@ -260,13 +260,14 @@ msa::option::option(po::variables_map& vm) {
         else {
             tempDir = vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
-            if (mkdir(tempDir.c_str(), 0777) == -1) {
-                if( errno == EEXIST ) {
+            if (fs::exists(tempDir)) {
+                if (!vm.count("overwrite")) {
                     std::cerr << "ERROR: " << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
                     exit(1);
                 }
-                else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
+                fs::remove_all(tempDir);
             }
+            fs::create_directories(tempDir);
         }
         std::cout << tempDir << " created for storing temporary alignments\n";
         this->tempDir = tempDir;

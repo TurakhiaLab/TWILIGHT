@@ -1033,13 +1033,8 @@ void createAlnPairs(Tree* tree, msa::utility* util, msa::option* option, std::ve
             tbb::this_task_arena::isolate( [&]{
             tbb::parallel_for(tbb::blocked_range<int>(0, seq.second.size()), [&](tbb::blocked_range<int> r) {
             for (int j = r.begin(); j < r.end(); ++j) {
-                if      (seq.second[j] == 'A' || seq.second[j] == 'a') tree->allNodes[seq.first]->msaFreq[j][0]+=1.0;
-                else if (seq.second[j] == 'C' || seq.second[j] == 'c') tree->allNodes[seq.first]->msaFreq[j][1]+=1.0;
-                else if (seq.second[j] == 'G' || seq.second[j] == 'g') tree->allNodes[seq.first]->msaFreq[j][2]+=1.0;
-                else if (seq.second[j] == 'T' || seq.second[j] == 't' ||
-                         seq.second[j] == 'U' || seq.second[j] == 'u') tree->allNodes[seq.first]->msaFreq[j][3]+=1.0;
-                else if (seq.second[j] == '-')                         tree->allNodes[seq.first]->msaFreq[j][5]+=1.0;
-                else                                                   tree->allNodes[seq.first]->msaFreq[j][4]+=1.0;
+                int letterIndex = letterIdx(option->type, toupper(seq.second[j]));
+                tree->allNodes[seq.first]->msaFreq[j][letterIndex] += 1.0;
             }
             });
             });

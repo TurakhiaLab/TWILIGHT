@@ -117,11 +117,15 @@ void msaOnSubtreeGpu(Tree *T, msa::utility *util, msa::option *option, partition
     for (auto m : hier)
     {
         auto alnStart = std::chrono::high_resolution_clock::now();
+        updateNode(T, m, util);
+        int seqLen = 0.0;
+        if (option->type == 'p') for (auto n : m) seqLen = std::max(seqLen, std::max(util->seqsLen[n.first->identifier], util->seqsLen[n.second->identifier]));
         option->calSim = (option->psgopAuto && level >= 5 && !option->psgop);
-        if (option->cpuOnly || m.size() < cpuThres || util->nowProcess == 2) msaCpu(T, m, util, option, param);
-        else                                                                 msaGpu(T, m, util, option, param);
+        if (option->cpuOnly || m.size() < cpuThres || util->nowProcess == 2 || seqLen > MAX_PROFILE_LEN_P) msaCpu(T, m, util, option, param);
+        else                                                                                               msaGpu(T, m, util, option, param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+        
         if (option->printDetail)
         {
             if (m.size() > 1)
@@ -232,16 +236,18 @@ void placementGpu(Tree *T, msa::utility *util, msa::option *option, partitionInf
     auto alnStart = std::chrono::high_resolution_clock::now();
     option->calSim = false;
     int cpuThres = option->cpuNum * 3;
+    size_t seqLen = 0.0;
+    if (option->type == 'p') for (auto n : alnPairs) seqLen = std::max(seqLen, std::max(n.first->msaFreq.size(), n.second->msaFreq.size()));
 
-    if (option->cpuOnly || alnPairs.size() < cpuThres || util->nowProcess == 2) msaCpu(T, alnPairs, util, option, param);
-    else                                                                        msaGpu(T, alnPairs, util, option, param);
+    if (option->cpuOnly || alnPairs.size() < cpuThres || util->nowProcess == 2 || seqLen > MAX_PROFILE_LEN_P) msaCpu(T, alnPairs, util, option, param);
+    else                                                                                                      msaGpu(T, alnPairs, util, option, param);
     mergedAlignedSeqs(T, util, option, alnPairs);
     auto alnEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds alnTime = alnEnd - alnStart;
     if (alnPairs.size() > 1)
         std::cout << "Aligned " << alnPairs.size() << " new sequences in " << alnTime.count() / 1000000 << " ms\n";
     else
-            std::cout << "Aligned 1 new sequence in " << alnTime.count() / 1000000 << " ms\n";
+        std::cout << "Aligned 1 new sequence in " << alnTime.count() / 1000000 << " ms\n";
 
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progessiveTime = progressiveEnd - progressiveStart;
@@ -252,9 +258,7 @@ void placementGpu(Tree *T, msa::utility *util, msa::option *option, partitionInf
 void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::utility *util, msa::option *option, Params &param)
 {
     auto startT = std::chrono::high_resolution_clock::now();
-    
     bool placement = (option->alnMode == 2 && option->nowProcess == 0);
-    if (!placement) updateNode(tree, nodes, util);
     int numBlocks = _BLOCKSIZE;
     int blockSize = _THREAD_NUM;
     int gpuNum = option->gpuNum;
@@ -268,7 +272,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
         for (auto n : nodes) {
             seqLen = std::max(seqLen, std::max(static_cast<int32_t>(n.first->msaFreq.size()), static_cast<int32_t>(n.second->msaFreq.size())));
         }
-            
+      
     int roundGPU = nodes.size() / numBlocks + 1;
     if (nodes.size() % numBlocks == 0)
         roundGPU -= 1;

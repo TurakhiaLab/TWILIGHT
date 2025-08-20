@@ -155,6 +155,7 @@ void readFrequency(msa::utility* util, msa::option* option) {
     }
     // for (const auto & msaFile : fs::directory_iterator(path)) {
     std::sort(files.begin(), files.end());
+    int profileSize = option->type == 'n' ? 6 : 22;
     for (auto msaFileName: files) {
         // std::string msaFileName = msaFile.path();
         gzFile f_rd = gzopen(msaFileName.c_str(), "r");
@@ -171,7 +172,7 @@ void readFrequency(msa::utility* util, msa::option* option) {
             if (seqNum == 0) {
                 msaLen = seqLen;
                 seqName = kseq_rd->name.s;
-                util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (6, 0.0));
+                util->profileFreq[subtreeIdx] = std::vector<std::vector<float>> (msaLen, std::vector<float> (profileSize, 0.0));
         
             }
             else {
@@ -184,13 +185,8 @@ void readFrequency(msa::utility* util, msa::option* option) {
             tbb::this_task_arena::isolate( [&]{
             tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
             for (int j = r.begin(); j < r.end(); ++j) {
-                if      (seq[j] == 'A' || seq[j] == 'a') util->profileFreq[subtreeIdx][j][0]+=1.0;
-                else if (seq[j] == 'C' || seq[j] == 'c') util->profileFreq[subtreeIdx][j][1]+=1.0;
-                else if (seq[j] == 'G' || seq[j] == 'g') util->profileFreq[subtreeIdx][j][2]+=1.0;
-                else if (seq[j] == 'T' || seq[j] == 't' ||
-                         seq[j] == 'U' || seq[j] == 'u') util->profileFreq[subtreeIdx][j][3]+=1.0;
-                else if (seq[j] == '-')                  util->profileFreq[subtreeIdx][j][5]+=1.0;
-                else                                     util->profileFreq[subtreeIdx][j][4]+=1.0;
+                int letterIndex = letterIdx(option->type, toupper(seq[j]));
+                util->profileFreq[subtreeIdx][j][letterIndex] += 1.0;
             }
             });
             });
@@ -216,7 +212,7 @@ void readFrequency(msa::utility* util, msa::option* option) {
 
 void readMSA_and_Seqs(msa::utility* util, msa::option* option, Tree* tree) {
     auto freqReadStart = std::chrono::high_resolution_clock::now();
-    int profileSize = (option->type = 'n') ? 6 : 22;
+    int profileSize = (option->type == 'n') ? 6 : 22;
     // Construct Tree
     {
         Node* treeRoot = new Node("node_1", 0.0);
@@ -272,13 +268,8 @@ void readMSA_and_Seqs(msa::utility* util, msa::option* option, Tree* tree) {
             tbb::this_task_arena::isolate( [&]{
             tbb::parallel_for(tbb::blocked_range<int>(0, seq.size()), [&](tbb::blocked_range<int> r) {
             for (int j = r.begin(); j < r.end(); ++j) {
-                if      (seq[j] == 'A' || seq[j] == 'a') tree->root->msaFreq[j][0]+=1.0;
-                else if (seq[j] == 'C' || seq[j] == 'c') tree->root->msaFreq[j][1]+=1.0;
-                else if (seq[j] == 'G' || seq[j] == 'g') tree->root->msaFreq[j][2]+=1.0;
-                else if (seq[j] == 'T' || seq[j] == 't' ||
-                         seq[j] == 'U' || seq[j] == 'u') tree->root->msaFreq[j][3]+=1.0;
-                else if (seq[j] == '-')                  tree->root->msaFreq[j][5]+=1.0;
-                else                                     tree->root->msaFreq[j][4]+=1.0;
+                int letterIndex = letterIdx(option->type, toupper(seq[j]));
+                tree->root->msaFreq[j][letterIndex] += 1.0;
             }
             });
             });
