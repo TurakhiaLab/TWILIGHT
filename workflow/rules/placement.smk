@@ -22,7 +22,7 @@ rule placement:
 
 iters = int(config["iterations"])
 
-if iters >= 1:
+if iters >= 2:
     use rule placement as placement_iter1 with:
         input: 
             backbone_tree=config["work_dir"]+"/backbone_tree.nwk",
@@ -30,7 +30,7 @@ if iters >= 1:
             backbone_msa=config["work_dir"]+"/backbone_iter1.fa"
         output: 
             tree=config["work_dir"]+"/tree_iter1.nwk"
-if iters >= 2:
+if iters >= 3:
     use rule placement as placement_iter2 with:
         input: 
             backbone_tree=config["work_dir"]+"/backbone_tree.nwk",
@@ -38,7 +38,7 @@ if iters >= 2:
             backbone_msa=config["work_dir"]+"/backbone_iter2.fa"
         output: 
             tree=config["work_dir"]+"/tree_iter2.nwk"
-if iters >= 3:
+if iters >= 4:
     use rule placement as placement_iter3 with:
         input: 
             backbone_tree=config["work_dir"]+"/backbone_tree.nwk",
@@ -46,7 +46,7 @@ if iters >= 3:
             backbone_msa=config["work_dir"]+"/backbone_iter3.fa"
         output: 
             tree=config["work_dir"]+"/tree_iter3.nwk"
-if iters >= 4:
+if iters >= 5:
     use rule placement as placement_iter4 with:
         input: 
             backbone_tree=config["work_dir"]+"/backbone_tree.nwk",
@@ -54,11 +54,3 @@ if iters >= 4:
             backbone_msa=config["work_dir"]+"/backbone_iter4.fa"
         output: 
             tree=config["work_dir"]+"/tree_iter4.nwk"
-if iters >= 5:
-    use rule placement as placement_iter5 with:
-        input: 
-            backbone_tree=config["work_dir"]+"/backbone_tree.nwk",
-            seq_msa=config["work_dir"]+"/placed_iter5.fa",
-            backbone_msa=config["work_dir"]+"/backbone_iter5.fa"
-        output: 
-            tree=config["work_dir"]+"/tree_iter5.nwk"

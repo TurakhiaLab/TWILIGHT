@@ -7,8 +7,9 @@ conda config --add channels bioconda
 conda config --add channels conda-forge
 conda config --set channel_priority strict
 
-conda install snakemake
-conda install numpy
+conda install snakemake -y
+conda install ete3 -y
+conda install numpy -y
 
 # Get system architecture
 ARCH=$(uname -m)

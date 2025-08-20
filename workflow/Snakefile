@@ -8,7 +8,7 @@ TWILIGHT Iterative and Placement Mode
 
 Usage:
     snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE [OPTION=VALUE ...]
-	snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTION=VALUE ...]
+    snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTION=VALUE ...]
 
 Hardware Usage:
     --core    Number of CPU cores. Using all available cores if unspecified.
@@ -140,7 +140,6 @@ print(config["work_dir"], "is created for storing intermediate files.")
 config["iter_tree"] = iter_tree
 config["final_tree"] = final_tree
 config["iterations"] = iterations
-print(config["iter_tree"] , config["final_tree"] )
 finalMSA  = config["work_dir"]+"/msa_iter"+str(iterations)+".fa"
 finalTree = config["work_dir"]+"/tree_iter"+str(iterations)+".nwk"
 finalFile = finalTree if str(final_tree) != "" else finalMSA

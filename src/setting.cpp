@@ -374,6 +374,7 @@ msa::option::option(po::variables_map& vm) {
     this->outFile = vm["output"].as<std::string>();
     if (fs::exists(this->outFile) && !vm.count("overwrite")) {
         std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
+        fs::remove_all(tempDir);
         exit(1);
     }
     std::ofstream outFile(this->outFile);

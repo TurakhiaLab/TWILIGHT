@@ -23,8 +23,6 @@
 
 ## What's New
 
-## What's New
-
 - **TWILIGHT v0.2.0**
   - **Add new sequences:** Support for adding new sequences to an existing alignment.
   - **Protein alignment:** Support for protein alignment, still relatively new and continuously improving.
@@ -43,7 +41,7 @@
   - [TWILIGHT CLI](#twilight_cli)
     - [Default mode](#default)
     - [Divide-and-Conquer](#dc)
-    - [Add new sequences (tree includes placements for new sequences)](#add-1)
+    - [Add new sequences (tree includes placements for new sequences is available)](#add-1)
     - [Merge multiple MSA](#merge-msa)
     - [Flexible tree support](#flex-tree)
   - [Snakemake Workflow](#snakemake)
@@ -93,7 +91,7 @@ TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Pa
 
 **Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
 ```bash
-conda create -n twilight -y
+conda create -n twilight python=3.10 -y
 conda activate twilight
 # Set up channels
 conda config --add channels defaults
@@ -222,7 +220,7 @@ Example
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
 ```
-#### Divide-and-Conquer Method
+#### <a name="dc"></a> Divide-and-Conquer Method
 To reduce the CPU’s main memory usage, TWILIGHT divides tree into subtrees with at most *m* leaves, and align subtrees sequentially. The parameter *m* is user-defined.
 
 Usage syntax
@@ -262,11 +260,11 @@ Usage syntax
 ```
 Example
 ```bash
-./twilight -t RNASim.nwk -i RNASim_sub.fa -o RNASim_sub.aln --prune --write-prune
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim_sub.fa -o RNASim_sub.aln --prune --write-prune
 ```
 ### <a name="snakemake"></a> Snakemake Workflow
-For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. 
-** Enter `workflow` directory and type `snakemake` to view the help messages.
+For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details.  
+Enter `workflow` directory and type `snakemake` to view the help messages.
 
 ```bash
 cd workflow
@@ -297,7 +295,7 @@ snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln
 snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln FINALTREE=fasttree
 ```
 #### <a name="add-2"></a> Add New Sequences to an Existing Alignment
-If no placement tree is provided, TWILIGHT aligns new sequences to the backbone, infers their placement with external tools, and then refines the alignment using the inferred tree.
+If no placement tree is provided, TWILIGHT aligns new sequences to the profile of the backbone alignment, infers their placement with external tools, and then refines the allignment using the inferred tree.
 
 Usage syntax
 ```bash
@@ -310,7 +308,7 @@ snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln ALN=RNASim_bac
 ```
 - The backbone tree is unavailable, estimate it using external tools and generate a final tree after alignment.
 ```bash
-snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln ALN=RNASim_backbone.aln FINALTREE=raxml
+snakemake --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln FINALTREE=fasttree
 ```
 ##  <a name="contribution"></a> Contributions
 We welcome contributions from the community to enhance the capabilities of **TWILIGHT**. If you encounter any issues or have suggestions for improvement, please open an issue on [TWILIGHT GitHub page](https://github.com/TurakhiaLab/TWILIGHT). For general inquiries and support, reach out to our team.
