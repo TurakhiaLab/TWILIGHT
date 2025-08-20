@@ -23,13 +23,14 @@
 
 ## What's New
 
-- **TWILIGHT v0.1.4 adds support for protein sequence alignment!**  
-- **[Conda Issue on Linux]** If you’re experiencing issues with the Conda-installed TWILIGHT, please visit [this page](https://anaconda.org/bioconda/twilight/files) to download version v0.1.4a that matches your hardware and reinstall TWILIGHT. For example,
-```bash
-wget https://anaconda.org/bioconda/twilight/0.1.4a/download/linux-64/twilight-0.1.4a-h6bb9b41_0.tar.bz2
-conda install ./twilight-0.1.4a-h6bb9b41_0.tar.bz2 --no-deps
-```
+## What's New
 
+- **TWILIGHT v0.2.0**
+  - **Add new sequences:** Support for adding new sequences to an existing alignment.
+  - **Protein alignment:** Support for protein alignment, still relatively new and continuously improving.
+  - **Iterative mode:** Improved for faster performance.
+  - **Flexible tree support:** Allows using a tree that contains more sequences than the actual dataset for alignment.
+  - **Bug fixes:** Resolved issues present in TWILIGHT v0.1.4; users are encouraged to update to v0.2.0.
 
 ## Table of Contents
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
@@ -39,8 +40,15 @@ conda install ./twilight-0.1.4a-h6bb9b41_0.tar.bz2 --no-deps
   - [Using Install Script](#script)
   - [Using Dockerfile](#docker)
 - [Run TWILIGHT](#run)
-  - [Default mode](#default)
-  - [Iterative mode](#iterative)
+  - [TWILIGHT CLI](#twilight_cli)
+    - [Default mode](#default)
+    - [Divide-and-Conquer](#dc)
+    - [Add new sequences (tree includes placements for new sequences)](#add-1)
+    - [Merge multiple MSA](#merge-msa)
+    - [Flexible tree support](#flex-tree)
+  - [Snakemake Workflow](#snakemake)
+    - [Iterative mode](#iterative)
+    - [Add new sequences (tree unavailable)](#add-2)
 - [Contributions](#contribution)
 - [Citing TWILIGHT](#cite)
 
@@ -197,69 +205,112 @@ cd bin
 
 
 ## <a name="run"></a> Run TWILIGHT
-### <a name="default"></a> Default Mode
+### <a name="twilight_cli"></a> TWILIGHT CLI
 For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. 
 ```bash
 cd bin
 ./twilight -h
 ```
-#### Default Configuration
+#### <a name="default"></a> Default Mode
+Performs a standard progressive alignment using default configurations.
+
 Usage syntax
 ```bash
-./twilight -t <path to tree file> -i <path to sequence file> -o <path to output file>
+./twilight -t <tree file> -i <sequence file> -o <output file>
 ```
 Example
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
 ```
 #### Divide-and-Conquer Method
-TWILIGHT divides tree into subtrees with at most *m* leaves, which is specified by the user, and align subtrees sequentially to reduce the CPU’s main memory usage.  
+To reduce the CPU’s main memory usage, TWILIGHT divides tree into subtrees with at most *m* leaves, and align subtrees sequentially. The parameter *m* is user-defined.
 
 Usage syntax
 ```bash
-./twilight -t <path to tree file> -i <path to sequence file> -o <path to output file> -m <maximum subtree size>
+./twilight -t <tree file> -i <sequence file> -o <output file> -m <maximum subtree size>
 ```
 Example
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200
 ```
-#### Merge Multiple MSA Files
-To merge multiple MSAs, please move the MSA files into a folder.  
+#### <a name="add-1"></a> Add New Sequences to an Existing Alignment
+For better accuracy, it is recommended to use a tree that includes placements for the new sequences. If no tree is provided, TWILIGHT aligns new sequences to the profile of the entire backbone alignment, which may reduce accuracy. In this case, using the provided [Snakemake workflow](#add-2) is advised.
+```bash
+./twilight -a <backbone alignment file> -i <new sequence file> -t <tree with placement of new sequences> -o <path to output file>
+```
+Example
+```bash
+./twilight -a ../dataset/RNASim_backbone.aln -i ../dataset/RNASim_sub.fa -t ../dataset/RNASim.nwk -o RNASim.aln
+```
+#### <a name="merge-msa"></a> Merge Multiple MSA Files
+To merge multiple MSAs, place all MSA files into a single folder.
 
 Usage syntax
 ```bash
-./twilight -f <path to the folder> -o <path to output file>
+./twilight -f <path to the folder> -o <output file>
 ```
 Example
 ```bash
 ./twilight -f ../dataset/RNASim_subalignments/ -o RNASim.aln
 ```
-### <a name="iterative"></a> Iterative Mode
-TWILIGHT iterative mode provides a Snakemake workflow to estimate guide trees using external tools. 
+#### <a name="flex-tree"></a> Flexible Tree Support
+Prunes tips that are not present in the raw sequence file. This is useful when working with a large tree but only aligning a subset of sequences, without needing to re-estimate the guide tree. Outputting the pruned tree is also supported.
 
-Options for tree inference tools:
-- Initial guide tree: `parttree`, `maffttree`, `mashtree`
-- Subsequent iterations: `fasttree`, `iqtree`, `raxml`
-
-**Step 1:** Enter `workflow` directory
-```bash
-cd workflow
-```
-**Step 2:** See [wiki](https://turakhia.ucsd.edu/TWILIGHT/) for more details for the configurations. For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance. 
-
-**Step 3:** Run TWILIGHT iterative mode. Since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required in TWILIGHT iterative mode: use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.  
 Usage syntax
 ```bash
-snakemake --cores [num threads] --config TYPE=[n/p] SEQ=[sequence] OUT=[output] DIR=[directory] ITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
+./twilight -t <large tree file> -i <subset of raw sequences> -o <output file> --prune [--write-prune]
+```
+Example
+```bash
+./twilight -t RNASim.nwk -i RNASim_sub.fa -o RNASim_sub.aln --prune --write-prune
+```
+### <a name="snakemake"></a> Snakemake Workflow
+For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. 
+** Enter `workflow` directory and type `snakemake` to view the help messages.
+
+```bash
+cd workflow
+snakemake
+```
+#### <a name="iterative"></a> Iterative Mode
+TWILIGHT iterative mode estimate guide trees using external tools. 
+
+Supported tree inference tools:
+- Initial guide tree: `parttree`, `maffttree`, `mashtree`
+- Intermediate iterations (optimized for speed): `rapidnj`, `fasttree`
+- Final tree (optimized for quality): `fasttree`, `raxml`, `iqtree`
+
+**Step 1:** For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance. 
+
+**Step 2:** Run TWILIGHT iterative mode. Since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required in TWILIGHT iterative mode: use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.  
+Usage syntax
+```bash
+snakemake [--cores <num threads>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE [OPTION=VALUE ...]
 ```
 Example  
 - Using default configurations
 ```bash
-snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln
+snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln
 ```
-- Specifying all command line options
+- Generates the final tree based on the completed MSA.
 ```bash
-snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir ITER=2 INITTREE=maffttree ITERTREE=raxml OUTTREE=RNASim.tree GETTREE=yes
+snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln FINALTREE=fasttree
+```
+#### <a name="add-2"></a> Add New Sequences to an Existing Alignment
+If no placement tree is provided, TWILIGHT aligns new sequences to the backbone, infers their placement with external tools, and then refines the alignment using the inferred tree.
+
+Usage syntax
+```bash
+snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTION=VALUE ...]
+```
+Example  
+- The backbone alignment is accompanied by a tree.
+```bash
+snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln ALN=RNASim_backbone.aln TREE=RNASim_backbone.nwk
+```
+- The backbone tree is unavailable, estimate it using external tools and generate a final tree after alignment.
+```bash
+snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln ALN=RNASim_backbone.aln FINALTREE=raxml
 ```
 ##  <a name="contribution"></a> Contributions
 We welcome contributions from the community to enhance the capabilities of **TWILIGHT**. If you encounter any issues or have suggestions for improvement, please open an issue on [TWILIGHT GitHub page](https://github.com/TurakhiaLab/TWILIGHT). For general inquiries and support, reach out to our team.

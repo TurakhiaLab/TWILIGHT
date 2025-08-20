@@ -8,6 +8,7 @@ TWILIGHT Iterative and Placement Mode
 
 Usage:
     snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE [OPTION=VALUE ...]
+	snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTION=VALUE ...]
 
 Hardware Usage:
     --core    Number of CPU cores. Using all available cores if unspecified.

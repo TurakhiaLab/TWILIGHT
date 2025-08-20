@@ -1,13 +1,14 @@
 # Install packages
 conda install pip -y
-pip install snakemake
-pip install numpy
 
 # Set up channels
 conda config --add channels defaults
 conda config --add channels bioconda
 conda config --add channels conda-forge
 conda config --set channel_priority strict
+
+conda install snakemake
+conda install numpy
 
 # Get system architecture
 ARCH=$(uname -m)
