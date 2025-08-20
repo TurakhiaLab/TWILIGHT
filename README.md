@@ -304,7 +304,7 @@ snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTIO
 Example  
 - The backbone alignment is accompanied by a tree.
 ```bash
-snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln ALN=RNASim_backbone.aln TREE=RNASim_backbone.nwk
+snakemake --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln TREE=../dataset/RNASim_backbone.nwk
 ```
 - The backbone tree is unavailable, estimate it using external tools and generate a final tree after alignment.
 ```bash
