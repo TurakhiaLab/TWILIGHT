@@ -156,10 +156,10 @@ bash ./install/buildTWILIGHT.sh hip  # For AMD GPUs
 cd bin
 ./twilight --help
 ```
-**Step 5 (optional)** Install TWILIGHT iterative mode (ensure Conda is installed first)
+**Step 5 (optional)**<a name="install_iter"></a> Install TWILIGHT iterative mode (ensure Conda is installed first)
 ```bash
 # Create and activate a Conda environment 
-conda create -n twilight -y
+conda create -n twilight python=3.10 -y
 conda activate twilight
 # Install Snakemake and tree inference tools
 bash ./install/installIterative.sh
@@ -263,7 +263,7 @@ Example
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim_sub.fa -o RNASim_sub.aln --prune --write-prune
 ```
 ### <a name="snakemake"></a> Snakemake Workflow
-For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details.  
+For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. To set up the environment and install external tools, see [here](#install-iter).
 Enter `workflow` directory and type `snakemake` to view the help messages.
 
 ```bash
