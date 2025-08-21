@@ -122,8 +122,7 @@ Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or
     - cmake 
     - libboost-all-dev 
     ```
-    It also requires `libtbb-dev`, which is not always pre-installed on all systems. For users who do not have sudo     access and are missing **only** `libtbb-dev`, our script builds and installs TBB from source in the local user  environment, with **no sudo access required**.
-
+    It also requires `libtbb-dev`, which is not always pre-installed on all systems. For users who do not have sudo     access and are missing **only** `libtbb-dev`, our script builds and installs TBB from source in the local user  environment, with **no sudo access required**.  
     For Ubuntu users with sudo access, if any of the required libraries are missing, you can install them with:
     ```bash
     sudo apt install -y wget build-essential libboost-all-dev cmake libtbb-dev
@@ -133,10 +132,8 @@ Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or
     xcode-select --install # if not already installed
     brew install wget boost cmake tbb
     ```
-
 3. Build TWILIGHT  
-    Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly. Alternatively, users can manually specify the desired target platform.
-
+    Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly. Alternatively, users can manually specify the desired target platform.  
     Automatic build:
     ```bash
     bash ./install/buildTWILIGHT.sh
