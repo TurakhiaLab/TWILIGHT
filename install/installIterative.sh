@@ -1,7 +1,5 @@
 # Install packages
 conda install pip -y
-pip install snakemake
-pip install numpy
 
 # Set up channels
 conda config --add channels defaults
@@ -9,15 +7,24 @@ conda config --add channels bioconda
 conda config --add channels conda-forge
 conda config --set channel_priority strict
 
+conda install snakemake -y
+conda install ete3 -y
+conda install numpy -y
+
 # Get system architecture
 ARCH=$(uname -m)
 OS=$(uname -s)
 
-# Install tree inference tools with conda
+# Iterative mode
 conda install bioconda::fasttree -y # FastTree
-conda install mafft -y    # MAFFT
+conda install mafft -y              # MAFFT
 conda install bioconda::raxml -y    # RAxML
 conda install bioconda::iqtree -y   # IQ-Tree
+git clone https://github.com/somme89/rapidNJ.git ## Rapid NJ
+make -C rapidNJ/
+# Placement mode
+conda install bioconda::epa-ng -y   # EPA-NG
+conda install bioconda::gappa -y    # GAPPA
 
 if [[ "$OS" == "Linux" && "$ARCH" == "x86_64" ]]; then
     conda install bioconda::mashtree -y # MashTree

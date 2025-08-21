@@ -180,21 +180,27 @@ Params::~Params() {
 }
 
 msa::option::option(po::variables_map& vm) {
-    if (!vm.count("tree") && !vm.count("sequences") && !vm.count("files")) {
-        std::cerr << "ERROR: No input file.\n";
+
+    bool hasTree = vm.count("tree"), hasSeq = vm.count("sequences"), hasFile = vm.count("files"), hasAln = vm.count("alignment");
+    this->alnMode = -1;
+    if (hasTree && hasSeq && !hasFile && !hasAln) this->alnMode = 0;
+    else if (hasSeq && !hasFile && hasAln) this->alnMode = 2;
+    else if (hasFile && !hasTree && !hasSeq && !hasAln) this->alnMode = 1;
+
+    if (this->alnMode == -1) {
+        std::cerr << "ERROR: Unrecognized alignment mode based on the provided options.\n"
+                  << "Valid combinations are:\n"
+                  << "  [1] --tree and --sequences (for building MSA from unaligned sequences)\n"
+                  << "  [2] --files (for merging MSAs)\n"
+                  << "  [3] --sequences and --alignment [and --tree (optional)] (for adding new sequences to an existing MSA)\n"
+                  << "Please check the input arguments or run with --help for usage.\n";
         exit(1);
     }
-    if (!vm.count("files") && (!vm.count("sequences") || !vm.count("tree"))) {
-        std::cerr << "ERROR: A tree file and a raw sequeunce file are required for building MSA from raw seqeunces.\n";
-        exit(1);
-    }
-    if (vm.count("sequences") && vm.count("files")) {
-        std::cerr << "ERROR: Both modes cannot run at the same time.\n";
-        exit(1);
-    }
-    if (vm.count("tree")) this->treeFile = vm["tree"].as<std::string>();
-    if (vm.count("sequences")) {this->seqFile = vm["sequences"].as<std::string>(); this->alnMode = 0;}
-    if (vm.count("files")) {this->msaDir = vm["files"].as<std::string>(); this->alnMode = 1;}
+
+    this->treeFile        = (vm.count("tree"))      ? vm["tree"].as<std::string>()      : "";
+    this->seqFile         = (vm.count("sequences")) ? vm["sequences"].as<std::string>() : "";
+    this->msaDir          = (vm.count("files"))     ? vm["files"].as<std::string>()     : "";
+    this->backboneAlnFile = (vm.count("alignment")) ? vm["alignment"].as<std::string>() : "";
 
     int maxSubtreeSize = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     int maxSubSubtreeSize = (vm.count("max-group")) ? vm["max-group"].as<int>() : INT32_MAX;
@@ -233,7 +239,7 @@ msa::option::option(po::variables_map& vm) {
         gappyHorizon = 1;
     }
     
-    if (maxSubtreeSize < INT32_MAX || vm.count("files")) {
+    if (maxSubtreeSize < INT32_MAX || vm.count("files") || this->alnMode == 2) {
         std::string tempDir;
         if (!vm.count("temp-dir")) {
             int idx = 1;
@@ -254,18 +260,21 @@ msa::option::option(po::variables_map& vm) {
         else {
             tempDir = vm["temp-dir"].as<std::string>();
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
-            if (mkdir(tempDir.c_str(), 0777) == -1) {
-                if( errno == EEXIST ) {
+            if (fs::exists(tempDir)) {
+                if (!vm.count("overwrite")) {
                     std::cerr << "ERROR: " << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
                     exit(1);
                 }
-                else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
+                fs::remove_all(tempDir);
             }
+            fs::create_directories(tempDir);
         }
         std::cout << tempDir << " created for storing temporary alignments\n";
         this->tempDir = tempDir;
     }
-    std::string outType = vm["output-type"].as<std::string>();
+
+    // std::string outType = vm["output-type"].as<std::string>();
+    std::string outType = "FASTA";
     if (outType != "FASTA" && outType != "CIGAR") {
         std::cerr << "ERROR: Unrecognized output type \"" << outType <<"\"\n";
         exit(1);
@@ -278,20 +287,7 @@ msa::option::option(po::variables_map& vm) {
         exit(1);
     }
     
-    if (vm.count("psgop")) {
-        std::string psgop = vm["psgop"].as<std::string>();
-        if      (psgop == "y" || psgop == "Y" || psgop == "yes" || psgop == "YES" || psgop == "Yes") {this->psgopAuto = false; this->psgop = true;}
-        else if (psgop == "n" || psgop == "N" || psgop == "no" || psgop == "NO" || psgop == "No")    {this->psgopAuto = false; this->psgop = false;}
-        else if (psgop == "auto" || psgop == "Auto" || psgop == "AUTO")                              {this->psgopAuto = true;  this->psgop = false;}
-        else {
-            std::cerr << "ERROR: Unrecognized option \"" << psgop <<"\" for position-specific gap open penalty.\n";
-            exit(1);
-        } 
-    }
-    else {
-        this->psgop = false;
-        this->psgopAuto = true;
-    }
+    
 
     if (vm.count("type")) {
         if (vm["type"].as<std::string>() != "n" || vm["type"].as<std::string>() != "p") {
@@ -348,6 +344,8 @@ msa::option::option(po::variables_map& vm) {
         exit(1);
     }
 
+    this->psgopAuto = false; 
+    this->psgop = true;
     this->redo = false;
     this->calSim = false;
     this->cpuNum = cpuNum; 
@@ -376,6 +374,7 @@ msa::option::option(po::variables_map& vm) {
     this->outFile = vm["output"].as<std::string>();
     if (fs::exists(this->outFile) && !vm.count("overwrite")) {
         std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
+        fs::remove_all(tempDir);
         exit(1);
     }
     std::ofstream outFile(this->outFile);
@@ -581,6 +580,8 @@ void msa::utility::clearAll() {
     this->seqsLen.clear();
     this->seqsStorage.clear();
     this->lowQuality.clear();
+    this->backboneAln.clear();
+    this->placedSeqs.clear();
 }
 
 void msa::utility::debug(int& debugNum) {

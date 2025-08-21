@@ -68,7 +68,8 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     }
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progessiveTime = progressiveEnd - progressiveStart;
-    std::cout << "Progressive alignment in " <<  progessiveTime.count() / 1000000000 << " s\n";
+    if (option->alnMode != 2) std::cout << "Progressive alignment in " <<  progessiveTime.count() / 1000000000 << " s\n";
+    else std::cout << "Alignment in " <<  progessiveTime.count() / 1000000000 << " s\n";
     if (util->badSequences.empty()) return;
     // Adding bad sequences back
     util->nowProcess = 1;
@@ -115,6 +116,37 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     auto badEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds badTime = badEnd - badStart;
     std::cout << "Added bad profiles/sequences in " <<  badTime.count() / 1000000000 << " s\n";
+    return;
+}
+
+void placement(Tree *T, msa::utility *util, msa::option *option, partitionInfo_t *partition, Params &param)
+{
+
+    auto progressiveStart = std::chrono::high_resolution_clock::now();
+    std::vector<std::pair<Node *, Node *>> alnPairs;
+
+    createAlnPairs(T, util, option, alnPairs);
+    auto scheduleEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds scheduleTime = scheduleEnd - progressiveStart;
+    
+    if (option->printDetail)
+        std::cout << "Create alignment pairs in " << scheduleTime.count() / 1000 << " us\n";
+
+    
+    auto alnStart = std::chrono::high_resolution_clock::now();
+    option->calSim = false;
+    msaCpu(T, alnPairs, util, option, param);
+    mergedAlignedSeqs(T, util, option, alnPairs);
+    auto alnEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds alnTime = alnEnd - alnStart;
+    if (alnPairs.size() > 1)
+        std::cout << "Aligned " << alnPairs.size() << " new sequences in " << alnTime.count() / 1000000 << " ms\n";
+    else
+            std::cout << "Aligned 1 new sequence in " << alnTime.count() / 1000000 << " ms\n";
+
+    auto progressiveEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds progressiveTime = progressiveEnd - progressiveStart;
+    if (option->alnMode != 2) std::cout << "Progressive alignment (length: " << util->seqsLen[T->root->identifier] << ") in " << progressiveTime.count() / 1000000000 << " s\n";
     return;
 }
 
@@ -241,14 +273,14 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
         for (int n = 0; n <               2 * seqLen; ++n) hostGapOp[n] = 0;
         for (int n = 0; n <               2 * seqLen; ++n) hostGapEx[n] = 0;
         for (int n = 0; n <               2 * seqLen; ++n) hostGapCl[n] = 0;
-        std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>> gappyColumns;
+        gappyColumnQueue gappyColumns;
         int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
         int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
         int32_t newRef = refLen, newQry = qryLen;
         float refNum = 0, qryNum = 0;
         if (util->nowProcess < 2) {
             std::pair<int,int> startPos (std::make_pair(0,0));
-            calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, option->type, seqLen, profileSize, startPos);
+            calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, option, seqLen, profileSize, startPos);
             std::pair<int,int> lens = std::make_pair(refLen, qryLen), rawLens (std::make_pair(0, 0)), offset (std::make_pair(0, 0));
             removeGappyColumns(hostFreq, tree, nodes[nIdx], util, option, gappyColumns, seqLen, seqLen, lens, rawLens);
             newRef = lens.first, newQry = lens.second;
@@ -319,7 +351,7 @@ void createOverlapAlnCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes
         std::pair<int, int> debugIdx = std::make_pair(-1*alnRef,alnQry);   
         bool tempAlnGappy = option->alignGappy;
         option->alignGappy = false; 
-        addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
+        addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, hostParam, param);
         option->alignGappy = tempAlnGappy;
         assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
         tree->allNodes[nodes[nIdx].first->identifier]->msaAln = aln;
@@ -511,19 +543,24 @@ void transitivityMerge(Tree* tree, Tree* newtree, std::vector<std::pair<Node*, N
 void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util, msa::option* option, Params& param)
 {
     
-    if (util->nowProcess < 2) updateNode(tree, nodes, util);
+    bool placement = (option->alnMode == 2 && option->nowProcess == 0);
+
+    if (util->nowProcess < 2 && !placement) updateNode(tree, nodes, util);
     int32_t seqLen = 0;
-    if (util->nowProcess < 2) {
+    if (placement) {
+        for (auto n : nodes) seqLen = std::max(seqLen, static_cast<int32_t>(std::max(n.first->msaFreq.size(), n.second->msaFreq.size())));
+    }
+    else if (util->nowProcess < 2) {
         for (auto n: nodes) seqLen = std::max(seqLen, std::max(util->seqsLen[n.first->identifier], util->seqsLen[n.second->identifier]));
-        // seqLen *= 2;
     }
     else {
-        for (auto n: nodes) {
-            if (tree->allNodes[n.first->identifier]->msaAln.size() > seqLen)  seqLen = tree->allNodes[n.first->identifier]->msaAln.size();
-            if (tree->allNodes[n.second->identifier]->msaAln.size() > seqLen) seqLen = tree->allNodes[n.second->identifier]->msaAln.size();
+        for (auto n: nodes) seqLen = std::max(seqLen, static_cast<int32_t>(std::max(n.first->msaAln.size(), n.second->msaAln.size())));
+        if (seqLen == 0) {
+            for (auto p: util->profileFreq) seqLen = std::max(seqLen, static_cast<int32_t>(p.second.size()));   
+            for (auto n: nodes) seqLen = std::max(seqLen, std::max(static_cast<int32_t>(tree->allNodes[n.first->identifier]->msaFreq.size()), static_cast<int32_t>(tree->allNodes[n.second->identifier]->msaFreq.size())));   
         }
     }
-    
+
     int paramSize = param.matrixSize * param.matrixSize + 4;
     float *hostParam = (float *)malloc(paramSize * sizeof(float));
     for (int i = 0; i < param.matrixSize; ++i)
@@ -573,22 +610,25 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         float* hostFreq =  (float*)malloc(profileSize * 2 * seqLen * sizeof(float));
         float* hostGapOp = (float*)malloc(              2 * seqLen * sizeof(float));
         float* hostGapEx = (float*)malloc(              2 * seqLen * sizeof(float));
-        std::pair<std::queue<std::pair<int, int>>, std::queue<std::pair<int, int>>> gappyColumns;
+        gappyColumnQueue gappyColumns;
         // initialize
         for (int n = 0; n < profileSize * 2 * seqLen; ++n) hostFreq[n] = 0;
         for (int n = 0; n <               2 * seqLen; ++n) hostGapOp[n] = 0;
         for (int n = 0; n <               2 * seqLen; ++n) hostGapEx[n] = 0;
-        int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-        int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+        // int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
+        // int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
+        int32_t refLen = (!placement) ? util->seqsLen[nodes[nIdx].first->identifier]  : nodes[nIdx].first->msaFreq.size();
+        int32_t qryLen = (!placement) ? util->seqsLen[nodes[nIdx].second->identifier] : nodes[nIdx].second->msaFreq.size();
+                        
         
         float refWeight = 0.0, qryWeight = 0.0;
-        if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
-        
-        
+        if (!placement) {
+            if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+            if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+        }
 
         std::pair<int,int> startPos (std::make_pair(0,0));
-        calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, option->type, seqLen, profileSize, startPos);
+        calculateProfileFreq(hostFreq, tree, nodes[nIdx], util, option, seqLen, profileSize, startPos);
         if (util->nowProcess == 1) {
             int32_t refNum = tree->allNodes[nodes[0].first->identifier]->msaIdx.size();
             for (int s = 0; s < util->seqsLen[nodes[0].first->identifier]; ++s) {
@@ -604,8 +644,8 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         float refNum_f = 0, qryNum_f = 0;
         for (int t = 0; t < profileSize; ++t) refNum_f += hostFreq[t]; 
         for (int t = 0; t < profileSize; ++t) qryNum_f += hostFreq[profileSize*seqLen+t];       
-        int32_t refNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f));
-        int32_t qryNum = (util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f));
+        int32_t refNum = (placement) ? nodes[nIdx].first->msa.size() : ((util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].first->identifier]->msaIdx.size() : static_cast<int32_t>(round(refNum_f)));
+        int32_t qryNum = (placement) ? 1                             : ((util->nowProcess < 2) ? tree->allNodes[nodes[nIdx].second->identifier]->msaIdx.size(): static_cast<int32_t>(round(qryNum_f)));
         
         // Start alignment
         std::vector<int8_t> aln_old, aln;
@@ -626,13 +666,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         free(hostGapOp);
         free(hostGapEx);
 
-        // if (nIdx == 0) {
-        //     for (auto a: gapEx[1]) std::cout << a << ',';
-        //     std::cout << '\n';
-        //     for (auto a: gapOp[0]) std::cout << a << ',';
-        //     std::cout << '\n';
-        // }
-        
         std::pair<float, float> num = std::make_pair(static_cast<float>(refNum), static_cast<float>(qryNum));
         Talco_xdrop::Params* talco_params = new Talco_xdrop::Params(hostParam, param.matrixSize);
         if (util->nowProcess == 1) talco_params->gapBoundary = 0; 
@@ -651,7 +684,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 aln_old,
                 errorType
             );
-            if (util->nowProcess == 0 && errorType != 0) {
+            if (util->nowProcess == 0 && errorType != 0 && !placement) {
                 aln_old.clear();
                 {
                     tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex);
@@ -674,7 +707,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             }
         }
         delete talco_params;
-        if (util->nowProcess == 0 && (refNum == 1 || qryNum == 1)) {
+        if (util->nowProcess == 0 && (refNum == 1 || qryNum == 1) && !placement) {
             if (util->lowQuality[tree->allNodes[nodes[nIdx].first->identifier]->msaIdx[0]] || 
                 util->lowQuality[tree->allNodes[nodes[nIdx].second->identifier]->msaIdx[0]]) {
                 aln_old.clear();
@@ -696,7 +729,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             // if (nIdx == 0) std::cout << '\n';
             if (!option->alignGappy) alnQry *= -1;
             std::pair<int, int> debugIdx = std::make_pair(-1*alnRef,alnQry);
-            addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx);
+            addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, hostParam, param);
             if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                 std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                 std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';
@@ -704,8 +737,13 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             }
             // assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
             if (util->nowProcess != 1) {
-                updateAlignment(tree, nodes[nIdx], util, aln); 
-                updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
+                if (!placement) {
+                    updateAlignment(tree, nodes[nIdx], util, aln); 
+                    updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
+                }
+                else {
+                    nodes[nIdx].second->msaAln = aln;
+                }
             }
             else {
                 alnBad[nIdx] = aln;
@@ -728,7 +766,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         for (auto n: nodes) badNodes.push_back(n.second);
         mergeInsertions (tree, nodes[0].first, badNodes, util, alnBad);
     }
-    if (util->nowProcess < 2) {
+    if (util->nowProcess < 2 && !placement) {
         for (auto n: tree->allNodes) {
             if (n.second->is_leaf()) {
                 if (util->memLen < util->seqMemLen[util->seqsIdx[n.first]]) util->memLen = util->seqMemLen[util->seqsIdx[n.first]];
