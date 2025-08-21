@@ -71,11 +71,11 @@ TWILIGHT offers multiple installation methods for different platforms and hardwa
     ⚠️ To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
 
 
-### **Using Conda** <a name=conda></a>
+### **Using Conda** <a name="conda"></a>
 
 TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
 
-0. <a name=installconda></a> Install Conda (if not installed)
+0. <a name="installconda"></a> Install Conda (if not installed)
     ```bash
     # Replace <PLATFORM> with the actual platform of your system
     # See https://repo.anaconda.com/miniconda/ for details
@@ -89,7 +89,7 @@ TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Pa
     ```
 1. Create and activate a Conda environment
     ```bash
-    conda create -n twilight -y
+    conda create -n twilight python=3.11 -y
     conda activate twilight
     # Set up channels
     conda config --add channels defaults
@@ -106,7 +106,7 @@ TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Pa
     bash ./install/installIterative.sh
     ```
 
-### **Using installation script (requires sudo access)** <a name=script></a>
+### **Using installation script (requires sudo access)** <a name="script"></a>
 Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or [Docker](#docker).
 
 1. Clone the repository
@@ -150,16 +150,16 @@ Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or
     cd bin
     ./twilight --help
     ```
-5. (optional) Install TWILIGHT iterative mode (ensure [Conda is installed](#installconda) first)
+5. <a name="install-iter"></a>(optional) Install TWILIGHT iterative mode (ensure [Conda is installed](#installconda) first)
     ```bash
     # Create and activate a Conda environment 
-    conda create -n twilight -y
+    conda create -n twilight python=3.11 -y
     conda activate twilight
     # Install Snakemake and tree inference tools
     bash ./install/installIterative.sh
     ```
 
-### **Using Dockerfile** <a name=docker></a> 
+### **Using Dockerfile** <a name="docker"></a> 
 The Dockerfile installed all the dependencies and tools for TWILIGHT default/iterative mode.  
 
 1. Clone the repository  
@@ -194,72 +194,111 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 
 ## <a name="Run TWILIGHT"></a> **Run TWILIGHT**
 
-### <a name="default"></a> **Default Mode**  
+### <a name="TWILIGHT CLI"></a> **TWILIGHT Command Line Interface (CLI)**
+#### **Main Functionalities**
+1. [Build MSA from unaligned Sequences (Default Mode)](#default)
+2. [Merging Multiple MSAs](#merge-msa)
+3. [Add New Sequences to an Existing Alignment](#add-new-sequences-1)
 
-#### Functionalities
-<div name="table1" align="center"> <b>Table 1:</b> List of functionalities supported by TWILIGHT </div>
+#### **Command Line Options**
+<div name="table1" align="center"> <b>Table 1:</b> List of command line options supported by TWILIGHT </div>
 
 | **Option**                       | **Description**                                                                                                      |
 |----------------------------------|----------------------------------------------------------------------------------------------------------------------| 
-| `-t`, `--tree`                   | Input guide tree file path (Newick format).                                                                          |
-| `-i`, `--sequences`              | Input unaligned sequences path (FASTA format).                                                                       |
-| `-f`, `--files`                  | Path to the directory containing all MSA files (FASTA format) to be merged.                                          |
-| `-o`, `--output`                 | Output MSA file path.                                                                                                |
-| `-C`, `--cpu`                    | Number of CPU cores. Default: all available cores.                                                                   |
-| `-m`, `--max-subtree`            | Maximum number of leaves in a subtree. Used when divide-and-conquer method is applied.                               |
-| `-g`, `--max-group`              | Maximum number of leaves in a group within a subtree. Groups are merged using transitivity merger.                   |
-| `-d`, `--temp-dir`               | Directory for storing temporary files. Used when `-f` or `-m` is specified.                                          |
-| `-r`, `--remove-gappy`           | Threshold for removing gappy columns. Set to 1 to disable this feature. Default: 0.95. <br> It is recommended to set a higher threshold (i.e. 0.999) or to 1 when the alignment is known to be less gappy.                                           |
-| `--type`               | Data type. `n`: nucleotide, `p`: protein. Will be automatically inferred if not provided.                                       |
-| `-w`, `--wildcard`               | Treat unknown or ambiguous bases as wildcards and align them to usual letters.                                       |
-| `-v`, `--verbose`                | Print out every detail process.                                                                                      | 
-| `-p`, `--pgsop`                  | Position-specific gap open penalty. `y` for enable and `n` for disable. Default: `y`| 
-| `-x`, `--matrix`                 | User-specified substitution matrix path.                                                                             |
-| `-k`, `--keep-temp`              | Keep the temporary directory.                                                                                        |
-| `-s`, `--sum-of-pairs-score`     | Calculate the sum-of-pairs-score after alignment.                                                                    |
-| `--type`                         | Data type. `n` for nucleotide sequences and `p` for protein sequences. Will be automatically inferred if not provided.                          |
-| `--no-align-gappy`               | Do not align gappy columns. This will create a longer MSA (larger file).                                             |
-| `--length-deviation`               | Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded. Default: disabled. |
-| `--max-ambig`               | Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded. Default: 0.1.  |
-| `--filter`               | Exclude sequences with high ambiguity or length deviation. Default: disabled. |
-| `--merge`                        | Method to merge subtrees. `t` for Transitivity Merger and `p` for Pregressive Alignment. Default: `p`.               |
-| `--match`                        | Match score. Default: 18.                                                                                            | 
-| `--mismatch`                     | Mismatch penalty (transversions). Default: -8.                                                                       | 
-| `--transition`                   | Transition score. Default: -4.                                                                                        |
-| `--gap-open`                     | Gap-open penalty. Default: -50.                                                                                      |
-| `--gap-extend`                   | Gap-extend penalty. Default: -5.                                                                                     |
-| `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty. Default: 600.                  |
-| `--output-type`                  | Way to present MSA. `FASTA` for FASTA format and `CIGAR` for CIGAR-like compressed format. Default: `FASTA`.         |
+| **Inputs** |
+| Build MSA from unaligned Sequences (Default Mode) |
+| `-t`, `--tree`                   | Input guide tree file in *Newick format* (required). |
+| `-i`, `--sequences`              | Input unaligned sequences file in *FASTA format* (required). |
+| Merging Multiple MSAs |
+| `-f`, `--files`                  | Path to the directory containing all MSA files in *FASTA format* to be merged. |
+| Add New Sequences to an Existing Alignment |
+| `-t`, `--tree`                   | Input tree file in *Newick format* with placements for sequences to be aligned (optional). |
+| `-i`, `--sequences`              | Input unaligned sequences file in *FASTA format* (required). |
+| `-a`, `--alignment`              | Backbone MSAs in *FASTA format* (required). | 
+| **Outputs/Files** |
+| `-o`, `--output`                 | Output MSA file name (required). |
+| `-d`, `--temp-dir`               | Directory for storing temporary files. Used when `-f` or `-m` is specified. |
+| `-k`, `--keep-temp`              | Keep the temporary directory (default: disabled). |
+| `--overwrite`                    | Force overwriting the temporary and output files (default: disabled). |
+| `--write-prune`                  | Write the pruned tree to the output directory (must be used with `--prune`, default: disabled). |
+| **Hardware Usage** |
+| `-C`, `--cpu`                    | Number of CPU cores (default: all available cores). |
+| Options only for GPU version     |
+| `-G`, `--gpu`                    | Number of GPU (default: all available GPUs). |
+| `--gpu-index`                    | Specify the GPU to be used, separated by commas. For example, `0,2,3` uses 3 GPUs with the index 0, 2 and 3. |
+| `--cpu-only`                     | Run the program only using CPU. |
+| **Alignment Parameters** |
+| `--type`                         | Data type: `n` for nucleotide, `p` for protein. Automatically inferred if not specified. |
+| `-m`, `--max-subtree`            | Maximum number of leaves per subtree; enables [divide-and-conquer method](#divide-and-conquer) (default: `INT_MAX`).
+| `-r`, `--remove-gappy`           | Threshold for removing gappy columns (set to 1 to disable, default: 0.95).|
+| `--prune`                        | Prune the input guide tree based on the presence of unaligned sequences (default: disabled). |
+| `-w`, `--wildcard`               | Treat unknown or ambiguous bases as wildcards and align them to usual letters (default: disabled). |
+| `--no-align-gappy`               | Do not align gappy columns; this will create a longer MSA (default: disabled). |
+| `--length-deviation`             | Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded (default: disabled). |
+| `--max-ambig`                  | Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded (default: 0.1). |
+| `--filter`                       | Exclude sequences with high ambiguity or length deviation (default: disabled.) |
+| `--merge`                        | Method to merge subtrees: `t` for Transitivity Merger and `p` for Progressive Alignment (default: `p`). |
+| **Scoring Parameters** |
+| `--match`                        | Match score (default: 18). | 
+| `--mismatch`                     | Mismatch penalty for transversions (default: -8).   | 
+| `--transition`                   | Score for transition (default: -4). |
+| `--gap-open`                     | Gap-open penalty (default: -50).           |
+| `--gap-extend`                   | Gap-extend penalty (default: -5). |
+| `-x`, `--matrix`                 | User-specified substitution matrix path.       |
+| `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty (default: 600).     |
+| **General** |
 | `--check`                  | Check the final alignment. Sequences with no legal alignment will be displayed.       |
-| `-h`, `--help`                   | Print help messages.                                                                                                 |
-| `--version`                   | Show TWILIGHT version.                                                                                                 |
-| **Options only for GPU version**                                                                                                                        |
-| `-G`, `--gpu`                    | Number of GPU. Default: all available GPUs.                                                                          |
-| `--gpu-index`                    | Specify the GPU to be used, separated by commas. For example, `0,2,3` uses 3 GPUs with the index 0, 2 and 3.         |
-| `--cpu-only`                     | Run the program only using CPU.                                                                                      |
+| `-v`, `--verbose`                | Print out every detail process. | 
+| `-h`, `--help`                   | Print help messages and exit. |
+| `--version`                      | Show TWILIGHT version and exit. |
 
+
+#### **Usages and Examples**
 
 !!!Note
-    All files used for the examples below can be found in the `TWILIGHT/dataset`.
+    All files used for the examples below can be found in `TWILIGHT/dataset`.
 
-Enter into the build directory (assuming `$TWILIGHT_HOME` directs to the TWILIGHT repository directory)  
+Enter into the build directory (assuming `$TWILIGHT_HOME` directs to the TWILIGHT repository directory)
 ```bash
 cd $TWILIGHT_HOME/bin
-./twilight -h
+./twilight -h # See Help Messages
 ```
-#### **Default Configuration**  
+##### <a name="default"></a> **Build MSA from unaligned Sequences (Default Mode)**  
 Generate MSA by giving an unaligned sequence file and a guide tree file.  
 
 * Usage syntax
 ```bash
-./twilight -t <path to tree file> -i <path to sequence file> -o <path to output file>
+./twilight -t <tree file> -i <sequence file> -o <output file>
 ```
 * Example
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
 ```
-#### **Divide-and-Conquer Method**  
-Devide tree into subtrees with at most *m* leaves and align them sequentially to reduce the CPU’s main memory usage.
+##### <a name="merge-msa"></a> **Merge Multiple MSAs**  
+Assume a star-tree structure to merge multiple MSAs. Please move all MSA files to be merged into one folder.  
+
+* Usage syntax
+```bash
+./twilight -f <path to the folder> -o <output file>
+```
+* Example
+```bash
+./twilight -f ../dataset/RNASim_subalignments/ -o RNASim.aln
+```
+##### <a name="add-new-sequences-1"></a>  **Add New Sequences to an Existing Alignment**  
+For better accuracy, it is recommended to use a tree that includes placements for the new sequences. If no tree is provided, TWILIGHT aligns new sequences to the profile of the entire backbone alignment, which may reduce accuracy. In this case, using the provided [Snakemake workflow](#add-new-sequences-2) is advised.
+
+* Usage syntax
+```bash
+./twilight -a <backbone alignment file> -i <new sequence file> -t <tree with placement of new sequences> -o <path to output file>
+```
+* Example
+```bash
+./twilight -a ../dataset/RNASim_backbone.aln -i ../dataset/RNASim_sub.fa -t ../dataset/RNASim.nwk -o RNASim.aln
+```
+
+##### <a name="divide-and-conquer"></a> **Divide-and-Conquer Method**  
+Divide tree into subtrees with at most *m* leaves and align them sequentially to reduce the CPU’s main memory usage.
 
 * Usage syntax
 ```bash
@@ -269,37 +308,49 @@ Devide tree into subtrees with at most *m* leaves and align them sequentially to
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200
 ```
-#### **Merge Multiple MSA Files**
-Assume a star-tree structure to merge multiple MSAs. Please move all MSA files to be merged into one folder.  
+
+##### **Flexible Tree Support**  
+Prunes tips that are not present in the unaligned sequence file. This is useful when working with a large tree but only aligning a subset of sequences, without needing to re-estimate the guide tree. Outputting the pruned tree is also supported.
 
 * Usage syntax
 ```bash
-./twilight -f <path to the folder> -o <path to output file>
+./twilight -t <large tree file> -i <subset of raw sequences> -o <output file> --prune [--write-prune]
 ```
 * Example
 ```bash
-./twilight -f ../dataset/RNASim_subalignments/ -o RNASim.aln
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim_sub.fa -o RNASim_sub.aln --prune --write-prune
 ```
-### <a name="iterative"></a> **Iterative Mode**
-TWILIGHT iterative mode estimate guide trees using external tools.  
+
+### <a name="snakemake"></a> **Snakemake Workflow**
+TWILIGHT uses the Snakemake workflow to integrate external tools for estimating guide trees and placing new sequences. These are used in iterative mode or when aligning new sequences to existing alignments. For setting up the environment and installing external tools, see [here](#install-iter).  
+
+#### **Main Functionalities**
+1. [Iterative Mode](#iterative)
+2. [Add New Sequences to an Existing Alignment (Placement Mode)](#add-new-sequences-2)
 
 #### **Command Line Configurations**
-<div name="table2" align="center"> <b>Table 2:</b> List of command line configurations in TWILIGHT iterative mode</div>  
-
-| **Configuration <br>(used with `--config`)**    | **Description and Options**                                                                                   |
+| **Configurations**  | **Description and Options**         |
 |-----------------------------------------------------|---------------------------------------------------------------------------------------------------| 
-| `TYPE`                            | Input sequence type, options: `n` for nucleotide or `p` for protein sequences. (required)    |                                                               
-| `SEQ`                            | Input unaligned sequences path (FASTA format).                                                                       |
-| `OUT`                            | Output MSA file path.                                                                                                |
-| `DIR`                            | Directory for storing temporary files.                                                                               |
-| `ITER`                           | Number of iterations.                                                                                                |
-| `INITTREE`                       | Tree method for initial guide tree, options: `parttree`, `maffttree` or `mashtree`.                                  |
-| `ITERTREE`                       | Tree method for subsequent iterations, options: `fasttree`, `iqtree` or `raxml`.                                      | 
-| `GETTREE`                        | Estimate tree after final alignment, options: `yes` or `no`.                                                          |
-| `OUTTREE`                        | Output Tree file path, used when `GETTREE=yes`.                                                                      |  
-| **Snakemake Options**                                                                                                                                   |
-| `-n`                             | Dry run, check workflow.                                                                                             |
-| `--cores`                        | Number of cores. If you would like to use more than 32 cores, please also modify `num_threads` in `workflow/config.yaml`. |
+| **Snakemake Workflow Configurations**  |
+| `-n`                             | Dry run, check workflow. |
+| `--cores`                        | Number of CPU cores to use (default: all available cores). Some Snakemake versions may require this to be explicitly set. |
+| **User-defined Configurations (used with `--config`)**    |                                                                            |
+| **Iterative Mode** |                                                          
+| `SEQ`                            | Input unaligned sequences file in *FASTA format* (required). |
+| `INITTREE`                       | Tree method for initial guide tree, options: `parttree`, `maffttree` or `mashtree`. (default: `parttree`).|
+| `ITERTREE`                       | Tree method for for intermediate steps, options: `rapidnj` or `fasttree`. (default: `rapidnj`).| 
+| **Add New Sequences to an Existing Alignment (Placement Mode)**|
+| `SEQ`                            | New sequences in *FASTA format* to be placed and aligned (required). |
+| `ALN`                            | Backbone alignment in *FASTA format* for placing new sequences (required.) |
+| `TREE`                           | Backbone tree (optional; FastTree will be used for estimation if not provided). |
+| **General** |
+| `TYPE`  | Input sequence type, options: `n` for nucleotide or `p` for protein sequences (required).  |     
+| `OUT`                            | Output MSA file path (required).  |
+| `DIR`                            | Directory for storing temporary files. |
+| `ITER`                           | Number of iterations (default: 3 for Iterative Mode and 2 for Placement Mode). |
+| `FINALTREE`                      | Final tree estimation method (skip if unspecified), options: `fasttree`, `raxml` or `iqtree`.|
+| `KEEP`                           | Keep the temporary files, options: `yes` or `no` (default: `no`). |
+| `OVERWRITE`                      | Overwrite the existing files, options: `yes` or `no` (default: `no`). |
 
 !!!Note
     Default options in `workflow/config.yaml` will be used if the configuration is not specified. You can also modify `workflow/config.yaml` to set your options.
@@ -307,27 +358,46 @@ TWILIGHT iterative mode estimate guide trees using external tools.
 !!!Note
     For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance. 
 
-#### **Run TWILIGHT iterative mode**
-1. Enter into `workflow` directory
+#### **Usages and Examples**
+Enter `workflow` directory and type `snakemake` to view the help messages.   
 ```bash
-cd $TWILIGHT_HOME/workflow
+cd workflow
+snakemake
+# or, for Snakemake versions that require specifying total number of cores:
+snakemake --cores 1
 ```
-2. (optional) Update the `workflow/config.yaml` file  
-In addition to command line options, `workflow/config.yaml` provides additional options for functionalities in TWILIGHT and substitution models for tree inference tools. See `workflow/config.yaml` for more details.  
-3. Run
-    * Usage syntax
-    ```bash
-    snakemake --cores [num threads] --config TYPE=[n/p] SEQ=[sequence] OUT=[output] DIR=[directory] ITER=[iterations] INITTREE=[tree method] ITERTREE=[tree method] OUTTREE=[tree] GETTREE=[yes/no]
-    ```
-    * Example  
-    Using default configurations  
-    ```bash
-    snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir
-    ```
-    Specifying all command line options
-    ```bash
-    snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln DIR=tempDir ITER=2 INITTREE=maffttree ITERTREE=raxml OUTTREE=RNASim.tree GETTREE=yes
-    ```
+
+##### <a name="iterative"></a> **Iterative Mode**
+TWILIGHT iterative mode estimate guide trees using external tools. 
+
+* Usage syntax
+```bash
+snakemake [--cores <num threads>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE [OPTION=VALUE ...]
+```
+* Example - Using default configurations
+```bash
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln
+```
+* Example - Generates the final tree based on the completed MSA.
+```bash
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln FINALTREE=fasttree
+```
+
+##### <a name="add-new-sequences-2"></a> **Add New Sequences to an Existing Alignment (Placement Mode)**
+TWILIGHT aligns new sequences to the profile of the backbone alignment, infers their placement with external tools, and then refines the alignment using the inferred tree.  
+
+* Usage syntax
+```bash
+snakemake [--cores <num threads>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTION=VALUE ...]
+```
+* Example - The backbone alignment is accompanied by a tree.
+```bash
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln TREE=../dataset/RNASim_backbone.nwk
+```
+* Example - The backbone tree is unavailable, estimate it using external tools and generate a final tree after alignment.
+```bash
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln FINALTREE=fasttree
+```
 
 ## <b>Contributions</b>
 We welcome contributions from the community to enhance the capabilities of TWILIGHT. If you encounter any issues or have suggestions for improvement, please open an issue on [TWILIGHT GitHub page](https://github.com/TurakhiaLab/TWILIGHT). For general inquiries and support, reach out to our team.

@@ -264,6 +264,11 @@ Example
 ```
 ### <a name="snakemake"></a> Snakemake Workflow
 For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. To set up the environment and install external tools, see [here](#install-iter).
+
+#### Setup 
+ - For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance.   
+ - Note that since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required in TWILIGHT iterative mode: use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.   
+
 Enter `workflow` directory and type `snakemake` to view the help messages.
 
 ```bash
@@ -280,9 +285,6 @@ Supported tree inference tools:
 - Intermediate iterations (optimized for speed): `rapidnj`, `fasttree`
 - Final tree (optimized for quality): `fasttree`, `raxml`, `iqtree`
 
-**Step 1:** For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance. 
-
-**Step 2:** Run TWILIGHT iterative mode. Since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required in TWILIGHT iterative mode: use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.  
 Usage syntax
 ```bash
 snakemake [--cores <num threads>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE [OPTION=VALUE ...]
@@ -297,7 +299,7 @@ snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln
 snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln FINALTREE=fasttree
 ```
 #### <a name="add-2"></a> Add New Sequences to an Existing Alignment
-If no placement tree is provided, TWILIGHT aligns new sequences to the profile of the backbone alignment, infers their placement with external tools, and then refines the allignment using the inferred tree.
+TWILIGHT aligns new sequences to the profile of the backbone alignment, infers their placement with external tools, and then refines the alignment using the inferred tree.
 
 Usage syntax
 ```bash
