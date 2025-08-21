@@ -156,7 +156,7 @@ bash ./install/buildTWILIGHT.sh hip  # For AMD GPUs
 cd bin
 ./twilight --help
 ```
-**Step 5 (optional)**<a name="install_iter"></a> Install TWILIGHT iterative mode (ensure Conda is installed first)
+**Step 5 (optional)**<a name="install-iter"></a> Install TWILIGHT iterative mode (ensure Conda is installed first)
 ```bash
 # Create and activate a Conda environment 
 conda create -n twilight python=3.11 -y
@@ -267,7 +267,7 @@ For more information about TWILIGHT's options and instructions, see [wiki](https
 
 #### Setup 
  - For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance.   
- - Note that since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required in TWILIGHT iterative mode: use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.   
+ - Note that since some tree-building tools can’t automatically detect the sequence type, specifying datatype is required. Use `TYPE=n` for nucleotide sequences or `TYPE=p` for protein sequences.   
 
 Enter `workflow` directory and type `snakemake` to view the help messages.
 
