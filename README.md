@@ -203,8 +203,8 @@ cd bin
 
 
 ## <a name="run"></a> Run TWILIGHT
-### <a name="twilight_cli"></a> TWILIGHT CLI
-For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. 
+### <a name="twilight_cli"></a> TWILIGHT Command Line Interface
+For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help*. 
 ```bash
 cd bin
 ./twilight -h
@@ -263,7 +263,7 @@ Example
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim_sub.fa -o RNASim_sub.aln --prune --write-prune
 ```
 ### <a name="snakemake"></a> Snakemake Workflow
-For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help* for more details. To set up the environment and install external tools, see [here](#install-iter).
+For more information about TWILIGHT's options and instructions, see [wiki](https://turakhia.ucsd.edu/TWILIGHT/) or *Help*. To set up the environment and install external tools, see [here](#install-iter).
 
 #### Setup 
  - For users who install TWILIGHT via Conda, please replace the executable path `"../bin/twilight"` with `"twilight"` in `config.yaml`. Feel free to switch to a more powerful tree tool if available, such as replacing `"raxmlHPC"` with `"raxmlHPC-PTHREADS-AVX2"` for better performance.   
