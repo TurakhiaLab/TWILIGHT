@@ -91,7 +91,7 @@ TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Pa
 
 **Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
 ```bash
-conda create -n twilight python=3.10 -y
+conda create -n twilight python=3.11 -y
 conda activate twilight
 # Set up channels
 conda config --add channels defaults
@@ -159,7 +159,7 @@ cd bin
 **Step 5 (optional)**<a name="install_iter"></a> Install TWILIGHT iterative mode (ensure Conda is installed first)
 ```bash
 # Create and activate a Conda environment 
-conda create -n twilight python=3.10 -y
+conda create -n twilight python=3.11 -y
 conda activate twilight
 # Install Snakemake and tree inference tools
 bash ./install/installIterative.sh
@@ -269,6 +269,8 @@ Enter `workflow` directory and type `snakemake` to view the help messages.
 ```bash
 cd workflow
 snakemake
+# or, for Snakemake versions that require specifying total number of cores:
+snakemake --cores 1
 ```
 #### <a name="iterative"></a> Iterative Mode
 TWILIGHT iterative mode estimate guide trees using external tools. 
@@ -288,27 +290,27 @@ snakemake [--cores <num threads>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE [OPTIO
 Example  
 - Using default configurations
 ```bash
-snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln
 ```
 - Generates the final tree based on the completed MSA.
 ```bash
-snakemake --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln FINALTREE=fasttree
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim.fa OUT=RNASim.aln FINALTREE=fasttree
 ```
 #### <a name="add-2"></a> Add New Sequences to an Existing Alignment
 If no placement tree is provided, TWILIGHT aligns new sequences to the profile of the backbone alignment, infers their placement with external tools, and then refines the allignment using the inferred tree.
 
 Usage syntax
 ```bash
-snakemake [--cores <n>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTION=VALUE ...]
+snakemake [--cores <num threads>] --config TYPE=VALUE SEQ=VALUE OUT=VALUE ALN=VALUE [OPTION=VALUE ...]
 ```
 Example  
 - The backbone alignment is accompanied by a tree.
 ```bash
-snakemake --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln TREE=../dataset/RNASim_backbone.nwk
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln TREE=../dataset/RNASim_backbone.nwk
 ```
 - The backbone tree is unavailable, estimate it using external tools and generate a final tree after alignment.
 ```bash
-snakemake --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln FINALTREE=fasttree
+snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln FINALTREE=fasttree
 ```
 ##  <a name="contribution"></a> Contributions
 We welcome contributions from the community to enhance the capabilities of **TWILIGHT**. If you encounter any issues or have suggestions for improvement, please open an issue on [TWILIGHT GitHub page](https://github.com/TurakhiaLab/TWILIGHT). For general inquiries and support, reach out to our team.
