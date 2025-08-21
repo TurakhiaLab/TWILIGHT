@@ -133,6 +133,7 @@ Users without sudo access are advised to install TWILIGHT via [Conda](#conda) or
     xcode-select --install # if not already installed
     brew install wget boost cmake tbb
     ```
+
 3. Build TWILIGHT  
     Our build script automatically detects the best available compute backend **(CPU, NVIDIA GPU, or AMD GPU)** and builds TWILIGHT accordingly. Alternatively, users can manually specify the desired target platform.
 
