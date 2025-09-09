@@ -527,6 +527,15 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
     int32_t refNum = (!(option->alnMode == 2) && (util->nowProcess == 0)) ? tree->allNodes[nodes.first->identifier]->msaIdx.size()  : nodes.first->msa.size();
     int32_t qryNum = (!(option->alnMode == 2) && (util->nowProcess == 0)) ? tree->allNodes[nodes.second->identifier]->msaIdx.size() : 1;
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
+
+    if (util->nowProcess == 1) {
+        float refNum_f = 0.0, qryNum_f = 0.0;
+        for (int t = 0; t < profileSize; ++t) refNum_f += hostFreq[t]; 
+        for (int t = 0; t < profileSize; ++t) qryNum_f += hostFreq[profileSize*seqLen+t];
+        refNum = static_cast<int32_t>(round(refNum_f));
+        qryNum = static_cast<int32_t>(round(qryNum_f));
+    }
+
     if (util->nowProcess == 2) {
         float refNum_f = 0, qryNum_f = 0;
         int subtreeRef = util->seqsIdx[nodes.first->identifier];
@@ -537,8 +546,8 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
         if (tree->allNodes[nodes.second->identifier]->msaFreq.empty()) {
             tree->allNodes[nodes.second->identifier]->msaFreq = util->profileFreq[subtreeQry];
         }
-        for (int t = 0; t < 6; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
-        for (int t = 0; t < 6; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
+        for (int t = 0; t < profileSize; ++t) refNum_f += tree->allNodes[nodes.first->identifier]->msaFreq[0][t]; 
+        for (int t = 0; t < profileSize; ++t) qryNum_f += tree->allNodes[nodes.second->identifier]->msaFreq[0][t]; 
         refNum = static_cast<int32_t>(round(refNum_f));
         qryNum = static_cast<int32_t>(round(qryNum_f));
     }
@@ -556,6 +565,8 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
                     hostGapOp[offsetg+s] = param.gapOpen;
                     hostGapEx[offsetg+s] = param.gapExtend;
                 }
+                // if (refLen == 3304 && qryLen == 1948) std::cout << s << ':' << gapRatio << '/' << refNum << '=' << hostGapOp[offsetg+s] << '\n';
+                
             }
             else {
                 hostGapOp[offsetg+s] = 0.0;
@@ -907,103 +918,172 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
     return;
 }
 
+
 void mergeInsertions (Tree* tree, Node* nodeRef, std::vector<Node*>& nodes, msa::utility* util, std::vector<std::vector<int8_t>>& alnBad) {
-    std::vector<int> alnIdx (alnBad.size(), 0);
-    std::vector<std::vector<int8_t>> alnNew (alnBad.size());
-    std::vector<int8_t> alnRef;
-    while (true) {
-        bool hasInsert = false;
-        bool reachEnd = true;
-        for (int i = 0; i < alnBad.size(); ++i) {
-            if (!alnBad[i].empty()) {
-                if (alnIdx[i] < alnBad[i].size()) {
-                    reachEnd = false;
-                    if (alnBad[i][alnIdx[i]] == 1) {
-                        hasInsert = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if (reachEnd) break;
-        if (hasInsert) {
-            // std::cout << "Insert at " << alnRef.size() << "\n";
-            for (int i = 0; i < alnBad.size(); ++i) {
-                if (!alnBad[i].empty()) {
-                    if (alnBad[i][alnIdx[i]] == 1) {
-                        alnNew[i].push_back(0);
-                        alnIdx[i] += 1;
-                        
-                    } 
-                    else {
-                        alnNew[i].push_back(2);
-                    }
-                }
-            }
-            alnRef.push_back(2);
-        }
-        else {
-            for (int i = 0; i < alnBad.size(); ++i) {
-                if (!alnBad[i].empty()) {
-                    alnNew[i].push_back(alnBad[i][alnIdx[i]]);
-                    alnIdx[i] += 1;
-                    
-                }
-            }
-            alnRef.push_back(0);
-        }
-    } 
-    std::cout << "Length after insertions: " << alnRef.size() << ", before insertions: " << util->seqsLen[nodeRef->identifier] << '\n';
-    if (alnRef.size() != util->seqsLen[nodeRef->identifier]) { // Update large profile
-        tbb::this_task_arena::isolate( [&]{
-        tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodeRef->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> range) {
-        for (int idx = range.begin(); idx < range.end(); ++idx) {
-            int sIdx = tree->allNodes[nodeRef->identifier]->msaIdx[idx];  
-            util->memCheck(alnRef.size(), sIdx);
-            int orgIdx = 0;
-            int storeFrom = util->seqsStorage[sIdx];
-            int storeTo = 1 - storeFrom;
-            for (int k = 0; k < alnRef.size(); ++k) {
-                if (alnRef[k] == 0) {
-                    util->alnStorage[storeTo][sIdx][k] = util->alnStorage[storeFrom][sIdx][orgIdx];
-                    orgIdx++;
-                }
-                else if (alnRef[k] == 2) {
-                    util->alnStorage[storeTo][sIdx][k] = '-';
-                }
-            }
-            util->changeStorage(sIdx);
-        }
-        });
-        });
-        util->seqsLen[nodeRef->identifier] = alnRef.size();
+    assert(nodes.size() == alnBad.size());
+    std::vector<std::vector<int8_t>> alnPaths (alnBad.size()); 
+    std::map<int, std::vector<std::pair<std::string, int>>> insertionGroup;
+    std::vector<std::tuple<int, std::string, int>> insert2backbone;
+    int32_t refLen = util->seqsLen[nodeRef->identifier];
+
     
-    }
-    tbb::this_task_arena::isolate( [&]{
-    tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range) {
-    for (int i = range.begin(); i < range.end(); ++i) {
-        if (!alnNew[i].empty()) {
-            for (int idx = 0; idx < tree->allNodes[nodes[i]->identifier]->msaIdx.size(); ++idx) {
-                int sIdx = tree->allNodes[nodes[i]->identifier]->msaIdx[idx];  
-                util->memCheck(alnNew[i].size(), sIdx);
-                int orgIdx = 0;
-                int storeFrom = util->seqsStorage[sIdx];
-                int storeTo = 1 - storeFrom;
-                for (int k = 0; k < alnNew[i].size(); ++k) {
-                    if (alnNew[i][k] == 0) {
-                        util->alnStorage[storeTo][sIdx][k] = util->alnStorage[storeFrom][sIdx][orgIdx];
-                        orgIdx++;
-                    }
-                    else if (alnNew[i][k] == 2) {
-                        util->alnStorage[storeTo][sIdx][k] = '-';
-                    }
-                }
-                util->changeStorage(sIdx);
+    tbb::spin_rw_mutex mutex;
+    tbb::parallel_for(tbb::blocked_range<int>(0, alnBad.size()), [&](tbb::blocked_range<int> r) {
+    for (int s = r.begin(); s < r.end(); ++s) {
+        int refIdx = 0, alnIdx = 0;
+        // 0: match
+        // 1: gaps 
+        while (alnIdx < alnBad[s].size()) {
+            if (alnBad[s][alnIdx] == 0) {
+                alnPaths[s].push_back(0);
+                alnIdx++;
+                refIdx++;
             }
-            util->seqsLen[nodes[i]->identifier] = alnNew[i].size();
+            else if (alnBad[s][alnIdx] == 2) {
+                alnPaths[s].push_back(1);
+                alnIdx++;
+                refIdx++;
+            }
+            else if (alnBad[s][alnIdx] == 1) {
+                int num = 0;
+                while (alnBad[s][alnIdx] == 1) {
+                    num++;
+                    alnIdx++;
+                }
+                // for (int i = 0; i < num; ++i) alnPaths[s].push_back(3);
+                {
+                    tbb::spin_rw_mutex::scoped_lock lock(mutex, true);
+                    insert2backbone.push_back({refIdx, nodes[s]->identifier, num});
+                }
+            }
+        }
+        if (refLen != refIdx) {
+            std::cerr << "ERROR: Length not match.\t" << refLen << '-' << refIdx << '\n';
         }
     }
     });
+
+    std::sort(insert2backbone.begin(), insert2backbone.end(), [](auto &a, auto &b){
+        if (std::get<0>(a) != std::get<0>(b)) return std::get<0>(a) < std::get<0>(b);
+        return std::get<1>(a) < std::get<1>(b);
+    });
+    for (auto& [pos, seqID, gap] : insert2backbone) {
+        if (insertionGroup.find(pos) == insertionGroup.end()) insertionGroup.emplace(pos, std::vector<std::pair<std::string,int>>(0));
+        insertionGroup[pos].push_back({seqID, gap});
+    }
+
+    for (auto it = insertionGroup.begin(); it != insertionGroup.end(); ++it) {
+        std::sort(it->second.begin(), it->second.end(), [](auto &a, auto &b){
+            return a.second > b.second;
+        });
+    }
+
+    int32_t insLen = 0;
+    for (auto it = insertionGroup.begin(); it != insertionGroup.end(); ++it) {
+        insLen += it->second[0].second;
+    }
+
+    
+    // Update sequences
+    tbb::parallel_for(tbb::blocked_range<int>(0, alnBad.size()), [&](tbb::blocked_range<int> r) {
+    for (int s = r.begin(); s < r.end(); ++s) {
+        for (int ss = 0; ss < tree->allNodes[nodes[s]->identifier]->msaIdx.size(); ++ss) {
+            int sIdx = tree->allNodes[nodes[s]->identifier]->msaIdx[ss];  
+            int alnIdx = 0, newIdx = 0, orgIdx = 0;
+            auto insertIt = insertionGroup.begin();
+            util->memCheck((refLen+insLen), sIdx);
+            int storeFrom = util->seqsStorage[sIdx];
+            int storeTo = 1 - storeFrom;
+
+            while (alnIdx < alnPaths[s].size()) {
+                if (alnIdx == insertIt->first) {
+                    int maxGapLen = insertIt->second[0].second, gapLen = -1;
+                    for (auto a: insertIt->second) {
+                        if (a.first == nodes[s]->identifier) {
+                            gapLen = a.second;
+                            break;
+                        }
+                    }
+                    if (gapLen == -1) {
+                        for (int j = 0; j < maxGapLen; ++j) {
+                            util->alnStorage[storeTo][sIdx][newIdx] = '-';
+                            newIdx++;
+                        }
+                    }
+                    else {
+                        int j;
+                        for (j = 0; j < gapLen; ++j) {
+                            util->alnStorage[storeTo][sIdx][newIdx] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                            orgIdx++; newIdx++;
+                        }
+                        for (j = gapLen; j < maxGapLen; ++j) {
+                            util->alnStorage[storeTo][sIdx][newIdx] = '-';
+                            newIdx++;
+                        }
+                    }
+                    ++insertIt;
+                }
+                else {
+                    if (alnPaths[s][alnIdx] == 0) {
+                        util->alnStorage[storeTo][sIdx][newIdx] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                        orgIdx++; newIdx++;
+                    }
+                    else {
+                        util->alnStorage[storeTo][sIdx][newIdx] = '-';
+                        newIdx++;
+                    }
+                    alnIdx++;
+                }
+            }
+            util->changeStorage(sIdx);
+            if (newIdx != (refLen + insLen)) {
+                std::cerr << "ERROR: Length not match after insertion.\t" << (refLen + insLen) << '-' << newIdx << '\n';
+            }
+            
+        }
+        
+        
+    }
+    });
+
+    auto insertIt = insertionGroup.begin();
+    std::vector<int8_t> refUpdatedPath;
+    int r_alnIdx = 0;
+    while (r_alnIdx < refLen) {
+        if (r_alnIdx == insertIt->first) {
+            for (int j = 0; j < insertIt->second[0].second; ++j) refUpdatedPath.push_back(1);
+            ++insertIt;
+        }
+        else {
+            refUpdatedPath.push_back(0);
+            r_alnIdx++;
+        }
+    }
+
+    // update reference alignment
+    tbb::parallel_for(tbb::blocked_range<int>(0, tree->allNodes[nodeRef->identifier]->msaIdx.size()), [&](tbb::blocked_range<int> r) {
+    for (int s = r.begin(); s < r.end(); ++s) {
+        int alnIdx = 0, newIdx = 0, orgIdx = 0;
+        int sIdx = tree->allNodes[nodeRef->identifier]->msaIdx[s];
+        util->memCheck((refLen+insLen), sIdx);
+        int storeFrom = util->seqsStorage[sIdx];
+        int storeTo = 1 - storeFrom;
+        for (auto a: refUpdatedPath) {
+            if (a == 0) {
+                util->alnStorage[storeTo][sIdx][newIdx] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                orgIdx++; newIdx++;
+            }
+            else {
+                util->alnStorage[storeTo][sIdx][newIdx] = '-';
+                newIdx++;
+            }
+        }
+        util->changeStorage(sIdx);
+        if (newIdx != (refLen + insLen)) {
+            std::cerr << "ERROR: Length not match after insertion.\t" << (refLen + insLen) << '-' << newIdx << '\n';
+        }
+        util->seqsLen[nodeRef->identifier] = newIdx;
+    }
     });
 
     for (int i = 0; i < nodes.size(); ++i) {
@@ -1015,11 +1095,9 @@ void mergeInsertions (Tree* tree, Node* nodeRef, std::vector<Node*>& nodes, msa:
         }
     }
     tree->allNodes[nodeRef->identifier]->msaFreq.clear();
-    
+
     return;
 }
-
-
 
 void createAlnPairs(Tree* tree, msa::utility* util, msa::option* option, std::vector<std::pair<Node*, Node*>>& alnPairs) {
     

@@ -74,7 +74,7 @@ __global__ void alignGrpToGrp_freq(float* freq, int8_t *aln, int32_t* len, int32
 
         
         // int16_t p_gapOpen = __float2int_rn(param[25]);
-        const float LEN_DIFF_TH = 0.15;
+        const float LEN_DIFF_TH = 1.00;
         float len_diff = abs(refLen - qryLen);
         len_diff /= static_cast<float>(max(refLen, qryLen));
         // if (tile == 0 && len_diff > LEN_DIFF_TH) std::cout << reference.size() << ',' << query.size() << ',' << len_diff << '\n';
