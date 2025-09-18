@@ -59,6 +59,7 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
                 }
                 if (!current->children[chIdx]->msaIdx.empty()) {
                     T->allNodes[p.first]->msaIdx = current->children[chIdx]->msaIdx;
+                    if (!current->children[chIdx]->msaFreq.empty()) T->allNodes[p.first]->msaFreq = std::move(current->children[chIdx]->msaFreq);
                     util->seqsLen[p.first] = util->seqsLen[current->children[chIdx]->identifier];
                     break;
                 }
@@ -76,22 +77,20 @@ void msaOnSubtree (Tree* T, msa::utility* util, msa::option* option, partitionIn
     auto badStart = std::chrono::high_resolution_clock::now();
     int badSeqBefore = 0;
     int badProfileBefore = 0;
-    std::unordered_map<std::string, int> badSeqs;
     hier.clear();
     hier = std::vector<std::vector<std::pair<Node *, Node *>>>(1);
     for (auto p : partition->partitionsRoot) {
-        std::vector<Node*> badNodes;
+        std::set<std::string> badNodes;
         if (util->badSequences.find(p.second.first->grpID) != util->badSequences.end()) {
             auto badSeqName = util->badSequences[p.second.first->grpID];
             for (auto n: badSeqName) {
-                badNodes.push_back(T->allNodes[n]);
+                badNodes.insert(n);
                 badProfileBefore += 1;
-                for (auto idx: T->allNodes[n]->msaIdx) badSeqs[n] = idx;
                 badSeqBefore += T->allNodes[n]->msaIdx.size();
             }   
         }
-        for (int i = 0; i < badNodes.size(); ++i) {
-            hier[0].push_back(std::make_pair(T->allNodes[p.second.first->identifier], T->allNodes[badNodes[i]->identifier]));
+        for (auto name: badNodes) {
+            hier[0].push_back(std::make_pair(T->allNodes[p.second.first->identifier], T->allNodes[name]));
         }   
     }
     util->badSequences.clear();
@@ -546,6 +545,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
     bool placement = (option->alnMode == 2 && option->nowProcess == 0);
 
     if (util->nowProcess < 2 && !placement) updateNode(tree, nodes, util);
+
     int32_t seqLen = 0;
     if (placement) {
         for (auto n : nodes) seqLen = std::max(seqLen, static_cast<int32_t>(std::max(n.first->msaFreq.size(), n.second->msaFreq.size())));
@@ -603,7 +603,6 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         }
     }
 
-
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
     for (int nIdx = range.begin(); nIdx < range.end(); ++nIdx) {
         // allocate memory
@@ -615,15 +614,16 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         for (int n = 0; n < profileSize * 2 * seqLen; ++n) hostFreq[n] = 0;
         for (int n = 0; n <               2 * seqLen; ++n) hostGapOp[n] = 0;
         for (int n = 0; n <               2 * seqLen; ++n) hostGapEx[n] = 0;
-        // int32_t refLen = util->seqsLen[nodes[nIdx].first->identifier];
-        // int32_t qryLen = util->seqsLen[nodes[nIdx].second->identifier];
         int32_t refLen = (!placement) ? util->seqsLen[nodes[nIdx].first->identifier]  : nodes[nIdx].first->msaFreq.size();
         int32_t qryLen = (!placement) ? util->seqsLen[nodes[nIdx].second->identifier] : nodes[nIdx].second->msaFreq.size();
                         
         
         float refWeight = 0.0, qryWeight = 0.0;
         if (!placement) {
-            if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+            if (util->nowProcess < 2) {
+                if (util->nowProcess == 0) for (auto sIdx: tree->allNodes[nodes[nIdx].first->identifier]->msaIdx)  refWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+                else                       for (auto weight: tree->allNodes[nodes[nIdx].first->identifier]->msaFreq[0]) refWeight += weight;
+            }
             if (util->nowProcess < 2) for (auto sIdx: tree->allNodes[nodes[nIdx].second->identifier]->msaIdx) qryWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
         }
 
@@ -671,6 +671,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         if (util->nowProcess == 1) talco_params->gapBoundary = 0; 
         if (refLen == 0) for (int j = 0; j < qryLen; ++j) aln_old.push_back(1);
         if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_old.push_back(2);
+        // if (util->nowProcess == 1) std::cout << nIdx << ':' << newRef << '\t' << newQry << std::endl;
         while (aln_old.empty()) {
             int16_t errorType = 0;
             aln_old.clear();
@@ -701,9 +702,11 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                 exit(1);
             }
             else if (errorType == 1) {
-                if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << '\n';
                 talco_params->updateXDrop(static_cast<int32_t>(talco_params->xdrop * 1.2));
+                // talco_params->updateXDrop(static_cast<int32_t>(std::min(newRef, newQry) * -1 * param.gapExtend));
                 talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->xdrop * 4) << 1, std::min(newRef, newQry)));
+                if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << "\tNew Xdrop: " << talco_params->xdrop << '\n';
+                
             }
         }
         delete talco_params;
@@ -742,11 +745,11 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
                     updateFrequency(tree, nodes[nIdx], util, aln, refWeight, qryWeight, debugIdx);
                 }
                 else {
-                    nodes[nIdx].second->msaAln = aln;
+                    nodes[nIdx].second->msaAln = std::move(aln);
                 }
             }
             else {
-                alnBad[nIdx] = aln;
+                alnBad[nIdx] = std::move(aln);
             }
             // assert(debugIdx.first == refLen); assert(debugIdx.second == qryLen);
             if (option->calSim && util->nowProcess < 2) {

@@ -229,7 +229,7 @@ void Talco_xdrop::Tile (
         float gapExtend = param->gapExtend;
         float gapOpenEnd = (param->alnType == 0) ? gapOpen : 0;
         float gapExtendEnd = (param->alnType == 0) ? gapExtend : 0;
-        const float LEN_DIFF_TH = 0.15;
+        const float LEN_DIFF_TH = 1.00;
         float len_diff = (reference.size() > query.size()) ? reference.size() - query.size() : query.size() - reference.size();
         len_diff /= static_cast<float>(std::max(reference.size(), query.size()));
         // if (tile == 0 && len_diff > LEN_DIFF_TH) std::cout << reference.size() << ',' << query.size() << ',' << len_diff << '\n';
@@ -308,7 +308,8 @@ void Talco_xdrop::Tile (
             return;
         }
         for (int32_t k = 0; k < reference_length + query_length - 1; k++){
-            // printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
+            
+            // if (reference.size() == 3304 && query.size() == 1948) printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
             if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                 last_tile = true;
                 errorType = 1;
@@ -509,6 +510,19 @@ void Talco_xdrop::Tile (
                 if (max_score_prime < score) {
                     max_score_prime = score;
                 }
+
+                // if (i == L[k%3] && reference.size() == 3304 && query.size() == 1948) {
+                // if (pos_gapExtend_ref < -100000 || pos_gapExtend_qry < -100000 || pos_gapOpen_ref < -100000 || pos_gapOpen_qry < -100000) {
+                //     fprintf(stderr, "ERROR: Extremely large gap penalties!\n");
+                //     std::cout << k << ',' << i << ',' << j << ',' << pos_gapOpen_ref << ',' << pos_gapExtend_ref << ',' << pos_gapOpen_qry << ',' << pos_gapExtend_qry << '\n';
+                //     // exit(1);
+                // }
+                // }
+                // if (i == L[k%3] && reference.size() == 3304 && query.size() == 1948) {
+                //     std::cout << k << ',' << i << ',' << j << ',' << match << ',' << I[k%2][offset] << ',' << D[k%2][offset] << ',' << S[k%3][offset] << ',' << max_score_prime << '\n';
+                //     std::cout << pos_gapOpen_ref << ',' << pos_gapExtend_ref << ',' << pos_gapOpen_qry << ',' << pos_gapExtend_qry << '\n';
+                //     std::cout << offset << ',' << offsetDiag << ',' << offsetUp << ',' << offsetLeft << '\n';
+                // }
                 
 
                 if (k == marker - 1) { // Convergence algorithm

@@ -158,6 +158,7 @@ void msaOnSubtreeGpu(Tree *T, msa::utility *util, msa::option *option, partition
             if (!current->children[chIdx]->msaIdx.empty())
             {
                 T->allNodes[p.first]->msaIdx = current->children[chIdx]->msaIdx;
+                if (!current->children[chIdx]->msaFreq.empty()) T->allNodes[p.first]->msaFreq = std::move(current->children[chIdx]->msaFreq);
                 util->seqsLen[p.first] = util->seqsLen[current->children[chIdx]->identifier];
                 break;
             }
@@ -169,28 +170,28 @@ void msaOnSubtreeGpu(Tree *T, msa::utility *util, msa::option *option, partition
     std::cout << "Progressive alignment (length: " << util->seqsLen[T->root->identifier] << ") in " << progessiveTime.count() / 1000000000 << " s\n";
     if (util->badSequences.empty())
         return;
+
+
     // Adding bad sequences back
     util->nowProcess = 1;
     auto badStart = std::chrono::high_resolution_clock::now();
     int badSeqBefore = 0;
     int badProfileBefore = 0;
-    std::unordered_map<std::string, int> badSeqs;
     hier.clear();
     hier = std::vector<std::vector<std::pair<Node *, Node *>>>(1);
     for (auto p : partition->partitionsRoot) {
-        std::vector<Node*> badNodes;
+        // std::vector<Node*> badNodes;
+        std::set<std::string> badNodes;
         if (util->badSequences.find(p.second.first->grpID) != util->badSequences.end()) {
             auto badSeqName = util->badSequences[p.second.first->grpID];
             for (auto n: badSeqName) {
-                badNodes.push_back(T->allNodes[n]);
+                badNodes.insert(n);
                 badProfileBefore += 1;
-                for (auto idx: T->allNodes[n]->msaIdx) badSeqs[n] = idx;
                 badSeqBefore += T->allNodes[n]->msaIdx.size();
             }   
         }
-        std::sort(badNodes.begin(), badNodes.end(), comp);
-        for (int i = 0; i < badNodes.size(); ++i) {
-            hier[0].push_back(std::make_pair(T->allNodes[p.second.first->identifier], T->allNodes[badNodes[i]->identifier]));
+        for (auto name: badNodes) {
+            hier[0].push_back(std::make_pair(T->allNodes[p.second.first->identifier], T->allNodes[name]));
         }   
     }
     util->badSequences.clear();
@@ -200,7 +201,7 @@ void msaOnSubtreeGpu(Tree *T, msa::utility *util, msa::option *option, partition
         for (auto m : hier) {
             auto alnStart = std::chrono::high_resolution_clock::now();
             if (option->cpuOnly || m.size() < cpuThres) msaCpu(T, m, util, option, param);
-            else                 msaGpu(T, m, util, option, param);
+            else                 msaCpu(T, m, util, option, param);
             auto alnEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnTime = alnEnd - alnStart;
             if (option->printDetail) {
@@ -387,9 +388,11 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
             std::vector<bool> endAln;
             float globalRefWeight = 0.0;
             if (util->nowProcess == 1) {
-                int32_t refLen = util->seqsLen[nodes[0].first->identifier];
-                int32_t refNum = tree->allNodes[nodes[0].first->identifier]->msaIdx.size();
-                for (auto sIdx: tree->allNodes[nodes[0].first->identifier]->msaIdx)  globalRefWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+                // int32_t refLen = util->seqsLen[nodes[0].first->identifier];
+                // int32_t refNum = tree->allNodes[nodes[0].first->identifier]->msaIdx.size();
+                // for (auto sIdx: tree->allNodes[nodes[0].first->identifier]->msaIdx)  globalRefWeight += tree->allNodes[util->seqsName[sIdx]]->weight;
+                for (auto weight: tree->allNodes[nodes[0].first->identifier]->msaFreq[0])  globalRefWeight += weight;
+                
             }
 
             while (nowRound < roundGPU) {
