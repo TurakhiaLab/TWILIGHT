@@ -560,8 +560,21 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                             if (!delay_aln) {
                                 std::vector<int8_t> aln_reduced;
                                 int alnRef = 0, alnQry = 0;
+                                bool redoAln = false;
+                                if (refLen != 0 && qryLen != 0) {
+                                    int refLen_redunced = 0, qryLen_reduced = 0;
+                                    for (int j = 0; j < hostAlnLen[gn][n]; ++j) {
+                                        if (hostAln[gn][n*2*maxProfileLen+j] == 0) {refLen_redunced += 1; qryLen_reduced += 1;}
+                                        if (hostAln[gn][n*2*maxProfileLen+j] == 1) {qryLen_reduced += 1;}
+                                        if (hostAln[gn][n*2*maxProfileLen+j] == 2) {refLen_redunced += 1;}
+                                    }
+                                    if (deviceLen[gn][2*n] != refLen_redunced || deviceLen[gn][2*n+1] != qryLen_reduced) {
+                                        std::cout << "Redo alignment on No. " << nIdx << " ( " << nodes[nIdx].second->identifier << " ): length changed from " << deviceLen[gn][2*n] << '|' << deviceLen[gn][2*n+1] << " to " << refLen_redunced << '|' << qryLen_reduced << '\n';
+                                        redoAln = true;
+                                    }
+                                }
                                 // if (n == 0) std::cout << "HostAlnLen: " << hostAlnLen[gn][n] << '\n';
-                                if (hostAlnLen[gn][n] > 0) {
+                                if (hostAlnLen[gn][n] > 0 && !redoAln) {
                                     for (int j = 0; j < hostAlnLen[gn][n]; ++j) aln_reduced.push_back(hostAln[gn][n*2*maxProfileLen+j]);
                                 }
                                 else if (refLen == 0 || qryLen == 0) {

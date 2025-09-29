@@ -2,7 +2,7 @@
 #define UTIL_HPP
 
 #include "kseq.h"
-#include "zlib.h"
+#include <zlib.h>
 
 #ifndef TREE_HPP
 #include "tree.hpp"
@@ -39,8 +39,7 @@ void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* ut
 void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx);
 void outputPrunedTree(Tree* T, msa::option* option);
 void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
-void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs);
-void outputSubtreeCIGAR(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs);
+void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed);
 
 // auxiliary
 bool cmp(std::string a, std::string b);

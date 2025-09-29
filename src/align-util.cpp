@@ -783,27 +783,27 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
                             global_alignmentProtein(consRef, consQry, gapAln);
                         }
                         
-                        // for (auto a: gapAln) {
-                        //     if (a == 0) {
-                        //         ++rIdx; ++qIdx; aln.push_back(0);
-                        //     }
-                        //     else if (a == 1) {
-                        //         ++qIdx;         aln.push_back(1);
-                        //     }
-                        //     else if (a == 2) {
-                        //         ++rIdx;         aln.push_back(2);
-                        //     }
-                        // }
+                        for (auto a: gapAln) {
+                            if (a == 0) {
+                                ++rIdx; ++qIdx; aln.push_back(0);
+                            }
+                            else if (a == 1) {
+                                ++qIdx;         aln.push_back(1);
+                            }
+                            else if (a == 2) {
+                                ++rIdx;         aln.push_back(2);
+                            }
+                        }
                         // for (auto a: gapAln) std::cout << (a & 0xFFFF);
                         // std::cout << '\n';
-                        if (gapRLen >= gapQLen) {
-                            for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-                            for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
-                        }
-                        else {
-                            for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
-                            for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
-                        }
+                        // if (gapRLen >= gapQLen) {
+                        //     for (int g = 0; g < gapQLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+                        //     for (int g = gapQLen; g < gapRLen; ++g) {++rIdx;         aln.push_back(2);}
+                        // }
+                        // else {
+                        //     for (int g = 0; g < gapRLen; ++g)       {++rIdx; ++qIdx; aln.push_back(0);}
+                        //     for (int g = gapRLen; g < gapQLen; ++g) {++qIdx;         aln.push_back(1);}
+                        // }
                         // std::cout << '\n';
                         
                     }
@@ -878,6 +878,7 @@ void addGappyColumnsBack(std::vector<int8_t>& aln_old, std::vector<int8_t>& aln,
             }
         }
     }
+    
     if (endAln && (!gappyColumns.first.empty() || !gappyColumns.second.empty())) {
         bool gapR = !gappyColumns.first.empty();
         bool gapQ = !gappyColumns.second.empty();
