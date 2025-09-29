@@ -284,14 +284,16 @@ msa::option::option(po::variables_map& vm) {
     else if (merger == "P" || merger == "p") merger = "profile";
     else {
         std::cerr << "ERROR: Unrecognized method to merge subtrees \"" << merger <<"\"\n";
+        fs::remove_all(tempDir);
         exit(1);
     }
     
     
 
     if (vm.count("type")) {
-        if (vm["type"].as<std::string>() != "n" || vm["type"].as<std::string>() != "p") {
+        if (vm["type"].as<std::string>() != "n" && vm["type"].as<std::string>() != "p") {
             std::cerr << "ERROR: Unrecognized data type \"" << vm["type"].as<std::string>() << "\".\n";
+            fs::remove_all(tempDir);
             exit(1);
         }
         else this->type = vm["type"].as<std::string>()[0];
@@ -308,6 +310,7 @@ msa::option::option(po::variables_map& vm) {
         std::ifstream file(seqFile);
         if (!file.is_open()) {
             std::cerr << "Error: cannot open " << seqFile << std::endl;
+            fs::remove_all(tempDir);
             exit(1);
         }
         std::string line;
@@ -335,12 +338,14 @@ msa::option::option(po::variables_map& vm) {
         lenDev = vm["length-deviation"].as<float>();
         if (lenDev <= 0) {
             std::cerr << "ERROR: The value of --length-deviation should be larger than 0\n";
+            fs::remove_all(tempDir);
             exit(1);
         }
     }
     float ambig = vm["max-ambig"].as<float>();
     if (ambig > 1 || ambig <= 0) {
         std::cerr << "ERROR: The value of --max-ambig should be in (0,1]\n";
+        fs::remove_all(tempDir);
         exit(1);
     }
 
@@ -369,6 +374,7 @@ msa::option::option(po::variables_map& vm) {
 
     if (!vm.count("output")) {
         std::cerr << "ERROR: An output file name is required.\n";
+        fs::remove_all(tempDir);
         exit(1);
     }
     
@@ -385,6 +391,7 @@ msa::option::option(po::variables_map& vm) {
         gzFile outFile = gzopen(this->outFile.c_str(), "wb"); // "wb" = write binary
         if (!outFile) {
             fprintf(stderr, "ERROR: failed to open file: %s\n", this->outFile.c_str());
+            fs::remove_all(tempDir);
             exit(1);
         }
         gzclose(outFile);
@@ -394,6 +401,7 @@ msa::option::option(po::variables_map& vm) {
         std::ofstream outFile(this->outFile);
         if (!outFile) {
             fprintf(stderr, "ERROR: failed to open file: %s\n", this->outFile.c_str());
+            fs::remove_all(tempDir);
             exit(1);
         }
         outFile.close();

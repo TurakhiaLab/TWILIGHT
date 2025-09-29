@@ -118,6 +118,31 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     }
     });
 
+    bool outputLowQ = false;
+    if (outputLowQ){
+        std::string lowQfile;
+        if (option->tempDir != "") lowQfile = option->tempDir+"/lowQ-"+std::to_string(numLowQ)+"-"+std::to_string(seqNum)+".fasta.gz";
+        else lowQfile = option->treeFile+".lowQ-"+std::to_string(numLowQ)+"-"+std::to_string(seqNum)+".fasta.gz";
+        gzFile outLow = gzopen(lowQfile.c_str(), "wb"); // "wb" = write binary
+        if (!outLow) {
+            std::cerr << "Failed to open " << outLow << std::endl;
+            exit(1);
+        }
+        for (int sIdx = 0; sIdx < seqNum; ++sIdx) {
+            if (util->lowQuality[sIdx]) {
+                int storage = util->seqsStorage[sIdx];
+                std::string name = util->seqsName[sIdx];
+                int sLen = util->seqsLen[name];
+                gzprintf(outLow, ">%s\n", name.c_str());
+                gzwrite(outLow, &util->alnStorage[storage][sIdx][0], sLen);
+                gzprintf(outLow, "\n");
+            }
+        }
+        gzclose(outLow);
+    }
+    
+
+
     if (option->printDetail) {
         std::cout << "===== Sequence Summary =====\n";
         std::cout << "Number : " << seqNum << '\n';
