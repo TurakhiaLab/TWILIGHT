@@ -31,6 +31,7 @@ void parseArguments(int argc, char** argv)
         ("output,o", po::value<std::string>(), "Output file name (required).")
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files.")
         ("keep-temp,k", "Keep the temporary directory.")
+        ("compress,c", "Write output files in compressed (.gz) format")
         ("overwrite", "Force overwriting the output file.")
         ("write-prune", "Write the pruned tree to the output directory.");
 
@@ -356,7 +357,8 @@ int main(int argc, char** argv) {
     outputAln(util, option, T);
     auto outEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds outTime = outEnd - outStart;
-    std::cout << "Output file to " << option->outFile << " in " <<  outTime.count() / 1000000 << " ms\n";
+    if (!option->compressed) std::cout << "Output file to " << option->outFile << " in " <<  outTime.count() / 1000000 << " ms\n";
+    else std::cout << "Output file to " << option->outFile << ".gz in " <<  outTime.count() / 1000000 << " ms\n";
     // Calculate sum-of-pairs score
     if (vm.count("sum-of-pairs-score")) {
         auto spStart = std::chrono::high_resolution_clock::now();

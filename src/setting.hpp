@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <cstdio>
 #include <sys/stat.h>
+#include <zlib.h>
 
 #include <string>
 #include <vector>
@@ -67,6 +68,7 @@ namespace msa
         bool debug;
         bool cpuOnly;
         bool noFilter;
+        bool compressed;
         char type; // 'n' for dna/rna, 'p' for protein
         // == Position-specific option control ==
         bool psgop;

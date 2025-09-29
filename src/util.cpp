@@ -416,6 +416,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
         for (auto subroot: partition->partitionsRoot) {
             int subtreeIdx = tree->allNodes[subroot.first]->grpID;
             std::string subalnFileName = option->tempDir + "/subtree-" + std::to_string(subtreeIdx) + ".subalignment.aln";
+            if (option->compressed) subalnFileName += ".gz";
             gzFile f_rd = gzopen(subalnFileName.c_str(), "r");
             if (!f_rd) { fprintf(stderr, "ERROR: cant open file: %s\n", subalnFileName.c_str()); exit(1);}
             kseq_t* kseq_rd = kseq_init(f_rd);
@@ -459,8 +460,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             tree->allNodes[subroot.first]->msaAln.clear();
             totalSeqs += seqs.size();
             std::string subtreeSeqFile = option->tempDir + '/' + "subtree-" + std::to_string(subtreeIdx) + ".final.aln";
-            if (option->outType == "FASTA") outputSubtreeSeqs(subtreeSeqFile, seqs);   
-            else if (option->outType == "CIGAR") outputSubtreeCIGAR(subtreeSeqFile, seqs);   
+            outputSubtreeSeqs(subtreeSeqFile, seqs, option->compressed);   
             delete subT;
             seqs.clear();
             rawSeqs.clear();
@@ -544,8 +544,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             }
             });
             
-            if (option->outType == "FASTA") outputSubtreeSeqs(subtreeSeqFile, seqs);   
-            else if (option->outType == "CIGAR") outputSubtreeCIGAR(subtreeSeqFile, seqs);  
+            outputSubtreeSeqs(subtreeSeqFile, seqs, option->compressed);   
             totalSeqs += seqs.size(); 
             seqs.clear();
             ++subtreeIdx;
@@ -595,7 +594,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 seqs[n].second = alnSeq;
             }
             });
-            outputSubtreeSeqs(subtreeSeqFile, seqs);   
+            outputSubtreeSeqs(subtreeSeqFile, seqs, option->compressed);   
             seqs.clear();
         }
         // Output alignment of newly added sequences
@@ -637,7 +636,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 seqs[n].second = alnSeq;
             }
             });
-            outputSubtreeSeqs(subtreeSeqFile, seqs);   
+            outputSubtreeSeqs(subtreeSeqFile, seqs, option->compressed);   
             seqs.clear();
         }
     }
@@ -646,49 +645,95 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
 
 void outputSubAln(msa::utility* util, msa::option* option, Tree* T, int subtreeIdx) {
     std::string fileName = option->tempDir + "/subtree-" + std::to_string(subtreeIdx) + ".subalignment.aln";
-    std::ofstream outFile(fileName);
-    if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-        exit(1);
-    }
-    if (option->alnMode != 2) {
-        std::vector<std::string> seqs;
-        for (auto seq: util->seqsIdx)
-            seqs.push_back(seq.first);
-        size_t seqLen = util->seqsLen[T->root->identifier];
-        std::cout << "Subalignment Length: " << seqLen << '\n';
-        std::sort(seqs.begin(), seqs.end(), cmp);
-        for (int s = 0; s < seqs.size(); ++s) {
-            int sIdx = util->seqsIdx[seqs[s]];
-            int storage = util->seqsStorage[sIdx];
-            if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
-                outFile << '>' << seqs[s] << "\n";
-                outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
-                outFile << '\n';
+    if (option->compressed) {
+        fileName += ".gz";
+        gzFile outFile = gzopen(fileName.c_str(), "wb"); // "wb" = write binary
+        if (!outFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+            exit(1);
+        }
+        if (option->alnMode != 2) {
+            std::vector<std::string> seqs;
+            for (auto seq: util->seqsIdx)
+                seqs.push_back(seq.first);
+            size_t seqLen = util->seqsLen[T->root->identifier];
+            std::cout << "Subalignment Length: " << seqLen << '\n';
+            std::sort(seqs.begin(), seqs.end(), cmp);
+            for (int s = 0; s < seqs.size(); ++s) {
+                int sIdx = util->seqsIdx[seqs[s]];
+                int storage = util->seqsStorage[sIdx];
+                if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+                    gzprintf(outFile, ">%s\n", seqs[s].c_str());
+                    gzwrite(outFile, &util->alnStorage[storage][sIdx][0], seqLen);
+                    gzprintf(outFile, "\n");
+                }
             }
         }
+        else {
+            size_t seqLen = util->backboneAln.begin()->second.size();
+            std::cout << "Subalignment Length: " << seqLen << '\n';
+            for (auto seq: util->backboneAln) {
+                std::string header = ">" + seq.first + "\n";
+                std::string body = seq.second + "\n";
+                gzwrite(outFile, header.c_str(), header.size());
+                gzwrite(outFile, body.c_str(), body.size());
+            }
+            for (auto seq: util->placedSeqs) {
+                std::string header = ">" + seq.first + "\n";
+                std::string body = seq.second + "\n";
+                gzwrite(outFile, header.c_str(), header.size());
+                gzwrite(outFile, body.c_str(), body.size());
+            }
+        }
+        
+        gzclose(outFile);
     }
     else {
-        size_t seqLen = util->backboneAln.begin()->second.size();
-        std::cout << "Subalignment Length: " << seqLen << '\n';
-        for (auto seq: util->backboneAln) {
-            outFile << '>' << seq.first << '\n';
-            outFile << seq.second << '\n';
+        std::ofstream outFile(fileName);
+        if (!outFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+            exit(1);
         }
-        for (auto seq: util->placedSeqs) {
-            outFile << '>' << seq.first << '\n';
-            outFile << seq.second << '\n';
+        if (option->alnMode != 2) {
+            std::vector<std::string> seqs;
+            for (auto seq: util->seqsIdx)
+                seqs.push_back(seq.first);
+            size_t seqLen = util->seqsLen[T->root->identifier];
+            std::cout << "Subalignment Length: " << seqLen << '\n';
+            std::sort(seqs.begin(), seqs.end(), cmp);
+            for (int s = 0; s < seqs.size(); ++s) {
+                int sIdx = util->seqsIdx[seqs[s]];
+                int storage = util->seqsStorage[sIdx];
+                if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+                    outFile << '>' << seqs[s] << "\n";
+                    outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
+                    outFile << '\n';
+                }
+            }
         }
+        else {
+            size_t seqLen = util->backboneAln.begin()->second.size();
+            std::cout << "Subalignment Length: " << seqLen << '\n';
+            for (auto seq: util->backboneAln) {
+                outFile << '>' << seq.first << '\n';
+                outFile << seq.second << '\n';
+            }
+            for (auto seq: util->placedSeqs) {
+                outFile << '>' << seq.first << '\n';
+                outFile << seq.second << '\n';
+            }
+        }
+        outFile.close();
     }
-    // util->seqsFree();
-    outFile.close();
     return;
 }
 
 void outputAln(msa::utility* util, msa::option* option, Tree* T) {
     std::string fileName = option->outFile;
+    if (option->compressed) fileName += ".gz";
+
     if (util->nowProcess == 2) {
-        std::string command = "cat " + option->tempDir + "/*.final.aln > " + fileName;
+        std::string command = "cat " + option->tempDir + "/*.final.aln* > " + fileName;
         int catResult = system(command.c_str());
         if (catResult != 0) {
             if (option->deleteTemp) std::cerr << "ERROR: Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\". Temporary files will not be deleted.\n";
@@ -702,56 +747,49 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
         return;
     }
     if (option->alnMode != 2) {
-        std::ofstream outFile(fileName);
-        if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-            exit(1);
-        }
         std::vector<std::string> seqs;
         for (auto seq: util->seqsIdx)
             seqs.push_back(seq.first);
         size_t seqLen = util->seqsLen[T->root->identifier];
         std::cout << "Final Alignment Length: " << seqLen << '\n';
         std::sort(seqs.begin(), seqs.end(), cmp);
-        for (int s = 0; s < seqs.size(); ++s) {
-            int sIdx = util->seqsIdx[seqs[s]];
-            int storage = util->seqsStorage[sIdx];
-            if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
-                outFile << '>' << seqs[s] << "\n";
-                if (option->outType == "FASTA") {
-                    outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
-                }
-                else if (option->outType == "CIGAR") {
-                    std::string cigar = "";
-                    char type = (util->alnStorage[storage][sIdx][0] == '-') ? 'D' : 'M';
-                    int num = 0;
-                    int i = 0;
-                    while (util->alnStorage[storage][sIdx][i] != 0) {
-                        if (util->alnStorage[storage][sIdx][i] == '-') {
-                            if (type == 'M') {
-                                cigar += (std::to_string(num) + type);
-                                type = 'D'; num = 1;
-                            }
-                            else if (type == 'D') ++num;
-                        }
-                        else {
-                            if (type == 'M') ++num;
-                            else {
-                                cigar += (std::to_string(num) + type);
-                                type = 'M'; num = 1;
-                            }
-                        }
-                        ++i;
-                    }
-                    cigar += (std::to_string(num) + type);
-                    outFile << cigar;
-                }
-                outFile << '\n';
+        if (option->compressed) {
+            gzFile outFile = gzopen(fileName.c_str(), "wb"); // "wb" = write binary
+            if (!outFile) {
+                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+                exit(1);
             }
-            util->seqFree(sIdx);
+            for (int s = 0; s < seqs.size(); ++s) {
+                int sIdx = util->seqsIdx[seqs[s]];
+                int storage = util->seqsStorage[sIdx];
+                if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+                    gzprintf(outFile, ">%s\n", seqs[s].c_str());
+                    gzwrite(outFile, &util->alnStorage[storage][sIdx][0], seqLen);
+                    gzprintf(outFile, "\n");
+                }
+                util->seqFree(sIdx);
+            }
+            gzclose(outFile);
+        }
+        else {
+            std::ofstream outFile(fileName);
+            if (!outFile) {
+                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+                exit(1);
+            }
+            for (int s = 0; s < seqs.size(); ++s) {
+                int sIdx = util->seqsIdx[seqs[s]];
+                int storage = util->seqsStorage[sIdx];
+                if (std::find(T->root->msaIdx.begin(), T->root->msaIdx.end(), sIdx) != T->root->msaIdx.end()) {
+                    outFile << '>' << seqs[s] << "\n";
+                    outFile.write(&util->alnStorage[storage][sIdx][0], seqLen);
+                    outFile << '\n';
+                }
+                util->seqFree(sIdx);
+            }
+            outFile.close();
         }
         util->seqsFree();
-        outFile.close();
     }
     else {
         size_t seqLen = (option->treeFile != "") ? util->backboneAln.begin()->second.size() : T->root->msaAln.size();
@@ -762,16 +800,37 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
             writeOutput = false;
             fs::path p_backbone(option->backboneAlnFile);
             std::string backboneFile = option->tempDir + '/' + p_backbone.filename().string() + ".final.aln";
-            std::ofstream refFile(backboneFile);
-            if (!refFile) {
-                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-                exit(1);
+            if (option->compressed) backboneFile += ".gz";
+            gzFile gzRefFile = nullptr;
+            std::ofstream refFile;
+            if (option->compressed) {
+                gzRefFile = gzopen(backboneFile.c_str(), "wb");
+                if (!gzRefFile) {
+                    fprintf(stderr, "ERROR: can't open file: %s\n", backboneFile.c_str());
+                    exit(1);
+                }
+            } 
+            else {
+                refFile.open(backboneFile);
+                if (!refFile) {
+                    fprintf(stderr, "ERROR: can't open file: %s\n", backboneFile.c_str());
+                    exit(1);
+                }
             }
+            
             if (option->treeFile != "") {
                 for (auto seq: util->backboneAln) {
                     if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
-                    refFile << '>' << seq.first << '\n';
-                    refFile << seq.second << '\n';
+                    if (option->compressed) {
+                        std::string header = ">" + seq.first + "\n";
+                        std::string body = seq.second + "\n";
+                        gzwrite(gzRefFile, header.c_str(), header.size());
+                        gzwrite(gzRefFile, body.c_str(), body.size());
+                    }
+                    else {
+                        refFile << '>' << seq.first << '\n';
+                        refFile << seq.second << '\n';
+                    }
                 }
             }
             else {
@@ -805,9 +864,19 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
                         }
                         });
                         });
-                        for (auto seq: refSeq) {
-                            refFile << '>' << seq.first << '\n';
-                            refFile << seq.second << '\n';
+                        if (option->compressed) {
+                            for (auto seq: refSeq) {
+                                std::string header = ">" + seq.first + "\n";
+                                std::string body = seq.second + "\n";
+                                gzwrite(gzRefFile, header.c_str(), header.size());
+                                gzwrite(gzRefFile, body.c_str(), body.size());
+                            }
+                        }
+                        else {
+                            for (auto seq: refSeq) {
+                                refFile << '>' << seq.first << '\n';
+                                refFile << seq.second << '\n';
+                            }
                         }
                         refSeq.clear();
                     }
@@ -830,26 +899,55 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
                 }
                 });
                 });
-                for (auto seq: refSeq) {
-                    refFile << '>' << seq.first << '\n';
-                    refFile << seq.second << '\n';
+                if (option->compressed) {
+                    for (auto seq: refSeq) {
+                        std::string header = ">" + seq.first + "\n";
+                        std::string body = seq.second + "\n";
+                        gzwrite(gzRefFile, header.c_str(), header.size());
+                        gzwrite(gzRefFile, body.c_str(), body.size());
+                    }
+                }
+                else {
+                    for (auto seq: refSeq) {
+                        refFile << '>' << seq.first << '\n';
+                        refFile << seq.second << '\n';
+                    }
                 }
             }
-            refFile.close();
+            if (option->compressed) gzclose(gzRefFile);
+            else                    refFile.close();
             fs::path p_new(option->seqFile);
             std::string newFile = option->tempDir + '/' + p_new.filename().string() + ".final.aln";
-            std::ofstream qryFile(newFile);
-            if (!qryFile) {
-                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-                exit(1);
+            if (option->compressed) {
+                newFile += ".gz";
+                gzFile qryFile = gzopen(newFile.c_str(), "wb");
+                if (!qryFile) {
+                    fprintf(stderr, "ERROR: can't open file: %s\n", newFile.c_str());
+                    exit(1);
+                }
+                for (auto seq: util->placedSeqs) {
+                    if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                    std::string header = ">" + seq.first + "\n";
+                    std::string body = seq.second + "\n";
+                    gzwrite(qryFile, header.c_str(), header.size());
+                    gzwrite(qryFile, body.c_str(), body.size());
+                }
+                gzclose(qryFile);
             }
-            for (auto seq: util->placedSeqs) {
-            if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
-                qryFile << '>' << seq.first << '\n';
-                qryFile << seq.second << '\n';
+            else {
+                std::ofstream qryFile(newFile);
+                if (!qryFile) {
+                    fprintf(stderr, "ERROR: cant open file: %s\n", newFile.c_str());
+                    exit(1);
+                }
+                for (auto seq: util->placedSeqs) {
+                    if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                    qryFile << '>' << seq.first << '\n';
+                    qryFile << seq.second << '\n';
+                }
+                qryFile.close();
             }
-            qryFile.close();
-            std::string command = "cat " + backboneFile + " " + newFile + " > " + option->outFile;
+            std::string command = "cat " + backboneFile + " " + newFile + " > " + fileName;
             catResult = system(command.c_str());
             if (catResult != 0) {
                 std::cerr << "ERROR: Unable to concatenate alignments.\n";
@@ -857,17 +955,41 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
             }
         }
         if (writeOutput) {
-            std::ofstream outFile(fileName);
-            if (!outFile) {
-                fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-                exit(1);
-            }
-            if (option->treeFile != "") {
-                for (auto seq: util->backboneAln) {
-                    if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
-                    outFile << '>' << seq.first << '\n';
-                    outFile << seq.second << '\n';
+            gzFile gzoutFile = nullptr;
+            std::ofstream outFile;
+            if (option->compressed) {
+                gzoutFile = gzopen(fileName.c_str(), "wb");
+                if (!gzoutFile) {
+                    fprintf(stderr, "ERROR: can't open file: %s\n", fileName.c_str());
+                    exit(1);
                 }
+            } 
+            else {
+                outFile.open(fileName);
+                if (!outFile) {
+                    fprintf(stderr, "ERROR: can't open file: %s\n", fileName.c_str());
+                    exit(1);
+                }
+            }
+
+            if (option->treeFile != "") {
+                if (option->compressed) {
+                    for (auto seq: util->backboneAln) {
+                        if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                        std::string header = ">" + seq.first + "\n";
+                        std::string body = seq.second + "\n";
+                        gzwrite(gzoutFile, header.c_str(), header.size());
+                        gzwrite(gzoutFile, body.c_str(), body.size());
+                    }
+                }
+                else {
+                    for (auto seq: util->backboneAln) {
+                        if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
+                        outFile << '>' << seq.first << '\n';
+                        outFile << seq.second << '\n';
+                    }
+                }
+                
             }
             else {
                 std::vector<std::pair<std::string, std::string>> refSeq;
@@ -900,9 +1022,19 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
                         }
                         });
                         });
-                        for (auto seq: refSeq) {
-                            outFile << '>' << seq.first << '\n';
-                            outFile << seq.second << '\n';
+                        if (option->compressed) {
+                            for (auto seq: refSeq) {
+                                std::string header = ">" + seq.first + "\n";
+                                std::string body = seq.second + "\n";
+                                gzwrite(gzoutFile, header.c_str(), header.size());
+                                gzwrite(gzoutFile, body.c_str(), body.size());
+                            }
+                        }
+                        else {
+                            for (auto seq: refSeq) {
+                                outFile << '>' << seq.first << '\n';
+                                outFile << seq.second << '\n';
+                            }
                         }
                         refSeq.clear();
                     }
@@ -925,17 +1057,37 @@ void outputAln(msa::utility* util, msa::option* option, Tree* T) {
                 }
                 });
                 });
-                for (auto seq: refSeq) {
-                    outFile << '>' << seq.first << '\n';
-                    outFile << seq.second << '\n';
+                if (option->compressed) {
+                    for (auto seq: refSeq) {
+                        std::string header = ">" + seq.first + "\n";
+                        std::string body = seq.second + "\n";
+                        gzwrite(gzoutFile, header.c_str(), header.size());
+                        gzwrite(gzoutFile, body.c_str(), body.size());
+                    }
+                }
+                else {
+                    for (auto seq: refSeq) {
+                        outFile << '>' << seq.first << '\n';
+                        outFile << seq.second << '\n';
+                    }
                 }
             }
             for (auto seq: util->placedSeqs) {
                 if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
-                outFile << '>' << seq.first << '\n';
-                outFile << seq.second << '\n';
+                if (option->compressed) {
+                    std::string header = ">" + seq.first + "\n";
+                    std::string body = seq.second + "\n";
+                    gzwrite(gzoutFile, header.c_str(), header.size());
+                    gzwrite(gzoutFile, body.c_str(), body.size());
+                }
+                else {
+                    outFile << '>' << seq.first << '\n';
+                    outFile << seq.second << '\n';
+                }
+                
             }
-            outFile.close();
+            if (option->compressed) gzclose(gzoutFile);
+            else                    outFile.close();
         }
         if (catResult == 0 && option->deleteTemp) {
             std::string command = "rm -rf " + option->tempDir;
@@ -1029,57 +1181,38 @@ void outputPrunedTree(Tree* T, msa::option* option)
     return;
 }
 
-void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs) {
-    std::ofstream outFile(fileName);
-    if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-        exit(1);
-    }
+void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed) {
     std::sort(seqs.begin(), seqs.end(), cmp2);
-    // int alnLen = seqs.begin()->second.size();
-    for (auto it = seqs.begin(); it != seqs.end(); ++it) {
-        // assert(it->second.size() == alnLen);
-        outFile << ('>' + it->first + '\n');
-        outFile << (it->second + '\n');
-    }
-    outFile.close();
-}
-
-void outputSubtreeCIGAR(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs) {
-    std::ofstream outFile(fileName);
-    if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-        exit(1);
-    }
-    for (auto it = seqs.begin(); it != seqs.end(); ++it) {
-        outFile << ('>' + it->first + '\n');
-        std::string cigar = "";
-        char type = (it->second[0] == '-') ? 'D' : 'M';
-        int num = 0;
-        int i = 0;
-        while (i < it->second.size()) {
-            if (it->second[i] == '-') {
-                if (type == 'M') {
-                    cigar += (std::to_string(num) + type);
-                    type = 'D'; num = 1;
-                }
-                else if (type == 'D') ++num;
-            }
-            else {
-                if (type == 'M') ++num;
-                else {
-                    cigar += (std::to_string(num) + type);
-                    type = 'M'; num = 1;
-                }
-            }
-            ++i;
+    if (compressed) {
+        fileName += ".gz";
+        gzFile outFile = gzopen(fileName.c_str(), "wb"); // "wb" = write binary
+        if (!outFile) {
+            std::cerr << "Failed to open " << fileName << std::endl;
+            exit(1);
         }
-        cigar += (std::to_string(num) + type + '\n');
-        outFile << cigar;
+        for (auto it = seqs.begin(); it != seqs.end(); ++it) {
+            std::string header = ">" + it->first + "\n";
+            std::string body = it->second + "\n";
+            gzwrite(outFile, header.c_str(), header.size());
+            gzwrite(outFile, body.c_str(), body.size());
+        }
+        gzclose(outFile);
     }
-    outFile.close();
+    else {
+        std::ofstream outFile(fileName);
+        if (!outFile) {
+            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+            exit(1);
+        }
+        // int alnLen = seqs.begin()->second.size();
+        for (auto it = seqs.begin(); it != seqs.end(); ++it) {
+            // assert(it->second.size() == alnLen);
+            outFile << ('>' + it->first + '\n');
+            outFile << (it->second + '\n');
+        }
+        outFile.close();
+    }
 }
-
 
 // auxiliary
 bool cmp(std::string a, std::string b) {

@@ -363,6 +363,7 @@ msa::option::option(po::variables_map& vm) {
     this->deleteTemp = !vm.count("keep-temp");
     this->alignGappy = !vm.count("no-align-gappy");
     this->lenDev = lenDev;
+    this->compressed = vm.count("compress");
     this->maxAmbig = ambig;
     this->noFilter = !vm.count("filter");
 
@@ -372,17 +373,33 @@ msa::option::option(po::variables_map& vm) {
     }
     
     this->outFile = vm["output"].as<std::string>();
-    if (fs::exists(this->outFile) && !vm.count("overwrite")) {
-        std::cerr << "ERROR: " << this->outFile << " already exists. Please use another file name.\n";
-        fs::remove_all(tempDir);
-        exit(1);
+    if (!vm.count("overwrite")) {
+        std::string outFileStr = (this->compressed) ? this->outFile + ".gz" : this->outFile;
+        if (fs::exists(outFileStr)) {
+            std::cerr << "ERROR: " << outFileStr << " already exists. Please use another file name.\n";
+            fs::remove_all(tempDir);
+            exit(1);
+        }
     }
-    std::ofstream outFile(this->outFile);
-    if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", this->outFile.c_str());
-        exit(1);
+    if (this->compressed) {
+        gzFile outFile = gzopen(this->outFile.c_str(), "wb"); // "wb" = write binary
+        if (!outFile) {
+            fprintf(stderr, "ERROR: failed to open file: %s\n", this->outFile.c_str());
+            exit(1);
+        }
+        gzclose(outFile);
+        fs::remove(this->outFile);
     }
-    outFile.close();
+    else {
+        std::ofstream outFile(this->outFile);
+        if (!outFile) {
+            fprintf(stderr, "ERROR: failed to open file: %s\n", this->outFile.c_str());
+            exit(1);
+        }
+        outFile.close();
+        fs::remove(this->outFile);
+    }
+    
 
     
     std::cout << "====== Configuration =======\n";
