@@ -307,29 +307,60 @@ msa::option::option(po::variables_map& vm) {
                 break;
             }
         }
-        std::ifstream file(seqFile);
-        if (!file.is_open()) {
-            std::cerr << "Error: cannot open " << seqFile << std::endl;
-            fs::remove_all(tempDir);
-            exit(1);
-        }
-        std::string line;
-        int lineCount = 0;
-        bool fin = false;
-        this->type = 'n';
-        while (getline(file, line)) {
-            if (line.empty() || line[0] == '>') continue;
-            for (char c : line) {
-                c = toupper(c);
-                char seqType = checkOnly(c);
-                if (seqType != 'x') {
-                    this->type = seqType;
-                    fin = true;
-                    break;
-                }
+        if (seqFile.substr(seqFile.size()-3, 3) == ".gz") {
+            gzFile file = gzopen(seqFile.c_str(), "r");
+            if (!file) {
+                std::cerr << "Error: fail to open " << seqFile << std::endl;
+                fs::remove_all(tempDir);
+                exit(1);
             }
-            ++lineCount;
-            if (fin || lineCount == 100) break;
+            std::string line;
+            int lineCount = 0;
+            bool fin = false;
+            this->type = 'n';
+            char buffer[4096];
+            while (gzgets(file, buffer, 4096)) {
+                line = buffer;
+                if (line.empty() || line[0] == '>') continue;
+                for (char c : line) {
+                    c = toupper(c);
+                    char seqType = checkOnly(c); // your existing function
+                    if (seqType != 'x') {
+                        this->type = seqType;
+                        fin = true;
+                        break;
+                    }
+                }
+                ++lineCount;
+                if (fin || lineCount == 100) break;
+            }
+            gzclose(file);
+        }
+        else {
+            std::ifstream file(seqFile);
+            if (!file.is_open()) {
+                std::cerr << "Error: cannot open " << seqFile << std::endl;
+                fs::remove_all(tempDir);
+                exit(1);
+            }
+            std::string line;
+            int lineCount = 0;
+            bool fin = false;
+            this->type = 'n';
+            while (getline(file, line)) {
+                if (line.empty() || line[0] == '>') continue;
+                for (char c : line) {
+                    c = toupper(c);
+                    char seqType = checkOnly(c);
+                    if (seqType != 'x') {
+                        this->type = seqType;
+                        fin = true;
+                        break;
+                    }
+                }
+                ++lineCount;
+                if (fin || lineCount == 100) break;
+            }
         }
     }
 
