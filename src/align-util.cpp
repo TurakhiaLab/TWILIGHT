@@ -997,7 +997,9 @@ void mergeInsertions (Tree* tree, Node* nodeRef, std::vector<Node*>& nodes, msa:
             int storeTo = 1 - storeFrom;
 
             while (alnIdx < alnPaths[s].size()) {
-                if (alnIdx == insertIt->first) {
+                bool inserted = false;
+                if (!insertionGroup.empty()) inserted = (alnIdx == insertIt->first);
+                if (inserted) {
                     int maxGapLen = insertIt->second[0].second, gapLen = -1;
                     for (auto a: insertIt->second) {
                         if (a.first == nodes[s]->identifier) {
@@ -1051,7 +1053,9 @@ void mergeInsertions (Tree* tree, Node* nodeRef, std::vector<Node*>& nodes, msa:
     std::vector<int8_t> refUpdatedPath;
     int r_alnIdx = 0;
     while (r_alnIdx < refLen) {
-        if (r_alnIdx == insertIt->first) {
+        bool inserted = false;
+        if (!insertionGroup.empty()) inserted = (r_alnIdx == insertIt->first);
+        if (inserted) {
             for (int j = 0; j < insertIt->second[0].second; ++j) refUpdatedPath.push_back(1);
             ++insertIt;
         }
