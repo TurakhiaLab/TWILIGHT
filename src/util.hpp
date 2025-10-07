@@ -32,7 +32,7 @@ void readBackboneAln(msa::utility* util, msa::option* option, Tree* tree);
 void readNewSequences(msa::utility* util, msa::option* option, Tree* tree);
 
 // output
-void outputAln(msa::utility* util, msa::option* option, Tree* T);
+void outputWholeAln(msa::utility* util, msa::option* option, Tree* T);
 void outputSubAln(msa::utility* util, msa::option* option, Tree* T, int subtreeIdx);
 void outputFreq(std::string fileName, msa::utility* util, Tree* T, int grpID);
 void outputSubtreeTrees(Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option);
@@ -40,6 +40,9 @@ void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx);
 void outputPrunedTree(Tree* T, msa::option* option);
 void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
 void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed);
+void outputAlignment(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed);
+void outputAlignment(std::string fileName, std::unordered_map<std::string, std::string>& seqs, bool compressed);
+void outputAlignment(std::string fileName, msa::utility* util, Tree* T, bool compressed);
 
 // auxiliary
 bool cmp(std::string a, std::string b);
@@ -49,5 +52,6 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param);
 void storeFreq(msa::utility* util, msa::option* option, Tree* T, int grpID);
 void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util);
 Tree* pruneTree(Tree* T, std::string& seqFileName);
+std::string gzip_compress(const std::string &input);
 
 #endif
