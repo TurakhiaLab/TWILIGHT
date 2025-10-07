@@ -354,7 +354,7 @@ int main(int argc, char** argv) {
     
     // output MSA
     auto outStart = std::chrono::high_resolution_clock::now();
-    outputAln(util, option, T);
+    outputWholeAln(util, option, T);
     auto outEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds outTime = outEnd - outStart;
     if (!option->compressed) std::cout << "Output file to " << option->outFile << " in " <<  outTime.count() / 1000000 << " ms\n";
