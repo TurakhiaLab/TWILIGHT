@@ -201,10 +201,17 @@ Tree::Tree(std::string newickString) {
             allNodes[nid] = newNode;
             parentStack.push(newNode);
         }
+        if (allNodes.find(leaf) != allNodes.end()) {
+            printf("WARNING: duplicate leaf names found in the tree! Leaf name: %s. All duplicate leaves will be removed during processing.\n", leaf.c_str());
+            leaf += "_dup_" + std::to_string(allNodes.size());
+        }
+        
         Node* leafNode = new Node(leaf, parentStack.top(), branchLen[level].front());
         // if (branchLen[level].front() < 0.001) std::cout << leaf << '\t' << branchLen[level].front() << '\n';
         /* Group Id */
         leafNode->grpID = -1;
+        
+
         allNodes[leaf] = leafNode;
 
         branchLen[level].pop();

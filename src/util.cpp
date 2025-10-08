@@ -32,7 +32,7 @@ void printTree(Node* node, int grpID)
 }
 
 // read
-void readSequences(msa::utility* util, msa::option* option, Tree* tree)
+void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
 {
     auto seqReadStart = std::chrono::high_resolution_clock::now();
     std::string seqFileName = option->seqFile;
@@ -60,17 +60,19 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
         else if (tree->allNodes.find(seqName_noblank) != tree->allNodes.end()) seqName = seqName_noblank;
         if (seqName != "") {
             if (seqs.find(seqName) != seqs.end()) {
-                fprintf(stderr, "Sequence %s already exists.\n", seqName.c_str());
-                exit(1);
+                printf("WARNING: duplicate leaf names found in the sequence file! Leaf name: %s. Only the first occurrence will be kept.\n", seqName.c_str());
+                // exit(1);
             }
-            int subtreeIdx = tree->allNodes[seqName]->grpID;
-            std::string seq = std::string(kseq_rd->seq.s, seqLen);
-            seqs[seqName] = std::make_pair(seq, subtreeIdx);
-            if (option->debug) util->rawSeqs[seqName] = seq;
-            if (seqLen > maxLen) maxLen = seqLen;
-            if (seqLen < minLen) minLen = seqLen;
-            if (seqLen == 0) std::cout << "Null sequences, " << seqName << '\n';
-            totalLen += seqLen;
+            else {
+                int subtreeIdx = tree->allNodes[seqName]->grpID;
+                std::string seq = std::string(kseq_rd->seq.s, seqLen);
+                seqs[seqName] = std::make_pair(seq, subtreeIdx);
+                if (option->debug) util->rawSeqs[seqName] = seq;
+                if (seqLen > maxLen) maxLen = seqLen;
+                if (seqLen < minLen) minLen = seqLen;
+                if (seqLen == 0) std::cout << "Null sequences, " << seqName << '\n';
+                totalLen += seqLen;
+            }
         }
     }
     kseq_destroy(kseq_rd);
@@ -81,7 +83,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
     uint32_t avgLen = totalLen/seqNum;
     util->maxRawSeqLen = maxLen;
     if (tree->m_numLeaves != seqNum && option->alnMode != 2) {
-        fprintf(stderr, "Error: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
+        printf("Warning: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
         int kk = 0;
         for (auto node: tree->allNodes) {
             if (node.second->is_leaf()) {
@@ -91,7 +93,8 @@ void readSequences(msa::utility* util, msa::option* option, Tree* tree)
                 }
             }
         }
-        exit(1);
+        std::cout << "Prune the tree according to the existing sequences.\n";
+        tree = pruneTree(tree, seqs);
     }
     util->seqsMallocNStore(maxLen, seqs, option);
     for (int i = 0; i < seqNum; ++i) {
@@ -1347,6 +1350,142 @@ Tree* pruneTree(Tree* T, std::string& seqFileName) {
             else {
                 Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
                 newNode->grpID = -1;
+                pT->allNodes[newNode->identifier] = newNode;
+                for (Node* child : T->allNodes[origNode->identifier]->children) {
+                    buildPrunedTree(child, T->allNodes[origNode->identifier]);
+                }
+            }
+        }
+    };
+    
+    buildPrunedTree(pT->root, nullptr);
+    
+    // Update tree properties
+    pT->m_numLeaves = 0;
+    for (const auto& nodePair : pT->allNodes) {
+        if (nodePair.second->is_leaf()) {
+            pT->m_numLeaves++;
+        }
+    }
+    
+    pT->calLeafNum();
+    pT->calSeqWeight();
+
+    std::cout << "Number of Leaves: " << T->m_numLeaves << " (before pruning) -> " << pT->m_numLeaves << " (after pruning)\n";
+    if (pT->m_numLeaves == 0) {
+        std::cerr << "ERROR: No sequences from the input sequence file are found in the tree file.\n";
+        exit(1);
+    }
+    if (pT->m_numLeaves != seqNum) std::cerr << "WARNING: " << (seqNum - pT->m_numLeaves) << " sequences are missing from the tree and will be ignored.\n";
+    delete T;
+    auto treePruneEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds treePruneTime = treePruneEnd - treePruneStart;
+    std::cout << "Tree pruned in: " <<  treePruneTime.count() / 1000000 << " ms\n";
+    return pT;
+}
+
+Tree* pruneTree(Tree* T, std::map<std::string, std::pair<std::string, int>>& seqs) {
+    
+    auto treePruneStart = std::chrono::high_resolution_clock::now();
+
+    std::unordered_set<std::string> keepSequences;
+
+    size_t seqNum = 0;
+
+    for (auto seq: seqs) {
+        keepSequences.insert(seq.first);
+        seqNum++;
+    }
+
+    Tree* pT = new Tree();
+    pT->root = new Node(T->root->identifier, T->root->branchLength);
+    pT->root->grpID = T->root->grpID;
+    pT->allNodes[pT->root->identifier] = pT->root;
+    
+    std::unordered_map<std::string, bool> keepNode;
+    
+    for (const auto& n : T->allNodes) {
+        if (n.second->is_leaf()) {
+            keepNode[n.second->identifier] = (keepSequences.find(n.second->identifier) != keepSequences.end());
+        }
+    }
+
+    std::function<bool(Node*)> hasKeepDescendant = [&](Node* node) -> bool {
+        if (node->is_leaf()) return keepNode[node->identifier];
+        bool keep = false;
+        for (Node* child : node->children) {
+            if (hasKeepDescendant(child)) {
+                keep = true;
+            }
+        }
+        keepNode[node->identifier] = keep;
+        return keep;
+    };
+    hasKeepDescendant(T->root);
+    
+    std::function<void(Node*, Node*)> buildPrunedTree = [&](Node* origNode, Node* newParent) {
+        if (!keepNode[origNode->identifier]) return;
+        
+        if (origNode->identifier == T->root->identifier) {
+            for (Node* child : T->root->children) {
+                buildPrunedTree(child, T->root);
+            }
+            return;
+        } 
+        else {
+            // Process children
+            std::vector<Node*> keepChildren;
+            for (Node* child : T->allNodes[origNode->identifier]->children) {
+                if (keepNode[child->identifier]) {
+                    keepChildren.push_back(child);
+                }
+            }
+
+            // Handle nodes with only one child (merge them)
+            if (keepChildren.size() == 0) {
+                if (origNode->is_leaf()) {
+                    Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
+                    newNode->grpID = origNode->grpID;
+                    pT->allNodes[newNode->identifier] = newNode;
+                }
+                else return;
+            }
+            else if (keepChildren.size() == 1) {
+                Node* onlyChild = keepChildren[0];
+                float combinedLength = origNode->branchLength;
+                while (true) {
+                    std::vector<Node*> temp;
+                    combinedLength += onlyChild->branchLength;
+                    for (Node* child : onlyChild->children) {
+                        if (keepNode[child->identifier]) {
+                            temp.push_back(child);
+                        }
+                    }
+                    if (temp.size() > 1) {
+                        Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
+                        newChild->grpID = onlyChild->grpID;
+                        pT->allNodes[newChild->identifier] = newChild;
+                        break;
+                    }
+                    else if (temp.empty()) {
+                        if (onlyChild->is_leaf()) {
+                            Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
+                            newChild->grpID = onlyChild->grpID;
+                            pT->allNodes[newChild->identifier] = newChild;
+                            break;
+                        }
+                        else return;
+                    }
+                    onlyChild = temp[0];
+                }
+                // Process the child's children
+                for (Node* grandchild : T->allNodes[onlyChild->identifier]->children) {
+                    buildPrunedTree(grandchild, T->allNodes[onlyChild->identifier]);
+                }
+            } 
+            else {
+                Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
+                newNode->grpID = origNode->grpID;
                 pT->allNodes[newNode->identifier] = newNode;
                 for (Node* child : T->allNodes[origNode->identifier]->children) {
                     buildPrunedTree(child, T->allNodes[origNode->identifier]);

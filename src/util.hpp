@@ -24,7 +24,7 @@
 void printTree(Node* node, int grpID);
 
 // read
-void readSequences(msa::utility* util, msa::option* option, Tree* tree);
+void readSequences(msa::utility* util, msa::option* option, Tree*& tree);
 Tree* readNewick(std::string treeFileName);
 void readFrequency(msa::utility* util, msa::option* option);
 void readMSA_and_Seqs(msa::utility* util, msa::option* option, Tree* tree);
@@ -41,7 +41,6 @@ void outputPrunedTree(Tree* T, msa::option* option);
 void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
 void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed);
 void outputAlignment(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed);
-void outputAlignment(std::string fileName, std::unordered_map<std::string, std::string>& seqs, bool compressed);
 void outputAlignment(std::string fileName, msa::utility* util, Tree* T, bool compressed);
 
 // auxiliary
@@ -52,6 +51,7 @@ double calSPScore(std::string alnFile, msa::utility* util, Params* param);
 void storeFreq(msa::utility* util, msa::option* option, Tree* T, int grpID);
 void updateSeqLen(Tree* tree, partitionInfo_t* partition, msa::utility* util);
 Tree* pruneTree(Tree* T, std::string& seqFileName);
+Tree* pruneTree(Tree* T, std::map<std::string, std::pair<std::string, int>>& seqs);
 std::string gzip_compress(const std::string &input);
 
 #endif
