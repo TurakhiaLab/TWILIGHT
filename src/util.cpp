@@ -50,6 +50,8 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
     std::map<std::string, std::pair<std::string, int>> seqs;
 
     std::vector<std::pair<std::string, std::string>> seqsOut;
+
+    std::vector<int> seqsLens;
     
     while (kseq_read(kseq_rd) >= 0) {
         int seqLen = kseq_rd->seq.l;
@@ -72,6 +74,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
                 if (seqLen < minLen) minLen = seqLen;
                 if (seqLen == 0) std::cout << "Null sequences, " << seqName << '\n';
                 totalLen += seqLen;
+                seqsLens.push_back(seqLen);
             }
         }
     }
@@ -81,6 +84,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
 
     seqNum = seqs.size();
     uint32_t avgLen = totalLen/seqNum;
+    uint32_t medLen = seqsLens[seqNum/2];
     util->maxRawSeqLen = maxLen;
     if (tree->m_numLeaves != seqNum && option->alnMode != 2) {
         printf("Warning: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
@@ -100,7 +104,8 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
     for (int i = 0; i < seqNum; ++i) {
         util->lowQuality[i] = false;
     }
-    float minLenTh = avgLen * (1-option->lenDev), maxLenTh = avgLen * (1+option->lenDev);
+    // float minLenTh = avgLen * (1-option->lenDev), maxLenTh = avgLen * (1+option->lenDev);
+    float minLenTh = medLen * (1-option->lenDev), maxLenTh = medLen * (1+option->lenDev);
     std::atomic<int> numLowQ;
     numLowQ.store(0);
     int ambig = (option->type == 'n') ? 4 : 20;
@@ -152,6 +157,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
         std::cout << "Max. Length: " << maxLen << '\n';
         std::cout << "Min. Length: " << minLen << '\n';
         std::cout << "Avg. Length: " << avgLen << '\n';
+        std::cout << "Med. Length: " << medLen << '\n';
         if (option->noFilter) 
         std::cout << "Deferred sequences: " << numLowQ << '\n';
         else 

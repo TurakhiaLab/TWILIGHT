@@ -1038,6 +1038,36 @@ void mergeInsertions (Tree* tree, Node* nodeRef, std::vector<Node*>& nodes, msa:
                     alnIdx++;
                 }
             }
+            if (insertIt != insertionGroup.end()) {
+                int maxGapLen = insertIt->second[0].second, gapLen = -1;
+                for (auto a: insertIt->second) {
+                    if (a.first == nodes[s]->identifier) {
+                        gapLen = a.second;
+                        break;
+                    }
+                }
+                if (gapLen == -1) {
+                    for (int j = 0; j < maxGapLen; ++j) {
+                        util->alnStorage[storeTo][sIdx][newIdx] = '-';
+                        newIdx++;
+                    }
+                }
+                else {
+                    int j;
+                    for (j = 0; j < gapLen; ++j) {
+                        util->alnStorage[storeTo][sIdx][newIdx] = util->alnStorage[storeFrom][sIdx][orgIdx];
+                        orgIdx++; newIdx++;
+                    }
+                    for (j = gapLen; j < maxGapLen; ++j) {
+                        util->alnStorage[storeTo][sIdx][newIdx] = '-';
+                        newIdx++;
+                    }
+                }
+                ++insertIt;
+            }
+            if (insertIt != insertionGroup.end()) {
+                std::cerr << "ERROR: Insertion after reference sequence ends (Q).\n";
+            }
             util->changeStorage(sIdx);
             if (newIdx != (refLen + insLen)) {
                 std::cerr << "ERROR: Length not match after insertion.\t" << (refLen + insLen) << '-' << newIdx << '\n';
@@ -1063,6 +1093,13 @@ void mergeInsertions (Tree* tree, Node* nodeRef, std::vector<Node*>& nodes, msa:
             refUpdatedPath.push_back(0);
             r_alnIdx++;
         }
+    }
+    if (insertIt != insertionGroup.end()) {
+        for (int j = 0; j < insertIt->second[0].second; ++j) refUpdatedPath.push_back(1);
+        ++insertIt;
+    }
+    if (insertIt != insertionGroup.end()) {
+        std::cerr << "ERROR: Insertion after reference sequence ends (R).\n";
     }
 
     // update reference alignment
