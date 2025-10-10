@@ -160,11 +160,9 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
         }
         for (int sIdx = 0; sIdx < seqNum; ++sIdx) {
             if (util->lowQuality[sIdx]) {
-                int storage = util->seqsStorage[sIdx];
                 std::string name = util->seqsName[sIdx];
-                int sLen = util->seqsLen[name];
                 gzprintf(outLow, ">%s\n", name.c_str());
-                gzwrite(outLow, &util->alnStorage[storage][sIdx][0], sLen);
+                gzwrite(outLow, seqs[name].first.data(), seqs[name].first.size());
                 gzprintf(outLow, "\n");
             }
         }

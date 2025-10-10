@@ -672,41 +672,43 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         if (refLen == 0) for (int j = 0; j < qryLen; ++j) aln_old.push_back(1);
         if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_old.push_back(2);
         // if (util->nowProcess == 1) std::cout << nIdx << ':' << newRef << '\t' << newQry << std::endl;
-        while (aln_old.empty()) {
-            int16_t errorType = 0;
-            aln_old.clear();
-            Talco_xdrop::Align_freq (
-                talco_params,
-                freqRef,
-                freqQry,
-                gapOp,
-                gapEx,
-                num,
-                aln_old,
-                errorType
-            );
-            if (util->nowProcess == 0 && errorType != 0 && !placement) {
+        if (option->noFilter || (!util->lowQuality[tree->allNodes[nodes[nIdx].first->identifier]->msaIdx[0]] && !util->lowQuality[tree->allNodes[nodes[nIdx].second->identifier]->msaIdx[0]])) {
+            while (aln_old.empty()) {
+                int16_t errorType = 0;
                 aln_old.clear();
-                {
-                    tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex);
-                    fallbackPairs.push_back(nIdx);
+                Talco_xdrop::Align_freq (
+                    talco_params,
+                    freqRef,
+                    freqQry,
+                    gapOp,
+                    gapEx,
+                    num,
+                    aln_old,
+                    errorType
+                );
+                if (util->nowProcess == 0 && errorType != 0 && !placement) {
+                    aln_old.clear();
+                    {
+                        tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex);
+                        fallbackPairs.push_back(nIdx);
+                    }
+                    break;
                 }
-                break;
-            }
-            if (errorType == 2) {
-                if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
-                talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->fLen * 1.2) << 1, std::min(newRef, newQry)));
-            }
-            else if (errorType == 3) {
-                std::cout << "There might be some bugs in the code!\n";
-                exit(1);
-            }
-            else if (errorType == 1) {
-                talco_params->updateXDrop(static_cast<int32_t>(talco_params->xdrop * 1.2));
-                // talco_params->updateXDrop(static_cast<int32_t>(std::min(newRef, newQry) * -1 * param.gapExtend));
-                talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->xdrop * 4) << 1, std::min(newRef, newQry)));
-                if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << "\tNew Xdrop: " << talco_params->xdrop << '\n';
-                
+                if (errorType == 2) {
+                    if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+                    talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->fLen * 1.2) << 1, std::min(newRef, newQry)));
+                }
+                else if (errorType == 3) {
+                    std::cout << "There might be some bugs in the code!\n";
+                    exit(1);
+                }
+                else if (errorType == 1) {
+                    talco_params->updateXDrop(static_cast<int32_t>(talco_params->xdrop * 1.2));
+                    // talco_params->updateXDrop(static_cast<int32_t>(std::min(newRef, newQry) * -1 * param.gapExtend));
+                    talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->xdrop * 4) << 1, std::min(newRef, newQry)));
+                    if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << "\tNew Xdrop: " << talco_params->xdrop << '\n';
+
+                }
             }
         }
         delete talco_params;
