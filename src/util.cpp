@@ -100,7 +100,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
         std::cout << "Prune the tree according to the existing sequences.\n";
         tree = pruneTree(tree, seqs);
     }
-    util->seqsMallocNStore(maxLen, seqs, option);
+
     for (int i = 0; i < seqNum; ++i) {
         util->lowQuality[i] = false;
     }
@@ -109,16 +109,23 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
     std::atomic<int> numLowQ;
     numLowQ.store(0);
     int ambig = (option->type == 'n') ? 4 : 20;
+    
+    std::vector<std::map<std::string, std::pair<std::string, int>>::const_iterator> iters;
+    iters.reserve(seqNum);
+    for (auto it = seqs.begin(); it != seqs.end(); ++it)
+        iters.push_back(it);
+
     tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
     for (int i = range.begin(); i < range.end(); ++i) {
     // for (int i = 0; i < seqNum; ++i) {
-        std::string name = util->seqsName[i];
-        int len = util->seqsLen[name];
+        auto it = iters[i];
+        std::string name = it->first;
+        int len = it->second.first.size();
         if (option->lenDev > 0) util->lowQuality[i] = (len > maxLenTh || len < minLenTh);
         if (!util->lowQuality[i]) {
             int countN = 0;
             for (int j = 0; j < len; ++j) {
-                if (letterIdx(option->type, toupper(util->alnStorage[0][i][j])) == ambig) ++countN;
+                if (letterIdx(option->type, toupper(it->second.first[j])) == ambig) ++countN;
             }
             util->lowQuality[i] = (countN > (len * option->maxAmbig));
         }
@@ -126,6 +133,21 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
     }
     });
 
+    if (!option->noFilter) {
+        int memLen = 0;
+        for (int i = 0; i < seqNum; ++i) {
+            auto it = iters[i];
+            int len = it->second.first.size();
+            if (!util->lowQuality[i]) {
+                if (len > memLen) memLen = len;
+            }
+        }
+        util->seqsMallocNStore(memLen, seqs, option);
+    }
+    else {
+        util->seqsMallocNStore(maxLen, seqs, option);
+    }
+    
     bool outputLowQ = false;
     if (outputLowQ){
         std::string lowQfile;

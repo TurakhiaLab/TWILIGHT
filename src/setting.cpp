@@ -553,18 +553,23 @@ void msa::utility::seqMalloc(int seqLen, int idx){
 void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap, option* option){
     this->seqMalloc(seqsMap.size(), seqLen, option);
     int s = 0;
+
     for (auto seq: seqsMap) {
-        for (int i = 0; i < this->memLen; ++i) {
-            if (i < seq.second.first.size()) this->alnStorage[0][s][i] = seq.second.first[i];
-            else                             this->alnStorage[0][s][i] = 0; 
-            this->alnStorage[1][s][i] = 0;  
+        if (!this->lowQuality[s] || option->noFilter) {
+            for (int i = 0; i < this->memLen; ++i) {
+                if (i < seq.second.first.size()) this->alnStorage[0][s][i] = seq.second.first[i];
+                else                             this->alnStorage[0][s][i] = 0; 
+                this->alnStorage[1][s][i] = 0;  
+            }
+            this->seqsLen[seq.first] = seq.second.first.size();
+        }
+        else {
+            this->seqsLen[seq.first] = 0;
         }
         this->seqsIdx[seq.first] = s;
         this->seqsName[s] = seq.first;
-        this->seqsLen[seq.first] = seq.second.first.size();
         this->seqsStorage[s] = 0;
         this->seqMemLen[s] = this->memLen;
-        
         ++s;
     }
     // printf("Allocate memory for sequence storage, size = %lu x %lu\n", this->memNum, this->memLen);
