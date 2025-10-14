@@ -245,7 +245,7 @@ int main(int argc, char** argv) {
         msaOnSubtree(T, util, option, P, *param);
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
-        std::cout << "Progressive alignment on " << T->allNodes.size() << " MSAs in " << alnTime.count() / 1000000 << " ms\n";
+        std::cout << "Progressive alignment on " << T->allNodes.size() - 1 << " MSAs in " << alnTime.count() / 1000000 << " ms\n";
         int totalSeqs = 0;
         auto outStart = std::chrono::high_resolution_clock::now();
         outputFinal (T, P, util, option, totalSeqs);
