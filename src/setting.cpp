@@ -106,10 +106,23 @@ Params::Params(po::variables_map& vm, char type) {
         std::vector<int> charVec;
         int readCount = 0, charNum = this->matrixSize-1;
         while (matrixFile >> word) {
+            if (readCount == charNum) {
+                bool isNumber = true;
+                try {
+                    size_t pos;
+                    std::stod(word, &pos);
+                    if (pos != word.size()) isNumber = false; // extra non-numeric chars
+                } catch (...) {
+                    isNumber = false;
+                }
+                if (!isNumber) {
+                    charNum = this->matrixSize;
+                }
+            }
             if (readCount < charNum) {
                 char letter = toupper(word[0]);
                 int ambig = (type == 'n') ? 4 : 20;
-                if (letterIdx(type, letter) == ambig) {
+                if (letterIdx(type, letter) == ambig && charNum == this->matrixSize-1) {
                     std::string seqType = (type == 'n') ? " for nucleotide sequences.\n" : " for protein sequences.\n";
                     std::cerr << "Unrecognized letter \"" << letter << "\"" << seqType;
                     exit(1);
@@ -127,13 +140,16 @@ Params::Params(po::variables_map& vm, char type) {
             }
         }
         matrixFile.close();
-        float Nscore = 0;
-        for (int i = 0; i < charNum; ++i) Nscore += this->scoringMatrix[i][i];
-        Nscore = vm.count("wildcard") ? (Nscore / charNum) : 0.0;
-        for (int i = 0; i < this->matrixSize; ++i) {
-            this->scoringMatrix[i][this->matrixSize-1] = Nscore;
-            this->scoringMatrix[this->matrixSize-1][i] = Nscore;
+        if (charNum == this->matrixSize-1) {
+            float Nscore = 0;
+            for (int i = 0; i < charNum; ++i) Nscore += this->scoringMatrix[i][i];
+            Nscore = vm.count("wildcard") ? (Nscore / charNum) : 0.0;
+            for (int i = 0; i < this->matrixSize; ++i) {
+                this->scoringMatrix[i][this->matrixSize-1] = Nscore;
+                this->scoringMatrix[this->matrixSize-1][i] = Nscore;
+            }
         }
+        
     }
 
     std::map<char, int> letterMap;
