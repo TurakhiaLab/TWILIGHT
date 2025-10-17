@@ -429,7 +429,7 @@ msa::option::option(po::variables_map& vm) {
     if (!vm.count("overwrite")) {
         std::string outFileStr = (this->compressed) ? this->outFile + ".gz" : this->outFile;
         if (fs::exists(outFileStr)) {
-            std::cerr << "ERROR: " << outFileStr << " already exists. Please use another file name.\n";
+            std::cerr << "ERROR: " << outFileStr << " already exists. Please use another file name or add --overwrite to overwrite the existing file.\n";
             fs::remove_all(tempDir);
             exit(1);
         }
