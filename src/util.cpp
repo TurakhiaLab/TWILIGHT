@@ -237,13 +237,9 @@ void readFrequency(msa::utility* util, msa::option* option) {
             }
             if (!calFreq) continue;
             std::string seq = std::string(kseq_rd->seq.s, seqLen);
-            tbb::this_task_arena::isolate( [&]{
-            tbb::parallel_for(tbb::blocked_range<int>(0, seqLen), [&](tbb::blocked_range<int> r) {
-            for (int j = r.begin(); j < r.end(); ++j) {
+            tbb::parallel_for(0, seqLen, [&](int j) {
                 int letterIndex = letterIdx(option->type, toupper(seq[j]));
                 util->profileFreq[subtreeIdx][j][letterIndex] += 1.0;
-            }
-            });
             });
             // seqs.push_back(seq);
             ++seqNum;
@@ -558,7 +554,7 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             std::string subtreeSeqFile = option->tempDir + '/' + msaFileName + ".final.aln";
             std::cout << "Start writing " << subtreeSeqFile << " (" << subtreeIdx+1 << '/' << totalFile << ")\n";
             kseq_t* kseq_rd = kseq_init(f_rd);
-            int seqNum = 0, msaLen;
+            int seqNum = 0, msaLen, batchSize = 10000;
             std::string seqName;
             while (kseq_read(kseq_rd) >= 0) {
                 int seqLen = kseq_rd->seq.l;
@@ -577,9 +573,35 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
                 std::string seq = std::string(kseq_rd->seq.s, seqLen);
                 seqs.push_back(std::make_pair(kseq_rd->name.s, seq));
                 ++seqNum;
+                if (seqNum % batchSize == 0) {
+                    std::cout << "Processing " << seqNum << " sequences\n";
+                    tbb::parallel_for(tbb::blocked_range<int>(0, seqs.size()), [&](tbb::blocked_range<int> range){ 
+                    for (int n = range.begin(); n < range.end(); ++n) {
+                        std::string seq = seqs[n].second, alnSeq = "";
+                        int r = 0;
+                        for (size_t j = 0; j < tree->allNodes[seqName]->msaAln.size(); ++j) {
+                            if ((tree->allNodes[seqName]->msaAln[j] & 0xFFFF) == 0 || (tree->allNodes[seqName]->msaAln[j] & 0xFFFF) == 2) {
+                                alnSeq += seq[r];
+                                ++r;
+                            }
+                            else {
+                                alnSeq += '-';
+                            }
+                        }
+                        if (alnSeq.size() != tree->allNodes[seqName]->msaAln.size()) {
+                            std::cout << "ERROR: " << seqs[n].first << " length not match. alnSeq (" << alnSeq.size() << ") != msaAln (" << tree->allNodes[seqName]->msaAln.size() << '\n'; 
+                        }
+                        // assert(alnSeq.size() == tree->allNodes[seqName]->msaAln.size());
+                        seqs[n].second = alnSeq;
+                    }
+                    });
+                    outputAlignment(subtreeSeqFile, seqs, option->compressed, (seqNum == batchSize ? false : true));  
+                    seqs.clear(); 
+                }
             }
             kseq_destroy(kseq_rd);
             gzclose(f_rd);
+            std::cout << "Processing " << seqNum << " sequences\r" << std::flush;
             tbb::parallel_for(tbb::blocked_range<int>(0, seqs.size()), [&](tbb::blocked_range<int> range){ 
             for (int n = range.begin(); n < range.end(); ++n) {
                 std::string seq = seqs[n].second, alnSeq = "";
@@ -601,9 +623,10 @@ void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, ms
             }
             });
             
-            outputAlignment(subtreeSeqFile, seqs, option->compressed);   
-            totalSeqs += seqs.size(); 
+            outputAlignment(subtreeSeqFile, seqs, option->compressed, (seqs.size() == seqNum ? false : true));   
             seqs.clear();
+            totalSeqs += seqNum;
+            
             ++subtreeIdx;
         }
     }
@@ -1016,7 +1039,7 @@ void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, 
     }
 }
 
-void outputAlignment(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed) {
+void outputAlignment(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed, bool append) {
     std::sort(seqs.begin(), seqs.end(), cmp2);
     if (compressed) {
         fileName += ".gz";
@@ -1024,8 +1047,11 @@ void outputAlignment(std::string fileName, std::vector<std::pair<std::string, st
         tbb::parallel_for(size_t(0), seqs.size(), [&](size_t i) {
             std::string fasta_chunk = ">" + seqs[i].first + "\n" + seqs[i].second + "\n";
             compressed_chunks[i] = gzip_compress(fasta_chunk);
+            std::string().swap(seqs[i].second);
         });
-        std::ofstream outFile(fileName, std::ios::binary);
+        std::ofstream outFile;
+        if (append) outFile.open(fileName, std::ios::binary | std::ios::app);
+        else        outFile.open(fileName, std::ios::binary);
         if (!outFile) {
             fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
             exit(1);
@@ -1036,7 +1062,9 @@ void outputAlignment(std::string fileName, std::vector<std::pair<std::string, st
         outFile.close();
     }
     else {
-        std::ofstream outFile(fileName);
+        std::ofstream outFile;
+        if (append) outFile.open(fileName, std::ios::app);
+        else        outFile.open(fileName);
         if (!outFile) {
             fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
             exit(1);

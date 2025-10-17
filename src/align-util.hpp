@@ -25,6 +25,7 @@ const int32_t PROFILE_LEN_TH = 1000;
 const int32_t SEQNUM_TH = 100;
 using gappyColumnQueue = std::pair<std::queue<std::tuple<int, int, float*>>, std::queue<std::tuple<int, int, float*>>>;
 using gappyColumnList = std::vector<gappyColumnQueue>;
+using alnPathList = std::vector<int8_t>;
 
 void updateNode(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utility* util);
 void calculateProfileFreq(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, int32_t profileLen, int32_t profileSize, std::pair<int, int> startPos);
@@ -46,6 +47,8 @@ void getMsaHierachy(std::vector<std::pair<std::pair<Node*, Node*>, int>>& alnOrd
 double calColumnSimilarity(Tree* tree, Node* node, msa::utility* util, Params& param);
 void createAlnPairs(Tree* tree, msa::utility* util, msa::option* option, std::vector<std::pair<Node*, Node*>>& alnPairs);
 void mergedAlignedSeqs(Tree* tree, msa::utility* util, msa::option* option, const std::vector<std::pair<Node*, Node*>>& alnPairs);
+void removeEnds(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, int32_t profileLen, int32_t maxProfileLen, std::pair<int,int>& lens, std::pair<alnPathList,alnPathList>& endsPaths);
+void smith_waterman_DNA(const std::string &seq1, const std::string &seq2, int& max_r, int& max_q);
 
 bool checkAlignedDescendant(Node* node, msa::utility* util);
 void collectAlignedDescendant(Node* node, msa::utility* util, std::vector<std::string>& descendants);

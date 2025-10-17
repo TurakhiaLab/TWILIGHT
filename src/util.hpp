@@ -40,7 +40,7 @@ void outputSubtree(Tree* tree, msa::option* option, int subtreeIdx);
 void outputPrunedTree(Tree* T, msa::option* option);
 void outputFinal (Tree* tree, partitionInfo_t* partition, msa::utility* util, msa::option* option, int& totalSeqs);
 void outputSubtreeSeqs(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed);
-void outputAlignment(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed);
+void outputAlignment(std::string fileName, std::vector<std::pair<std::string, std::string>>& seqs, bool compressed, bool append=false);
 void outputAlignment(std::string fileName, msa::utility* util, Tree* T, bool compressed);
 
 // auxiliary

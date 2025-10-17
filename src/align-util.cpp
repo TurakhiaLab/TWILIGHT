@@ -633,8 +633,10 @@ void removeGappyColumns(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& no
         int tempStart = rawIdx;
         bool onlyN = false;
         for (gappyLength = rawIdx; gappyLength < refLen; ++gappyLength) {
-            if ((hostFreq[profileSize*gappyLength+profileSize-1]+hostFreq[profileSize*gappyLength+profileSize-2])/refNum <= gappyVertical) break;
-            if ((hostFreq[profileSize*gappyLength+profileSize-1]+hostFreq[profileSize*gappyLength+profileSize-2])/refNum > gappyVertical && refNum < numTH) break;
+            // if ((hostFreq[profileSize*gappyLength+profileSize-1]+hostFreq[profileSize*gappyLength+profileSize-2])/refNum <= gappyVertical) break;
+            // if ((hostFreq[profileSize*gappyLength+profileSize-1]+hostFreq[profileSize*gappyLength+profileSize-2])/refNum > gappyVertical && refNum < numTH) break;
+            if ((hostFreq[profileSize*gappyLength+profileSize-1])/refNum <= gappyVertical) break;
+            if ((hostFreq[profileSize*gappyLength+profileSize-1])/refNum > gappyVertical && refNum < numTH) break;
         }
         if (gappyLength - tempStart >= gappyHorizon) {
             float* gapProfile = new float[profileSize * (gappyLength - tempStart)];
@@ -664,8 +666,10 @@ void removeGappyColumns(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& no
         int tempStart = rawIdx;
         bool onlyN = false;
         for (gappyLength = rawIdx; gappyLength < qryLen; ++gappyLength) {
-            if ((hostFreq[profileSize*(profileLen+gappyLength)+profileSize-1]+hostFreq[profileSize*(profileLen+gappyLength)+profileSize-2])/qryNum <= gappyVertical) break;
-            if ((hostFreq[profileSize*(profileLen+gappyLength)+profileSize-1]+hostFreq[profileSize*(profileLen+gappyLength)+profileSize-2])/qryNum > gappyVertical && qryNum < numTH) break;
+            // if ((hostFreq[profileSize*(profileLen+gappyLength)+profileSize-1]+hostFreq[profileSize*(profileLen+gappyLength)+profileSize-2])/qryNum <= gappyVertical) break;
+            // if ((hostFreq[profileSize*(profileLen+gappyLength)+profileSize-1]+hostFreq[profileSize*(profileLen+gappyLength)+profileSize-2])/qryNum > gappyVertical && qryNum < numTH) break;
+            if ((hostFreq[profileSize*(profileLen+gappyLength)+profileSize-1])/qryNum <= gappyVertical) break;
+            if ((hostFreq[profileSize*(profileLen+gappyLength)+profileSize-1])/qryNum > gappyVertical && qryNum < numTH) break;
         }
         if (gappyLength - tempStart >= gappyHorizon) {
             float* gapProfile = new float[profileSize * (gappyLength - tempStart)];
@@ -1478,7 +1482,7 @@ void mergedAlignedSeqs(Tree* tree, msa::utility* util, msa::option* option, cons
     return;
 }
 
-
+/*
 void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::vector<int8_t>& alnPath) {
     int m = seq1.size();
     int n = seq2.size();
@@ -1486,7 +1490,7 @@ void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::
     std::vector<std::vector<float>> score_matrix(m + 1, std::vector<float>(n + 1, 0));
     std::vector<std::vector<int8_t>> tb_matrix(m + 1, std::vector<int8_t>(n + 1, 0));
     // BLAST
-    float mat = 1.0, mis = -2.0, gap = -2.0;
+    float mat = 4.0, mis = -1.0, gap = -2.0;
     // Initialize first row and column
     for (int i = 1; i <= m; i++) {score_matrix[i][0] = gap * i; tb_matrix[i][0] = 1;}
     for (int j = 1; j <= n; j++) {score_matrix[0][j] = gap * j; tb_matrix[0][j] = 2;}
@@ -1515,6 +1519,7 @@ void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::
     std::string aligned_seq1, aligned_seq2;
     int i = m, j = n;
     while (i > 0 || j > 0) {
+        // std::cout << i << ',' << j << '\n';
         switch (tb_matrix[i][j])
         {
         case 0:
@@ -1533,6 +1538,90 @@ void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::
     }
     std::reverse(alnPath.begin(), alnPath.end());
     return;
+}
+*/
+
+void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::vector<int8_t> &alnPath)
+{
+    int m = seq1.size();
+    int n = seq2.size();
+
+    // Scoring scheme
+    const float match = 8.0;
+    const float mismatch = -1.0;
+    const float gap_open = -4.0;
+    const float gap_extend = -1.0;
+    const float N_score = 1.0; // small positive score for N
+
+    // DP matrices: M = match/mismatch, X = gap in seq1 (deletion), Y = gap in seq2 (insertion)
+    std::vector<std::vector<float>> M(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<float>> X(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<float>> Y(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<int8_t>> tb(m + 1, std::vector<int8_t>(n + 1, 0)); // traceback: 0/1/2
+
+    // Initialization
+    M[0][0] = 0;
+    for (int i = 1; i <= m; ++i) {
+        M[i][0] = gap_open + (i - 1) * gap_extend;
+        X[i][0] = M[i][0];
+        Y[i][0] = -1e9; // impossible
+        tb[i][0] = 2;   // gap in query
+    }
+    for (int j = 1; j <= n; ++j) {
+        M[0][j] = gap_open + (j - 1) * gap_extend;
+        Y[0][j] = M[0][j];
+        X[0][j] = -1e9;
+        tb[0][j] = 1; // gap in reference
+    }
+
+    // Fill matrices
+    for (int i = 1; i <= m; ++i) {
+        for (int j = 1; j <= n; ++j) {
+            // Compute scores
+            float base_score;
+            if (seq1[i - 1] == seq2[j - 1])
+                base_score = match;
+            else if (seq1[i - 1] == 'N' || seq2[j - 1] == 'N')
+                base_score = N_score;
+            else
+                base_score = mismatch;
+
+            // Match/mismatch
+            M[i][j] = base_score + std::max({M[i - 1][j - 1], X[i - 1][j - 1], Y[i - 1][j - 1]});
+
+            // Gap in seq1 (deletion)
+            X[i][j] = std::max(M[i - 1][j] + gap_open,
+                               X[i - 1][j] + gap_extend);
+
+            // Gap in seq2 (insertion)
+            Y[i][j] = std::max(M[i][j - 1] + gap_open,
+                               Y[i][j - 1] + gap_extend);
+
+            // Choose best path for traceback
+            float best = std::max({M[i][j], X[i][j], Y[i][j]});
+            if (best == M[i][j])
+                tb[i][j] = 0;
+            else if (best == Y[i][j])
+                tb[i][j] = 1; // gap in ref (insert in query)
+            else
+                tb[i][j] = 2; // gap in qry (delete in ref)
+        }
+    }
+
+    // Traceback
+    alnPath.clear();
+    int i = m, j = n;
+    float max_score = std::max({M[m][n], X[m][n], Y[m][n]});
+    while (i > 0 || j > 0) {
+        int8_t dir = tb[i][j];
+        alnPath.push_back(dir);
+
+        if (dir == 0) { i--; j--; }
+        else if (dir == 1) { j--; }
+        else if (dir == 2) { i--; }
+    }
+
+    std::reverse(alnPath.begin(), alnPath.end());
 }
 
 void global_alignmentProtein(const std::string &seq1, const std::string &seq2, std::vector<int8_t>& alnPath) {
@@ -1592,7 +1681,6 @@ void global_alignmentProtein(const std::string &seq1, const std::string &seq2, s
     return;
 }
 
-
 std::string getConsensusDNA(float* profile, int len) {
     const char bases[5] = {'A', 'C', 'G', 'T', 'N'};
     std::string consensus = "";
@@ -1630,4 +1718,128 @@ std::string getConsensusProtein(float* profile, int len) {
         consensus.push_back(acids[max_idx]);
     }
     return consensus;
+}
+
+
+void removeEnds(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* util, msa::option* option, int32_t profileLen, int32_t maxProfileLen, std::pair<int,int>& lens, std::pair<alnPathList,alnPathList>& endsPaths) {
+    int32_t profileSize = (option->type == 'n') ? 6 : 22;
+    int32_t refLen = lens.first, qryLen = lens.second;
+    
+    int refSegmentLen = refLen * 0.05;
+    int qrySegmentLen = qryLen * 0.05;
+
+    std::string refStartConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq, refSegmentLen) : getConsensusProtein(hostFreq, refSegmentLen);
+    std::string qryStartConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq + profileSize*profileLen, qrySegmentLen) : getConsensusProtein(hostFreq + profileSize*profileLen, qrySegmentLen);
+    std::string refEndConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq + profileSize*(refLen - refSegmentLen), refSegmentLen) : getConsensusProtein(hostFreq + profileSize*(refLen - refSegmentLen), refSegmentLen);
+    std::string qryEndConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq + profileSize*(profileLen + qryLen - qrySegmentLen), qrySegmentLen) : getConsensusProtein(hostFreq + profileSize*(profileLen + qryLen - qrySegmentLen), qrySegmentLen);  
+    std::reverse(refStartConsensus.begin(), refStartConsensus.end());
+    std::reverse(qryStartConsensus.begin(), qryStartConsensus.end());
+    int max_r_st = 0, max_q_st = 0, max_r_en = 0, max_q_en = 0;
+    smith_waterman_DNA(refStartConsensus, qryStartConsensus, max_r_st, max_q_st);
+    smith_waterman_DNA(refEndConsensus, qryEndConsensus, max_r_en, max_q_en);
+    int r_st = refSegmentLen - max_r_st;
+    int q_st = qrySegmentLen - max_q_st;
+    int r_en = refLen - refSegmentLen + max_r_en;
+    int q_en = qryLen - qrySegmentLen + max_q_en;
+
+
+    
+    for (int rIdx = 0; rIdx < (r_en-r_st); ++rIdx) {
+        for (int t = 0; t < profileSize; ++t) hostFreq[profileSize*rIdx+t] = hostFreq[profileSize*(rIdx+r_st)+t];
+    } 
+    for (int qIdx = 0; qIdx < (q_en-q_st); ++qIdx) {
+        for (int t = 0; t < profileSize; ++t) hostFreq[profileSize*(profileLen+qIdx)+t] = hostFreq[profileSize*(profileLen+qIdx+q_st)+t];       
+    }
+    
+
+    lens.first = r_en - r_st;
+    lens.second = q_en - q_st;
+    std::string refStartRemain = refStartConsensus.substr(0, r_st);
+    std::string qryStartRemain = qryStartConsensus.substr(0, q_st);
+    std::string refEndRemain = refEndConsensus.substr(max_r_en, refEndConsensus.size() - max_r_en);
+    std::string qryEndRemain = qryEndConsensus.substr(max_q_en, qryEndConsensus.size() - max_q_en); 
+
+    std::vector<int8_t> startPath, endPath;
+    if (refStartRemain.size() > 0 && qryStartRemain.size() > 0) global_alignmentDNA(refStartRemain, qryStartRemain, startPath);
+    else {
+        if (refStartRemain.size() > 0) for (int i = 0; i < refStartRemain.size(); ++i) startPath.push_back(2);
+        else                           for (int i = 0; i < qryStartRemain.size(); ++i) startPath.push_back(1);
+    }
+    if (refEndRemain.size() > 0 && qryEndRemain.size() > 0) global_alignmentDNA(refEndRemain, qryEndRemain, endPath);
+    else {
+        if (refEndRemain.size() > 0) for (int i = 0; i < refEndRemain.size(); ++i) endPath.push_back(2);
+        else                         for (int i = 0; i < qryEndRemain.size(); ++i) endPath.push_back(1);
+    }
+    endsPaths = {startPath, endPath};
+
+    int num_r = 0, num_q = 0;
+    for (auto a: startPath) {
+        if (a == 0) { num_r++; num_q++; }
+        if (a == 1) num_q++;
+        if (a == 2) num_r++;
+    }
+    if (num_r != r_st || num_q != q_st) {
+        std::cerr << "ERROR: Start trim length not match.\t" << r_st << '-' << num_r << '\t' << q_st << '-' << num_q << '\n';
+    }
+    num_r = 0; num_q = 0;
+    for (auto a: endPath) { 
+        if (a == 0) { num_r++; num_q++; }
+        if (a == 1) num_q++;
+        if (a == 2) num_r++;
+    }
+    if (num_r != (refLen - r_en) || num_q != (qryLen - q_en)) {
+        std::cerr << "ERROR: End trim length not match.\t" << (refLen - r_en) << '-' << num_r << '\t' << (qryLen - q_en) << '-' << num_q << '\n';
+        std::cout << "Ref end remain: " << refEndRemain << '\n';
+        std::cout << "Qry end remain: " << qryEndRemain << '\n';
+        std::cout << "End alignment path: ";
+        for (auto a: endPath) std::cout << (int)a;
+        std::cout << '\n';
+        // global_alignmentDNA(refEndRemain, qryEndRemain, endPath);
+    }
+    
+
+    // std::cout << "Trimmed alignment: " << refLen << " -> " << lens.first << ", " << qryLen << " -> " << lens.second << '\n';
+    // std::cout << "Start trim: " << r_st << ", " << q_st << '\n';
+    // std::cout << "End trim: " << (refLen - r_en) << ", " << (qryLen - q_en) << '\n';
+    // std::cout << "Start alignment path: ";
+    // for (auto a: startPath) std::cout << (int)a;
+    // std::cout << '\n';
+    // std::cout << "End alignment path: ";
+    // for (auto a: endPath) std::cout << (int)a;
+    // std::cout << '\n';
+
+    return;
+}
+
+void smith_waterman_DNA(const std::string &seq1, const std::string &seq2, int& max_r, int& max_q) {
+    int m = seq1.size();
+    int n = seq2.size();
+    // DP matrix
+    std::vector<std::vector<int>> H(m + 1, std::vector<int>(n + 1, 0));
+    int max_score = 0;
+    int max_i = 0;
+    int max_j = 0;
+    int match = 2, mismatch = -1, gap = -2;
+
+    for (int i = 1; i <= m; ++i) {
+        for (int j = 1; j <= n; ++j) {
+            int score_diag = H[i - 1][j - 1] + ((seq1[i-1] == 'N' || seq2[j-1] == 'N') ? 0 : (seq1[i - 1] == seq2[j - 1] ? match : mismatch));
+            int score_del = H[i - 1][j] + gap;
+            int score_ins = H[i][j - 1] + gap;
+            int score = std::max(0, std::max({score_diag, score_del, score_ins}));
+            H[i][j] = score;
+            if (score > max_score) {
+                max_score = score;
+                max_i = i;
+                max_j = j;
+            }
+        }
+    }
+
+    max_r = max_i;
+    max_q = max_j;
+
+    // std::cout << "Smith-Waterman max score: " << max_score << " at (" << max_i << ',' << max_j << ")\n";
+
+    return;
 }
