@@ -1607,7 +1607,7 @@ std::string getConsensusDNA(float* profile, int len) {
     for (int i = 0; i < len; ++i) {
         int max_idx = 4;
         float max_count = 0;
-        for (int j = 0; j < 4; ++j) {
+        for (int j = 0; j < 5; ++j) {
             if (profile[6*i+j] > max_count) {
                 max_count = profile[6*i+j];
                 max_idx = j;

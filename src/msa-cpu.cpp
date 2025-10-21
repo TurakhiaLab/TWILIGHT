@@ -640,7 +640,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         }
         std::pair<int,int> lens = std::make_pair(refLen, qryLen), rawLens (std::make_pair(0, 0)), offset (std::make_pair(0, 0));
         removeGappyColumns(hostFreq, tree, nodes[nIdx], util, option, gappyColumns, seqLen, seqLen, lens, rawLens);
-        // removeEnds(hostFreq, tree, nodes[nIdx], util, option, seqLen, seqLen, lens, endsPaths);
+        removeEnds(hostFreq, tree, nodes[nIdx], util, option, seqLen, seqLen, lens, endsPaths);
                             
         int32_t newRef = lens.first, newQry = lens.second;
         calculatePSGOP(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, seqLen, offset, lens, param);                  

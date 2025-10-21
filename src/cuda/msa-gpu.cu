@@ -413,7 +413,7 @@ void msaGpu(Tree *tree, std::vector<std::pair<Node *, Node *>> &nodes, msa::util
                             calculateProfileFreq(rawProfile, tree, nodes[nIdx], util, option, maxLenLeft, profileSize, startPos[n]);
                             std::pair<int,int> lens = std::make_pair(refLen-startPos[n].first, qryLen-startPos[n].second);
                             removeGappyColumns(rawProfile, tree, nodes[nIdx], util, option, gappyColumns[n], maxLenLeft, maxProfileLen, lens, profileLen[n]);
-                            // removeEnds(rawProfile, tree, nodes[nIdx], util, option, maxLenLeft, maxProfileLen, lens, endsPaths[n]);
+                            removeEnds(rawProfile, tree, nodes[nIdx], util, option, maxLenLeft, maxProfileLen, lens, endsPaths[n]);
                             for (int i = 0; i < profileSize * maxProfileLen; ++i)  {
                                 hostFreq[gn][offsetf+i] = (i < profileSize * lens.first) ? rawProfile[i] : 0.0;
                             }
