@@ -55,7 +55,7 @@ void collectAlignedDescendant(Node* node, msa::utility* util, std::vector<std::s
 void createAlnPairs(Tree* tree, msa::utility* util, msa::option* option, std::vector<std::pair<Node*, Node*>>& alnPairs);
 
 
-void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::vector<int8_t>& alnPath);
+void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::vector<int8_t>& alnPath, bool semi_global=false);
 void global_alignmentProtein(const std::string &seq1, const std::string &seq2, std::vector<int8_t>& alnPath);
 std::string getConsensusDNA(float* profile, int len);
 std::string getConsensusProtein(float* profile, int len);

@@ -477,6 +477,25 @@ void msa::utility::changeStorage(int idx) {
     return;
 }
 
+void msa::utility::updateEnds(int idx, int len) {
+    int first = 0, last = len;
+    int storage = this->seqsStorage[idx];
+    for (int i = 0; i < len; ++i) {
+        if (this->alnStorage[storage][idx][i] != '-') {
+            first = i;
+            break;
+        }              
+    }
+    for (int i = len-1; i >= 0; --i) {
+        if (this->alnStorage[storage][idx][i] != '-') {
+            last = i+1;
+            break;
+        }              
+    }
+    this->seqsEnds[idx] = {first, last};
+    return;
+}
+
 void msa::utility::setSubtreeIdx(int idx) {
     this->subtreeIdx = idx;
     return;
@@ -578,14 +597,17 @@ void msa::utility::seqsMallocNStore(size_t seqLen, std::map<std::string, std::pa
                 this->alnStorage[1][s][i] = 0;  
             }
             this->seqsLen[seq.first] = seq.second.first.size();
+            this->seqsEnds[s] = {0, seq.second.first.size()};
         }
         else {
             this->seqsLen[seq.first] = 0;
+            this->seqsEnds[s] = {0, 0};
         }
         this->seqsIdx[seq.first] = s;
         this->seqsName[s] = seq.first;
         this->seqsStorage[s] = 0;
         this->seqMemLen[s] = this->memLen;
+        // this->seqsEnds[s] = {0, this->seqsLen[seq.first]};
         ++s;
     }
     // printf("Allocate memory for sequence storage, size = %lu x %lu\n", this->memNum, this->memLen);
