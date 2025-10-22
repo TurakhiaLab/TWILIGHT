@@ -148,7 +148,7 @@ void readSequences(msa::utility* util, msa::option* option, Tree*& tree)
         util->seqsMallocNStore(maxLen, seqs, option);
     }
     
-    bool outputLowQ = true;
+    bool outputLowQ = false;
     if (outputLowQ){
         std::string lowQfile;
         if (option->tempDir != "") lowQfile = option->tempDir+"/lowQ-"+std::to_string(numLowQ)+"-"+std::to_string(seqNum)+".fasta.gz";
