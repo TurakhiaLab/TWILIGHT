@@ -1125,7 +1125,7 @@ void outputAlignment(std::string fileName, msa::utility* util, Tree* T, bool com
         }
         outFile.close();
     }
-    util->seqsFree();
+    // util->seqsFree();
 }
 
 // auxiliary
