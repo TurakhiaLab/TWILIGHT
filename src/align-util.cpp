@@ -1410,7 +1410,9 @@ void mergedAlignedSeqs(Tree* tree, msa::utility* util, msa::option* option, cons
         auto insertIt = insertionGroup.begin();
         std::string updated_seq = "";
         while (alnIdx < alnPaths[s].size()) {
-            if (alnIdx == insertIt->first.first) {
+            bool index_match = (insertIt != insertionGroup.end());
+            if (index_match) index_match = (alnIdx == insertIt->first.first);
+            if (index_match) {
                 if (insertIt->second.find(alnPairs[s].second->identifier) != insertIt->second.end()) {
                     for (int j = 0; j < insertIt->first.second; ++j) {
                         updated_seq.push_back(util->placedSeqs[alnPairs[s].second->identifier][seqIdx]);
@@ -1442,7 +1444,9 @@ void mergedAlignedSeqs(Tree* tree, msa::utility* util, msa::option* option, cons
     int backboneLen = (option->treeFile == "") ? tree->root->msaFreq.size() : util->backboneAln.begin()->second.size();
     int b_alnIdx = 0;
     while (b_alnIdx < backboneLen) {
-        if (b_alnIdx == insertIt->first.first) {
+        bool index_match = (insertIt != insertionGroup.end());
+        if (index_match) index_match = (b_alnIdx == insertIt->first.first);
+        if (index_match) {
             for (int j = 0; j < insertIt->first.second; ++j) backbonePath.push_back(1);
             ++insertIt;
         }
