@@ -26,6 +26,8 @@
 #include "TALCO-XDrop.hpp"
 #endif
 
+using scoreType = float;
+
 void Talco_xdrop::Align_freq (
     Params* params,
     const std::vector<std::vector<float>>& freqRef,
@@ -65,8 +67,10 @@ void Talco_xdrop::Align_freq (
             }
             for (int i= tile_aln.size()-1; i>=0; i--){
                 if (i == tile_aln.size()-1 && tile>0) continue;
+                // if (freqRef.size() == 1776 && freqQry.size() == 6124) std::cout << (tile_aln[i] & 0xFFFF);
                 aln.push_back(tile_aln[i]);
             }
+            // if (freqRef.size() == 1776 && freqQry.size() == 6124) std::cout << '\n';
             tile_aln.clear();
             tile++;
         }
@@ -202,14 +206,14 @@ void Talco_xdrop::Tile (
     ) {
                 
         // Initialising variables
-        int32_t inf = 2*param->xdrop + 1;
+        scoreType  inf = 2.0*param->xdrop + 1.0;
         int32_t marker = param->marker;
         bool converged = false; bool conv_logic = false;
         float refNum = num.first, qryNum = num.second; 
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
         int32_t fLen = std::min(param->fLen, std::min(reference_length, query_length));
-        int32_t score = 0; int32_t max_score = 0; int32_t max_score_prime = -inf; // int32_t max_score_ref_idx = 0; int32_t max_score_query_idx = 0;
+        scoreType score = 0; scoreType max_score = 0; scoreType max_score_prime = -inf; // int32_t max_score_ref_idx = 0; int32_t max_score_query_idx = 0;
         int32_t conv_score = 0; int32_t conv_value = 0; int32_t conv_ref_idx = 0; int32_t conv_query_idx = 0; 
         int32_t tb_start_addr = 0; int32_t tb_start_ftr = 0; // int32_t max_score_start_addr = 0; int32_t max_score_start_ftr = 0;
         int8_t tb_state = 0;
@@ -255,7 +259,7 @@ void Talco_xdrop::Tile (
         // float gapExtendTail_qry = 0;
         
         int32_t L[3], U[3];
-        int32_t *S[3], *I[2], *D[2];
+        scoreType *S[3], *I[2], *D[2];
         int32_t *CS[3], *CI[2], *CD[2];
         std::vector<int8_t> tb;
         std::vector<int32_t> ftr_length;
@@ -265,11 +269,11 @@ void Talco_xdrop::Tile (
         int32_t prev_conv_s = -1;
 
         for (size_t sIndx=0; sIndx<3; sIndx++) { // Allocate memory for S, I, D, and CS array
-            S[sIndx] = new int32_t [fLen];
+            S[sIndx] = new scoreType [fLen];
             CS[sIndx] = new int32_t [fLen];
             if (sIndx < 2) {
-                I[sIndx] = new int32_t [fLen];
-                D[sIndx] = new int32_t [fLen];
+                I[sIndx] = new scoreType [fLen];
+                D[sIndx] = new scoreType [fLen];
                 CI[sIndx] = new int32_t [fLen];
                 CD[sIndx] = new int32_t [fLen];
             }
@@ -285,13 +289,13 @@ void Talco_xdrop::Tile (
                     I[sIndx][sLenIndex] = -1;
                     D[sIndx][sLenIndex] = -1;
                     CI[sIndx][sLenIndex] = -1;
-                    CD[sIndx][sLenIndex] = -1;
+                    CD[sIndx][sLenIndex] = -2;
                 }
             }
         }
 
         if ((reference_length < 0) || (query_length < 0)) {
-            std::cout << reference_length << " " << query_length << std::endl;
+            // std::cout << reference_length << " " << query_length << std::endl;
             fprintf(stderr, "ERROR: Reference/Query index exceeded limit!\n");
             errorType = 3;
             aln.clear();
@@ -309,7 +313,7 @@ void Talco_xdrop::Tile (
         }
         for (int32_t k = 0; k < reference_length + query_length - 1; k++){
             
-            // if (reference.size() == 3304 && query.size() == 1948) printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
+            // if (reference.size() == 1776 && query.size() == 6124) printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
             if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                 last_tile = true;
                 errorType = 1;
@@ -360,7 +364,7 @@ void Talco_xdrop::Tile (
                     exit(1);
                 }
 
-                int32_t match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
+                scoreType match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
                 int32_t offset = i-L[k%3];
                 int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
                 int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
@@ -370,13 +374,13 @@ void Talco_xdrop::Tile (
                 if ((k==0) || 
                     ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) ||
                     (tile == 0 && (i == 0 || j == 0 ))) {
-                    int32_t similarScore = 0;
+                    scoreType similarScore = 0;
                     float numerator = 0;
                     if (type == 0) {
                         for (int l = 0; l < 6; ++l) {
                             for (int m = 0; m < 6; ++m) {
                                 if (m == 5 && l == 5)      numerator += 0;
-                                else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*gapExtend;
+                                else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*0;
                                 else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
                             }
                         }
@@ -392,7 +396,8 @@ void Talco_xdrop::Tile (
                     }
                       
 
-                    similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
+                    // similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
+                    similarScore = numerator/denominator;
                     if  (tile == 0 && (i == 0 || j == 0 )) {
                         if (i == 0 && j > 0)      match = similarScore + gapOpenHead_ref + gapExtendHead_ref * (reference_idx+j - 1);
                         else if (i > 0 && j == 0) match = similarScore + gapOpenHead_qry + gapExtendHead_qry * (query_idx+i - 1);
@@ -405,14 +410,18 @@ void Talco_xdrop::Tile (
                     else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
 
-                int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(gapOp[0][reference_idx+j]));
-                int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(gapOp[1][query_idx+i]));
+                // int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(gapOp[0][reference_idx+j]));
+                // int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(gapOp[1][query_idx+i]));
+                scoreType pos_gapOpen_ref =  gapOp[0][reference_idx+j];
+                scoreType pos_gapOpen_qry =  gapOp[1][query_idx+i];
                 // float gapRef = reference[reference_idx+j][reference[0].size()-1];
                 // float gapQry = query[query_idx+i][query[0].size()-1];
                 
                 
-                int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
-                int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
+                // int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
+                // int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
+                scoreType pos_gapExtend_ref = gapEx[0][reference_idx+j];
+                scoreType pos_gapExtend_qry = gapEx[1][query_idx+i];
                 // int32_t pos_gapExtend_ref = (reference[reference_idx+j][21] > 0) ? gapExtend / 2 : gapExtend;
                 // int32_t pos_gapExtend_qry = (query[query_idx+i][21] > 0) ? gapExtend / 2 : gapExtend;
 
@@ -647,6 +656,15 @@ void Talco_xdrop::Tile (
                                                   tb_start_addr +  (conv_query_idx - ftr_lower_limit[ftr_lower_limit.size() - 1]);
                 tb_start_ftr = (tb_state == 3) ? ftr_length.size() - 2: ftr_length.size() - 1;
             }
+        }
+
+        if (conv_query_idx == 65535) {
+            conv_query_idx = 0;
+            conv_ref_idx = param->marker;
+        }
+        else if (conv_query_idx == 65534) {
+            conv_query_idx = param->marker;
+            conv_ref_idx = 0;
         }
             
         reference_idx += conv_ref_idx;
