@@ -558,8 +558,8 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
             if (s < refLen) {
                 float gapRatio = hostFreq[offsetf+profileSize*s+profileSize-1];
                 if (gapRatio > 0) {
-                    hostGapOp[offsetg+s] = param.gapOpen * scale * ((refNum-gapRatio)*1.0 / refNum);
-                    hostGapEx[offsetg+s] = param.gapExtend * ((refNum-gapRatio)*1.0 / refNum);
+                    hostGapOp[offsetg+s] = param.gapOpen * scale * std::max(0.2, ((refNum-gapRatio)*1.0 / refNum));
+                    hostGapEx[offsetg+s] = param.gapExtend * std::max(0.2, ((refNum-gapRatio)*1.0 / refNum));
                 }
                 else {
                     hostGapOp[offsetg+s] = param.gapOpen;
@@ -577,8 +577,8 @@ void calculatePSGOP(float* hostFreq, float* hostGapOp, float* hostGapEx, Tree* t
             if (s < qryLen) {
                 float gapRatio = hostFreq[offsetf+profileSize*(seqLen+s)+profileSize-1];
                 if (gapRatio > 0) {
-                    hostGapOp[offsetg+seqLen+s] = param.gapOpen * scale * ((qryNum-gapRatio) * 1.0 / qryNum);
-                    hostGapEx[offsetg+seqLen+s] = param.gapExtend * ((qryNum-gapRatio) * 1.0 / qryNum);
+                    hostGapOp[offsetg+seqLen+s] = param.gapOpen * scale * std::max(0.2, ((qryNum-gapRatio) * 1.0 / qryNum));
+                    hostGapEx[offsetg+seqLen+s] = param.gapExtend * std::max(0.2, ((qryNum-gapRatio) * 1.0 / qryNum));
                 }
                 else {
                     hostGapOp[offsetg+seqLen+s] = param.gapOpen;

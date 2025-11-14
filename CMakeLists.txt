@@ -101,7 +101,7 @@ else()
 		if("${FIND_GPU_COMPILE_RESULT}" AND ("${FIND_GPU_RESULT}" EQUAL 0))
 			message(STATUS "CUDA-capable GPU found. GPU architecture: ${GPU_ARCH_OUTPUT}")
 			if(${CMAKE_VERSION} VERSION_LESS "3.18")
-				set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_${GPU_ARCH_OUTPUT}")
+				set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_${GPU_ARCH_OUTPUT} -G -lineinfo")
 			else()
 				set(CMAKE_CUDA_ARCHITECTURES ${GPU_ARCH_OUTPUT})
 			endif()
@@ -156,9 +156,31 @@ else()
 	endif()
 endif()
 
+add_executable (twilight_new
+				src_new/cuda/twilight-main.cu
+				src_new/phylogeny.cpp
+				src_new/tree.cpp
+				src_new/treePartition.cpp
+				src_new/node.cpp
+				src_new/scoring-matrix.cpp
+				src_new/io.cpp
+				src_new/option.cpp
+				src_new/sequencedb.cpp
+				src_new/progressive.cpp
+				src_new/alignment-cpu.cpp
+				src_new/alignment-helper.cpp
+				src_new/TALCO-XDrop.cpp
+				src_new/cuda/gpu-info.cu
+				src_new/cuda/alignment-gpu.cu
+				src_new/cuda/device-function.cu)
+
+
+
 find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
 include_directories(${ZLIB_INCLUDE_DIR})
 find_package(TBB REQUIRED CONFIG)
 add_executable (twilight ${SRC_FILES})
 target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
+
+target_link_libraries(twilight_new PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
