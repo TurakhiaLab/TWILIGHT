@@ -219,7 +219,7 @@ void readFrequency(msa::utility* util, msa::option* option) {
         }
         std::cout << "Start reading " << msaFileName << " (" << subtreeIdx+1 << '/' << totalFile << ")\n";
         kseq_t* kseq_rd = kseq_init(f_rd);
-        int seqNum = 0, msaLen = 0;
+        int seqNum = 0, msaLen = 0, first_all_nongap = 0, last_all_nongap = INT32_MAX;
         std::string seqName;
         while (kseq_read(kseq_rd) >= 0) {
             int seqLen = kseq_rd->seq.l;
@@ -237,7 +237,11 @@ void readFrequency(msa::utility* util, msa::option* option) {
             }
             if (!calFreq) continue;
             std::string seq = std::string(kseq_rd->seq.s, seqLen);
-            tbb::parallel_for(0, seqLen, [&](int j) {
+            size_t first = seq.find_first_not_of('-');
+            size_t last = seq.find_last_not_of('-') + 1;
+            if (first_all_nongap < first) first_all_nongap = first;
+            if (last_all_nongap > last) last_all_nongap = last;
+            tbb::parallel_for(first, last, [&](int j) {
                 int letterIndex = letterIdx(option->type, toupper(seq[j]));
                 util->profileFreq[subtreeIdx][j][letterIndex] += 1.0;
             });
@@ -252,6 +256,7 @@ void readFrequency(msa::utility* util, msa::option* option) {
         util->seqsLen[seqName] = msaLen;
         util->seqsIdx[seqName] = subtreeIdx;
         util->seqsName[subtreeIdx] = seqName;
+        util->seqsEnds[subtreeIdx] = {first_all_nongap, last_all_nongap};
         if (msaLen > util->seqLen) util->seqLen = msaLen;
         ++subtreeIdx;
     }
@@ -892,6 +897,7 @@ void outputWholeAln(msa::utility* util, msa::option* option, Tree* T) {
             }
         }
         // Write to placed seq file
+
         fs::path p_new(option->seqFile);
         std::string newFile = option->tempDir + '/' + p_new.filename().string() + ".final.aln";
         {

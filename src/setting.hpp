@@ -98,8 +98,9 @@ namespace msa
         std::map<int, std::vector<std::string>> badSequences;
         // std::map<int, std::vector<int>> subtrees;
         std::unordered_map<std::string, int>  seqsIdx;
+        std::unordered_map<int, std::pair<int,int>> seqsEnds;
         std::unordered_map<int, std::string> seqsName;
-        std::unordered_map<std::string, int>  seqsLen;
+        std::unordered_map<std::string, int> seqsLen;
         std::unordered_map<int, bool> seqsStorage;
         std::map<int, std::vector<std::vector<float>>> profileFreq;
         std::unordered_map<std::string, std::string> seqsCIGAR;
@@ -118,6 +119,7 @@ namespace msa
         const float timesBigger = 2.0;
         void changeStorage(int idx); 
         void setSubtreeIdx(int idx); 
+        void updateEnds(int idx, int len);
         void seqsFree();
         void seqFree(int i);
         void seqMalloc(int seqNum, int seqLen, option* option);

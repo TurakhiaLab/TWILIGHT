@@ -121,6 +121,7 @@ void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
                     }
                 }
                 util->changeStorage(sIdx);
+                util->updateEnds(sIdx, aln.size());
             }
             });
             });
@@ -147,6 +148,7 @@ void updateAlignment(Tree* tree, std::pair<Node*, Node*>& nodes, msa::utility* u
                 }
                 // util->seqsLen[nodes[nIdx].second->identifier] = hostAlnLen[gn][n];
                 util->changeStorage(sIdx);
+                util->updateEnds(sIdx, aln.size());
             }
             });
             });
@@ -1545,88 +1547,6 @@ void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::
 }
 */
 
-void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::vector<int8_t> &alnPath)
-{
-    int m = seq1.size();
-    int n = seq2.size();
-
-    // Scoring scheme
-    const float match = 8.0;
-    const float mismatch = -1.0;
-    const float gap_open = -4.0;
-    const float gap_extend = -1.0;
-    const float N_score = 1.0; // small positive score for N
-
-    // DP matrices: M = match/mismatch, X = gap in seq1 (deletion), Y = gap in seq2 (insertion)
-    std::vector<std::vector<float>> M(m + 1, std::vector<float>(n + 1, 0));
-    std::vector<std::vector<float>> X(m + 1, std::vector<float>(n + 1, 0));
-    std::vector<std::vector<float>> Y(m + 1, std::vector<float>(n + 1, 0));
-    std::vector<std::vector<int8_t>> tb(m + 1, std::vector<int8_t>(n + 1, 0)); // traceback: 0/1/2
-
-    // Initialization
-    M[0][0] = 0;
-    for (int i = 1; i <= m; ++i) {
-        M[i][0] = gap_open + (i - 1) * gap_extend;
-        X[i][0] = M[i][0];
-        Y[i][0] = -1e9; // impossible
-        tb[i][0] = 2;   // gap in query
-    }
-    for (int j = 1; j <= n; ++j) {
-        M[0][j] = gap_open + (j - 1) * gap_extend;
-        Y[0][j] = M[0][j];
-        X[0][j] = -1e9;
-        tb[0][j] = 1; // gap in reference
-    }
-
-    // Fill matrices
-    for (int i = 1; i <= m; ++i) {
-        for (int j = 1; j <= n; ++j) {
-            // Compute scores
-            float base_score;
-            if (seq1[i - 1] == seq2[j - 1])
-                base_score = match;
-            else if (seq1[i - 1] == 'N' || seq2[j - 1] == 'N')
-                base_score = N_score;
-            else
-                base_score = mismatch;
-
-            // Match/mismatch
-            M[i][j] = base_score + std::max({M[i - 1][j - 1], X[i - 1][j - 1], Y[i - 1][j - 1]});
-
-            // Gap in seq1 (deletion)
-            X[i][j] = std::max(M[i - 1][j] + gap_open,
-                               X[i - 1][j] + gap_extend);
-
-            // Gap in seq2 (insertion)
-            Y[i][j] = std::max(M[i][j - 1] + gap_open,
-                               Y[i][j - 1] + gap_extend);
-
-            // Choose best path for traceback
-            float best = std::max({M[i][j], X[i][j], Y[i][j]});
-            if (best == M[i][j])
-                tb[i][j] = 0;
-            else if (best == Y[i][j])
-                tb[i][j] = 1; // gap in ref (insert in query)
-            else
-                tb[i][j] = 2; // gap in qry (delete in ref)
-        }
-    }
-
-    // Traceback
-    alnPath.clear();
-    int i = m, j = n;
-    float max_score = std::max({M[m][n], X[m][n], Y[m][n]});
-    while (i > 0 || j > 0) {
-        int8_t dir = tb[i][j];
-        alnPath.push_back(dir);
-
-        if (dir == 0) { i--; j--; }
-        else if (dir == 1) { j--; }
-        else if (dir == 2) { i--; }
-    }
-
-    std::reverse(alnPath.begin(), alnPath.end());
-}
 
 void global_alignmentProtein(const std::string &seq1, const std::string &seq2, std::vector<int8_t>& alnPath) {
     int m = seq1.size();
@@ -1689,7 +1609,7 @@ std::string getConsensusDNA(float* profile, int len) {
     const char bases[5] = {'A', 'C', 'G', 'T', 'N'};
     std::string consensus = "";
     for (int i = 0; i < len; ++i) {
-        int max_idx = 0;
+        int max_idx = 4;
         float max_count = 0;
         for (int j = 0; j < 5; ++j) {
             if (profile[6*i+j] > max_count) {
@@ -1729,20 +1649,20 @@ void removeEnds(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
     int32_t refLen = lens.first, qryLen = lens.second;
     
-    int refSegmentLen = refLen * 0.05;
-    int qrySegmentLen = qryLen * 0.05;
+    int refSegmentLen = refLen * 0.1;
+    int qrySegmentLen = qryLen * 0.1;
 
-    std::string refStartConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq, refSegmentLen) : getConsensusProtein(hostFreq, refSegmentLen);
-    std::string qryStartConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq + profileSize*profileLen, qrySegmentLen) : getConsensusProtein(hostFreq + profileSize*profileLen, qrySegmentLen);
+    // std::string refStartConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq, refSegmentLen) : getConsensusProtein(hostFreq, refSegmentLen);
+    // std::string qryStartConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq + profileSize*profileLen, qrySegmentLen) : getConsensusProtein(hostFreq + profileSize*profileLen, qrySegmentLen);
     std::string refEndConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq + profileSize*(refLen - refSegmentLen), refSegmentLen) : getConsensusProtein(hostFreq + profileSize*(refLen - refSegmentLen), refSegmentLen);
     std::string qryEndConsensus = (option->type == 'n') ? getConsensusDNA(hostFreq + profileSize*(profileLen + qryLen - qrySegmentLen), qrySegmentLen) : getConsensusProtein(hostFreq + profileSize*(profileLen + qryLen - qrySegmentLen), qrySegmentLen);  
-    std::reverse(refStartConsensus.begin(), refStartConsensus.end());
-    std::reverse(qryStartConsensus.begin(), qryStartConsensus.end());
+    // std::reverse(refStartConsensus.begin(), refStartConsensus.end());
+    // std::reverse(qryStartConsensus.begin(), qryStartConsensus.end());
     int max_r_st = 0, max_q_st = 0, max_r_en = 0, max_q_en = 0;
-    smith_waterman_DNA(refStartConsensus, qryStartConsensus, max_r_st, max_q_st);
+    // smith_waterman_DNA(refStartConsensus, qryStartConsensus, max_r_st, max_q_st);
     smith_waterman_DNA(refEndConsensus, qryEndConsensus, max_r_en, max_q_en);
-    int r_st = refSegmentLen - max_r_st;
-    int q_st = qrySegmentLen - max_q_st;
+    int r_st = 0;
+    int q_st = 0;
     int r_en = refLen - refSegmentLen + max_r_en;
     int q_en = qryLen - qrySegmentLen + max_q_en;
 
@@ -1754,22 +1674,21 @@ void removeEnds(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa
     for (int qIdx = 0; qIdx < (q_en-q_st); ++qIdx) {
         for (int t = 0; t < profileSize; ++t) hostFreq[profileSize*(profileLen+qIdx)+t] = hostFreq[profileSize*(profileLen+qIdx+q_st)+t];       
     }
-    
 
     lens.first = r_en - r_st;
     lens.second = q_en - q_st;
-    std::string refStartRemain = refStartConsensus.substr(0, r_st);
-    std::string qryStartRemain = qryStartConsensus.substr(0, q_st);
+    // std::string refStartRemain = refStartConsensus.substr(0, r_st);
+    // std::string qryStartRemain = qryStartConsensus.substr(0, q_st);
     std::string refEndRemain = refEndConsensus.substr(max_r_en, refEndConsensus.size() - max_r_en);
     std::string qryEndRemain = qryEndConsensus.substr(max_q_en, qryEndConsensus.size() - max_q_en); 
 
     std::vector<int8_t> startPath, endPath;
-    if (refStartRemain.size() > 0 && qryStartRemain.size() > 0) global_alignmentDNA(refStartRemain, qryStartRemain, startPath);
-    else {
-        if (refStartRemain.size() > 0) for (int i = 0; i < refStartRemain.size(); ++i) startPath.push_back(2);
-        else                           for (int i = 0; i < qryStartRemain.size(); ++i) startPath.push_back(1);
-    }
-    if (refEndRemain.size() > 0 && qryEndRemain.size() > 0) global_alignmentDNA(refEndRemain, qryEndRemain, endPath);
+    // if (refStartRemain.size() > 0 && qryStartRemain.size() > 0) global_alignmentDNA(refStartRemain, qryStartRemain, startPath);
+    // else {
+    //     if (refStartRemain.size() > 0) for (int i = 0; i < refStartRemain.size(); ++i) startPath.push_back(2);
+    //     else                           for (int i = 0; i < qryStartRemain.size(); ++i) startPath.push_back(1);
+    // }
+    if (refEndRemain.size() > 0 && qryEndRemain.size() > 0) global_alignmentDNA(refEndRemain, qryEndRemain, endPath, true);
     else {
         if (refEndRemain.size() > 0) for (int i = 0; i < refEndRemain.size(); ++i) endPath.push_back(2);
         else                         for (int i = 0; i < qryEndRemain.size(); ++i) endPath.push_back(1);
@@ -1801,6 +1720,15 @@ void removeEnds(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa
         // global_alignmentDNA(refEndRemain, qryEndRemain, endPath);
     }
     
+    // std::string alnPath = "";
+    // for (auto a: endPath) alnPath += std::to_string(a);
+    // if (refEndRemain.size() > 0 && qryEndRemain.size() > 0) {
+    //     std::string refEndMatch = refEndConsensus.substr(max_r_en-30, 30);
+    //     std::string qryEndMatch = qryEndConsensus.substr(max_q_en-30, 30); 
+    //     std::cout << "Ref: " << refEndMatch << '\n'
+    //               << "Qry: " << qryEndMatch << '\n'
+    //               << "Consensus: (" << refEndRemain << ',' << qryEndRemain << ") Alignment: " << alnPath << '\n';
+    // }
 
     // std::cout << "Trimmed alignment: " << refLen << " -> " << lens.first << ", " << qryLen << " -> " << lens.second << '\n';
     // std::cout << "Start trim: " << r_st << ", " << q_st << '\n';
@@ -1815,6 +1743,113 @@ void removeEnds(float* hostFreq, Tree* tree, std::pair<Node*, Node*>& nodes, msa
     return;
 }
 
+void global_alignmentDNA(const std::string &seq1, const std::string &seq2, std::vector<int8_t> &alnPath, bool semi_global)
+{
+    int m = seq1.size();
+    int n = seq2.size();
+
+    bool seq2_allN = std::all_of(seq2.begin(), seq2.end(), [](char c){ return c == 'N'; });
+    bool seq1_allN = std::all_of(seq1.begin(), seq1.end(), [](char c){ return c == 'N'; });
+    if (seq1_allN || seq2_allN) {
+        if (m > n) {
+            for (int i = 0; i < n; ++i) alnPath.push_back(0);
+            for (int i = n; i < m; ++i) alnPath.push_back(2);
+        }
+        else {
+            for (int i = 0; i < m; ++i) alnPath.push_back(0);
+            for (int i = m; i < n; ++i) alnPath.push_back(1);
+        }
+        return;
+    }
+
+    bool m_longer = (m > n);
+    bool global = (static_cast<float>(abs(m-n)) / static_cast<float>(std::max(m, n)) < 0.3);
+
+    // Scoring scheme
+    const float match = 2.0;
+    const float mismatch = -4.0;
+    const float gap_open = -16.0;
+    const float gap_extend = -1.0;
+    const float N_score = 1.0; // small positive score for N
+
+    // DP matrices: M = match/mismatch, X = gap in seq1 (deletion), Y = gap in seq2 (insertion)
+    std::vector<std::vector<float>> M(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<float>> X(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<float>> Y(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<int8_t>> tb(m + 1, std::vector<int8_t>(n + 1, 0)); // traceback: 0/1/2
+
+    // Initialization
+    M[0][0] = 0;
+    for (int i = 1; i <= m; ++i) {
+        M[i][0] = (!semi_global) ? 0 : (!m_longer || global) ? gap_open + (i-1) * gap_extend : 0;
+        // M[i][0] = 0;
+        X[i][0] = M[i][0];
+        Y[i][0] = -1e9; // impossible
+        tb[i][0] = 2;   // gap in query
+    }
+    for (int j = 1; j <= n; ++j) {
+        M[0][j] = (!semi_global) ? 0 : (m_longer || global) ? gap_open + (j-1) * gap_extend : 0;
+        // M[0][j] = 0;
+        Y[0][j] = M[0][j];
+        X[0][j] = -1e9;
+        tb[0][j] = 1; // gap in reference
+    }
+
+    // Fill matrices
+    for (int i = 1; i <= m; ++i) {
+        for (int j = 1; j <= n; ++j) {
+            // Compute scores
+            float base_score;
+            if (seq1[i - 1] == seq2[j - 1])
+                base_score = match;
+            else if (seq1[i - 1] == 'N' || seq2[j - 1] == 'N')
+                base_score = N_score;
+            else
+                base_score = mismatch;
+
+            // Match/mismatch
+            M[i][j] = base_score + std::max({M[i - 1][j - 1], X[i - 1][j - 1], Y[i - 1][j - 1]});
+
+            // Gap in seq1 (deletion)
+            float x_gap_open = (j == n) ? 0 : gap_open; 
+            float x_gap_extend = (j == n) ? 0 : gap_extend; 
+
+            X[i][j] = std::max(M[i - 1][j] + x_gap_open,
+                               X[i - 1][j] + x_gap_extend);
+
+            // Gap in seq2 (insertion)
+            float y_gap_open = (i == m) ? 0 : gap_open; 
+            float y_gap_extend = (i == m) ? 0 : gap_extend; 
+            Y[i][j] = std::max(M[i][j - 1] + y_gap_open,
+                               Y[i][j - 1] + y_gap_extend);
+
+            // Choose best path for traceback
+            float best = std::max({M[i][j], X[i][j], Y[i][j]});
+            if (best == M[i][j])
+                tb[i][j] = 0;
+            else if (best == Y[i][j])
+                tb[i][j] = 1; // gap in ref (insert in query)
+            else
+                tb[i][j] = 2; // gap in qry (delete in ref)
+        }
+    }
+
+    // Traceback
+    alnPath.clear();
+    int i = m, j = n;
+    float max_score = std::max({M[m][n], X[m][n], Y[m][n]});
+    while (i > 0 || j > 0) {
+        int8_t dir = tb[i][j];
+        alnPath.push_back(dir);
+
+        if (dir == 0) { i--; j--; }
+        else if (dir == 1) { j--; }
+        else if (dir == 2) { i--; }
+    }
+
+    std::reverse(alnPath.begin(), alnPath.end());
+}
+
 void smith_waterman_DNA(const std::string &seq1, const std::string &seq2, int& max_r, int& max_q) {
     int m = seq1.size();
     int n = seq2.size();
@@ -1823,11 +1858,11 @@ void smith_waterman_DNA(const std::string &seq1, const std::string &seq2, int& m
     int max_score = 0;
     int max_i = 0;
     int max_j = 0;
-    int match = 2, mismatch = -1, gap = -2;
+    int match = 2, mismatch = -3, gap = -2;
 
     for (int i = 1; i <= m; ++i) {
         for (int j = 1; j <= n; ++j) {
-            int score_diag = H[i - 1][j - 1] + ((seq1[i-1] == 'N' || seq2[j-1] == 'N') ? 0 : (seq1[i - 1] == seq2[j - 1] ? match : mismatch));
+            int score_diag = H[i - 1][j - 1] + ((seq1[i-1] == 'N' || seq2[j-1] == 'N') ? -1 : (seq1[i - 1] == seq2[j - 1] ? match : mismatch));
             int score_del = H[i - 1][j] + gap;
             int score_ins = H[i][j - 1] + gap;
             int score = std::max(0, std::max({score_diag, score_del, score_ins}));
@@ -1846,4 +1881,84 @@ void smith_waterman_DNA(const std::string &seq1, const std::string &seq2, int& m
     // std::cout << "Smith-Waterman max score: " << max_score << " at (" << max_i << ',' << max_j << ")\n";
 
     return;
+}
+
+void smith_waterman_DNA_with_path(const std::string &seq1, const std::string &seq2, int &max_r, int &max_q, alnPathList& alnPath) {
+    int m = seq1.size();
+    int n = seq2.size();
+
+    const int match = 2;
+    const int mismatch = -3;
+    const int gap = -2;
+
+    // DP score and traceback matrices
+    std::vector<std::vector<int>> H(m + 1, std::vector<int>(n + 1, 0));
+    std::vector<std::vector<int8_t>> tb(m + 1, std::vector<int8_t>(n + 1, 0));
+    // tb: 3 = stop, 0 = diag, 2 = up (deletion), 1 = left (insertion)
+
+    int max_score = 0;
+    int max_i = 0, max_j = 0;
+
+    // Fill DP
+    for (int i = 1; i <= m; ++i) {
+        for (int j = 1; j <= n; ++j) {
+            int s;
+            if (seq1[i - 1] == 'N' || seq2[j - 1] == 'N')
+                s = -1;
+            else
+                s = (seq1[i - 1] == seq2[j - 1]) ? match : mismatch;
+
+            int score_diag = H[i - 1][j - 1] + s;
+            int score_up   = H[i - 1][j] + gap;  // deletion
+            int score_left = H[i][j - 1] + gap;  // insertion
+
+            int best = std::max({0, score_diag, score_up, score_left});
+            H[i][j] = best;
+
+            if (best == 0) tb[i][j] = 3;
+            else if (best == score_diag) tb[i][j] = 0;
+            else if (best == score_up)   tb[i][j] = 1;
+            else                         tb[i][j] = 2;
+
+            if (best > max_score) {
+                max_score = best;
+                max_i = i;
+                max_j = j;
+            }
+        }
+    }
+
+    max_r = max_i;
+    max_q = max_j;
+
+    // Traceback
+
+    std::vector<int8_t> local_aln;
+    
+
+    int i = max_i, j = max_j;
+    while (i > 0 && j > 0 && tb[i][j] != 3) {
+        if (tb[i][j] == 0) { // diagonal
+            local_aln.push_back(0);
+            i--; j--;
+        } else if (tb[i][j] == 1) { // up (gap in seq2)
+            local_aln.push_back(1);
+            i--;
+        } else if (tb[i][j] == 2) { // left (gap in seq1)
+            local_aln.push_back(2);
+            j--;
+        }
+    }
+
+    std::reverse(local_aln.begin(), local_aln.end());
+
+    std::string seq1_front = seq1.substr(0, i);
+    std::string seq2_front = seq2.substr(0, j);
+    std::string seq1_back = seq1.substr(max_i, seq1.size()-max_i);
+    std::string seq2_back = seq2.substr(max_j, seq2.size()-max_j);
+    
+
+    // std::cout << "SW max score: " << max_score
+    //           << " at (" << max_i << "," << max_j << ")\n";
+    // std::cout << aln1 << "\n" << aln2 << "\n";
 }
