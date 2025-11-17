@@ -2,11 +2,14 @@
 #include "phylogeny.hpp"
 #endif
 
+#include <functional>
+
 phylogeny::Node::Node(std::string id, float len){
     identifier = id;
     level = 1;
     branchLength = len;
     parent = nullptr;
+    placed = false;
 }
 
 phylogeny::Node::Node(std::string id, Node* par, float len){
@@ -15,6 +18,24 @@ phylogeny::Node::Node(std::string id, Node* par, float len){
     parent = par;
     level = par->level + 1;
     par->children.push_back(this);
+    placed = false;
+}
+
+// Copy node
+phylogeny::Node::Node(Node* node){
+    this->identifier = node->identifier;
+    this->branchLength = node->branchLength;
+    this->level = node->level;
+    this->weight = node->weight;
+    this->numLeaves = node->numLeaves;
+    this->grpID = node->grpID;
+    this->partitionParent = node->partitionParent;
+    this->seqsIncluded = node->seqsIncluded;
+    this->alnLen = node->alnLen;
+    this->alnWeight = node->alnWeight;
+    this->alnNum = node->alnNum;
+    // this->parent = node->parent;
+    // this->children = node->children;
 }
 
 size_t phylogeny::Node::getNumLeaves(){

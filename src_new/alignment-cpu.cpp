@@ -147,8 +147,8 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 if (a == 2) {alnRef += 1;}
             }
             float refWeight = nodes[nIdx].first->alnWeight, qryWeight = nodes[nIdx].second->alnWeight;
-            if (alnRef != refLen) std::cout << "Post " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
-            if (alnQry != qryLen) std::cout << "Post " << nodes[nIdx].second->identifier << "(" << alnRef << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
+            if (alnRef != refLen) std::cout << "R: Post " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
+            if (alnQry != qryLen) std::cout << "Q: Post " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
             alignment_helper::updateAlignment(nodes[nIdx], database, aln_w_gc);
             alignment_helper::updateFrequency(nodes[nIdx], database, aln_w_gc, {refWeight, qryWeight});
         }

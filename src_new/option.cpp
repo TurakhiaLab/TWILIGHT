@@ -13,18 +13,22 @@ msa::Option::Option(po::variables_map& vm) {
 
     // Detect Alignment Mode
     bool hasTree = vm.count("tree"), hasSeq = vm.count("sequences"), hasFile = vm.count("files"), hasAln = vm.count("alignment");
-    this->alnMode = -1;
-    if (hasTree && hasSeq && !hasFile && !hasAln) this->alnMode = 0;
-    else if (hasSeq && !hasFile && hasAln) this->alnMode = 2;
-    else if (hasFile && !hasTree && !hasSeq && !hasAln) this->alnMode = 1;
-    if (this->alnMode == -1) {
-        std::cerr << "ERROR: Unrecognized alignment mode based on the provided options.\n"
-                  << "Valid combinations are:\n"
-                  << "  [1] --tree and --sequences (for building MSA from unaligned sequences)\n"
-                  << "  [2] --files (for merging MSAs)\n"
-                  << "  [3] --sequences and --alignment [and --tree (optional)] (for adding new sequences to an existing MSA)\n"
-                  << "Please check the input arguments or run with --help for usage.\n";
-        exit(1);
+    int8_t mask = (hasFile << 3) | (hasTree << 2) | (hasSeq << 1) | (hasAln << 0);
+    switch (mask) {
+        case 0b0110: this->alnMode = 0; break;
+        case 0b1000: this->alnMode = 1; break;
+        case 0b0011: this->alnMode = 2; break;
+        case 0b0111: this->alnMode = 3; break;
+        default:
+            std::cerr << "ERROR: Unrecognized alignment mode based on the provided options.\n"
+                      << "Valid combinations are:\n"
+                      << "  [1] --tree and --sequences (for building MSA from unaligned sequences)\n"
+                      << "  [2] --files (for merging MSAs)\n"
+                      << "  [3] --sequences and --alignment (for adding new sequences to an existing MSA without guide tree)\n"
+                      << "  [4] --sequences, --alignment and --tree (for adding new sequences to an existing MSA using a given guide tree)\n"
+                      << "Please check the input arguments or run with --help for usage.\n";
+            exit(1);
+            break;
     }
     // Read Input File Names
     this->treeFile        = (vm.count("tree"))      ? vm["tree"].as<std::string>()      : "";

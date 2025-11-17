@@ -17,6 +17,7 @@ namespace phylogeny {
     {
         Node(std::string id, float len);
         Node(std::string id, Node* par, float len);
+        Node(Node*);
         size_t getNumLeaves();
         size_t getNumNodes();
         bool is_leaf() {return !(identifier.substr(0,4) == "node");}
@@ -29,6 +30,7 @@ namespace phylogeny {
         std::vector<Node*> children;
         size_t numLeaves = {0};
         float weight = {0};
+        bool placed;
 
         /*Partition*/
         int grpID;
@@ -86,6 +88,7 @@ namespace phylogeny {
         void parseNewick(std::string& newickString, bool reroot);
         void showTree();
         void reroot();
+        void extractResult(Tree* placementT);
         std::string getNewickString();
         Tree* prune(std::unordered_set<std::string>& seqs);
         // Empty tree, used for align alignments
@@ -105,6 +108,7 @@ namespace phylogeny {
     void pruneTree(Tree*& T, std::unordered_set<std::string>& seqs);
     Tree* constructTreeFromPartitions(Node* root, PartitionInfo* P);
     void updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx);
+    Tree* getPlacementTree(Tree*);
 }
 
 

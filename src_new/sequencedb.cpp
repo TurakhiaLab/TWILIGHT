@@ -5,7 +5,7 @@
 #include <chrono>
 #include <tbb/parallel_for.h>
 
-msa::SequenceDB::SequenceInfo::SequenceInfo(int id_, const std::string &name_, const std::string &seq, int subtreeIdx_, float weight_, bool debug)
+msa::SequenceDB::SequenceInfo::SequenceInfo(int id_, const std::string &name_, std::string &seq, int subtreeIdx_, float weight_, bool debug, int alnMode)
 {
     this->id = id_;
     this->name = name_;
@@ -15,7 +15,16 @@ msa::SequenceDB::SequenceInfo::SequenceInfo(int id_, const std::string &name_, c
     this->lowQuality = false;
     this->allocate_and_store(seq);
     this->weight = weight_;
-    if (debug) this->unalignedSeq = seq;
+    if (debug) {
+        if (alnMode == 3) {
+            size_t k = 0;
+            for (size_t i = 0; i < seq.size(); ++i) {
+                if (seq[i] != '-') seq[k++] = seq[i];
+            }
+            seq.resize(k);
+        }
+        this->unalignedSeq = seq;
+    }
 }
 
 msa::SequenceDB::SequenceInfo::~SequenceInfo()
@@ -66,9 +75,9 @@ void msa::SequenceDB::SequenceInfo::memCheck(int len)
     return;
 }
 
-void msa::SequenceDB::addSequence(int id, const std::string &name, const std::string &seq, int subtreeIdx, float weight, bool debug)
+void msa::SequenceDB::addSequence(int id, const std::string &name, std::string &seq, int subtreeIdx, float weight, bool debug, int alnMode)
 {
-    SequenceInfo *newSeq = new SequenceInfo(id, name, seq, subtreeIdx, weight, debug);
+    SequenceInfo *newSeq = new SequenceInfo(id, name, seq, subtreeIdx, weight, debug, alnMode);
     sequences.push_back(newSeq);
     id_map[id] = newSeq;
     name_map[name] = newSeq;
@@ -134,3 +143,103 @@ void msa::SequenceDB::cleanSubtreeDB() {
     this->id_map.clear();
     this->name_map.clear();
 };
+
+phylogeny::Tree* msa::SequenceDB::getPlacementTree(Tree* T) {
+    // Identify nodes on the path from placed sequence to the root
+    for (auto node: T->allNodes) {
+        if (node.second->is_leaf() && node.second->placed) {
+            Node* current = node.second;
+            while (current->parent != nullptr) {
+                if (current->parent->placed) break;
+                current->parent->placed = true;
+                current = current->parent;
+            }
+        }
+    }
+    // Append backbone aligned sequences to nodes
+    std::function<void(Node*, Node*)> addBackboneSeqs = [&](Node* root, Node* node) {
+        if (node->is_leaf() && !node->placed) root->seqsIncluded.push_back(this->name_map[node->identifier]->id);
+        for (auto& c : node->children)
+            if (!c->placed) addBackboneSeqs(root, c);
+    };
+    for (auto node: T->allNodes) {
+        if (node.second->placed) {
+            addBackboneSeqs(node.second, node.second);
+        }
+    }
+    // Remove all gap columns
+    for (auto node: T->allNodes) {
+        if (node.second->placed && !node.second->is_leaf() && !node.second->seqsIncluded.empty()) {
+            int length = this->id_map[node.second->seqsIncluded.front()]->len;
+            std::vector<uint8_t> allGaps (length, 1);
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, length), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t j = range.begin(); j != range.end(); ++j) {
+                for (auto sIdx: node.second->seqsIncluded) {
+                    if (this->id_map[sIdx]->alnStorage[0][j] != '-') {
+                        allGaps[j] = 0;
+                        break;
+                    }
+                }
+            }
+            });
+
+            tbb::parallel_for(tbb::blocked_range<size_t>(0, node.second->seqsIncluded.size()), [&](const tbb::blocked_range<size_t>& range) {
+            for (size_t i = range.begin(); i != range.end(); ++i) {
+                int sIdx = node.second->seqsIncluded[i];
+                int newIdx = 0;
+                for (int j = 0; j < length; ++j) {
+                    if (allGaps[j] == 0) {
+                        this->id_map[sIdx]->alnStorage[0][newIdx] = this->id_map[sIdx]->alnStorage[0][j];
+                        newIdx++;
+                    }
+                }
+                for (int j = newIdx; j < length; ++j) {
+                    this->id_map[sIdx]->alnStorage[0][j] = 0;
+                }    
+                this->id_map[sIdx]->len = newIdx;
+            }
+            });
+
+            node.second->alnLen = this->id_map[node.second->seqsIncluded.front()]->len;
+            node.second->alnNum = node.second->seqsIncluded.size();
+            node.second->alnWeight = 0.0;
+            for (auto sIdx: node.second->seqsIncluded) node.second->alnWeight += this->id_map[sIdx]->weight;
+            // std::cout << node.first << '\t' << node.second->seqsIncluded.size() << '\t' << node.second->alnLen << '/' << length << '\t' << this->id_map[node.second->seqsIncluded.front()]->unalignedSeq.size() << '\t' << node.second->alnNum << '\t' << node.second->alnWeight << '\n';
+        }
+    }
+    // Assign to a new tree
+    Tree* placement_T = new Tree();
+    for (auto node: T->allNodes) {
+        if (node.second->placed) {
+            Node* copyNode = new Node (node.second);
+            placement_T->allNodes[copyNode->identifier] = copyNode;
+        }
+    }
+    for (auto& node: placement_T->allNodes) {
+        for (auto c: T->allNodes[node.first]->children) {
+            if (c->placed) node.second->children.push_back(placement_T->allNodes[c->identifier]);
+        }
+        if (T->allNodes[node.first]->parent != nullptr) {
+            auto parentName = T->allNodes[node.first]->parent->identifier;
+            node.second->parent = placement_T->allNodes[parentName];
+        }
+        else {
+            node.second->parent = nullptr;
+            placement_T->root = node.second;
+        }
+    }
+    
+    placement_T->reroot();
+    size_t depth = 0, numLeaves = 0;
+    for (auto node: placement_T->allNodes) {
+        depth = std::max(depth, node.second->level);
+        if (node.second->is_leaf()) numLeaves++;
+    }
+    placement_T->m_numLeaves = numLeaves;
+    placement_T->m_maxDepth = depth;
+    // placement_T->showTree();
+
+    for (auto seq: this->sequences) if (seq->len <  seq->unalignedSeq.size()) std::cout << seq->name << ':' << seq->len << '\t' << seq->unalignedSeq.size() << '\n';
+    
+    return placement_T;
+}

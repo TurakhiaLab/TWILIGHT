@@ -128,12 +128,12 @@ namespace msa
             std::string name;
             std::string unalignedSeq;
             int len;
-            std::vector<std::vector<float>> profile;
             bool lowQuality;
             int subtreeIdx;
             float weight;
             // Storage
             bool storage; // where the sequence is stored, buffer 0 or 1
+            bool backbone; // Used in PLACE_W_TREE
             int memLen;
             char *alnStorage[2];
             const float timesBigger = 2.0;
@@ -141,7 +141,7 @@ namespace msa
             void changeStorage();
             void memCheck(int len);
             void allocate_and_store(const std::string &seq);
-            SequenceInfo(int id_, const std::string &name_, const std::string &seq, int subtreeIdx_, float _weight, bool debug);
+            SequenceInfo(int id_, const std::string &name_, std::string &seq, int subtreeIdx_, float _weight, bool debug, int alnMode);
             ~SequenceInfo();
         };
         int currentTask = {0};
@@ -150,9 +150,10 @@ namespace msa
         std::unordered_map<int, SequenceInfo *> id_map;
         std::unordered_map<std::string, SequenceInfo *> name_map;
 
-        void addSequence(int id, const std::string &name, const std::string &seq, int subtreeIdx, float weight, bool debug);
+        void addSequence(int id, const std::string &name, std::string &seq, int subtreeIdx, float weight, bool debug, int alnMode);
         void debug();
         void storeSubtreeProfile(Tree* subT, char type, int subtreeIdx);
+        Tree* getPlacementTree(Tree* T);
         void cleanSubtreeDB();
         
 
@@ -162,6 +163,8 @@ namespace msa
         
         SequenceDB() {};
         ~SequenceDB() {};
+
+        
 
         // For debugging
         // std::unordered_map<std::string, std::string> rawSeqs;
@@ -202,7 +205,7 @@ namespace msa
     namespace io
     {
         void readSequenceNames(std::string seqFile, std::unordered_set<std::string> &seqNames);
-        void readSequences(SequenceDB *database, Option *option, Tree *&T);
+        void readSequences(std::string fileName, SequenceDB *database, Option *option, Tree *&T);
         void readAlignment(std::string alnFileName, SequenceDB* database, Option* option, Node*& node);
         Tree* readAlignments_and_buildTree(SequenceDB *database, Option *option);
         void readBackboneAlignment(Tree* T, SequenceDB *database, Option *option);

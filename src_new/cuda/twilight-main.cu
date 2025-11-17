@@ -12,6 +12,11 @@
 #include <boost/filesystem.hpp>
 #include <chrono>
 
+#define DEFAULT_ALN 0
+#define MERGE_MSA 1
+#define PLACE_WO_TREE 2
+#define PLACE_W_TREE 3
+
 po::options_description mainDesc("TWILIGHT Command Line Arguments", 120);
 
 void parseArguments(int argc, char** argv)
@@ -113,7 +118,7 @@ int main(int argc, char** argv) {
     option->getGpuInfo(vm);
     msa::Params* param = new msa::Params(vm, option->type);
 
-    if (option->alnMode == 0) { // Twilight
+    if (option->alnMode == DEFAULT_ALN) { // Twilight
         phylogeny::Tree* T = new phylogeny::Tree(option->treeFile, option->reroot);
         if (vm.count("prune")) {
             std::unordered_set<std::string> seqNames;
@@ -138,7 +143,7 @@ int main(int argc, char** argv) {
             if (P->partitionsRoot.size() > 1) std::cerr << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             // Read sequences for each subtree
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first);
-            msa::io::readSequences(database, option, subT);
+            msa::io::readSequences(option->seqFile, database, option, subT);
             // Progressive alignment on each subtree
             msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU);
             // post-alignment debugging
@@ -190,7 +195,7 @@ int main(int argc, char** argv) {
         delete subRoot_T;
         delete P;
     }
-    else if (option->alnMode == 1) { // Twilight Merging alignments
+    else if (option->alnMode == MERGE_MSA) { // Twilight Merging alignments
         phylogeny::Tree* T = msa::io::readAlignments_and_buildTree(database, option);
         database->currentTask = 2;
         T->showTree();
@@ -205,27 +210,97 @@ int main(int argc, char** argv) {
         std::cerr << "Wrote " << T->allNodes.size() << " Alignments (total " << totalSeqs << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
         delete T;
     }
-    else if (option->alnMode == 2) {
-        if (option->treeFile == "") {
-            database->currentTask = 2;
-            std::unordered_set<std::string> seqNames;
-            msa::io::readSequenceNames(option->seqFile, seqNames);
-            phylogeny::Tree* T = new phylogeny::Tree(seqNames);
-            // Read Sequences
-            msa::io::readSequences(database, option, T);
-            msa::io::readBackboneAlignment(T, database, option);
-            T->showTree();
-            msa::progressive::msaOnSubtree(T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+    else if (option->alnMode == PLACE_WO_TREE) {
+        database->currentTask = 2;
+        std::unordered_set<std::string> seqNames;
+        msa::io::readSequenceNames(option->seqFile, seqNames);
+        phylogeny::Tree* T = new phylogeny::Tree(seqNames);
+        msa::io::readSequences(option->seqFile, database, option, T);
+        msa::io::readBackboneAlignment(T, database, option);
+        // T->showTree();
+        msa::progressive::msaOnSubtree(T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+        if (option->debug) database->debug();
+        msa::io::update_and_writeAlignment(database, option, option->backboneAlnFile, -1);
+        boost::filesystem::path seqPath(option->seqFile);
+        std::string placedSeqFile = option->tempDir + "/" + seqPath.stem().string() + ".final.aln";
+        msa::io::writeAlignment(placedSeqFile, database, T->root->getAlnLen(database->currentTask), option->compressed);
+        msa::io::writeWholeAlignment(database, option, T->root->getAlnLen(database->currentTask));
+        delete T;
+    }
+    else if (option->alnMode == PLACE_W_TREE) {
+        phylogeny::Tree* T = new phylogeny::Tree(option->treeFile, option->reroot);
+        phylogeny::PartitionInfo * P = new phylogeny::PartitionInfo(option->maxSubtree, 0, 0); 
+        P->partitionTree(T->root);
+        phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions(T->root, P);
+        if (P->partitionsRoot.size() > 1) {
+            std::cerr << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
+            msa::io::writeSubtrees(T, P, option);
+        }
+        // Start alignment on subtrees
+        int proceeded = 0;
+        auto alnSubtreeStart = std::chrono::high_resolution_clock::now();
+        for (auto subRoot: P->partitionsRoot) {
+            auto subtreeStart = std::chrono::high_resolution_clock::now();
+            ++proceeded;
+            int subtree = T->allNodes[subRoot.first]->grpID;
+            if (P->partitionsRoot.size() > 1) std::cerr << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
+            // Read backbone alignment and sequences for each subtree
+            phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first);
+            msa::io::readSequences(option->backboneAlnFile, database, option, subT);
+            msa::io::readSequences(option->seqFile, database, option, subT);
+            phylogeny::Tree* placementT = database->getPlacementTree(subT);
+            // Progressive alignment on each subtree
+            msa::progressive::msaOnSubtree(placementT, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+            subT->extractResult(placementT);
+            delete placementT;
+            // post-alignment debugging
             if (option->debug) database->debug();
-            msa::io::update_and_writeAlignment(database, option, option->backboneAlnFile, -1);
-            boost::filesystem::path seqPath(option->seqFile);
-            std::string placedSeqFile = option->tempDir + "/" + seqPath.stem().string() + ".final.aln";
-            msa::io::writeAlignment(placedSeqFile, database, T->root->getAlnLen(database->currentTask), option->compressed);
-            msa::io::writeWholeAlignment(database, option, T->root->getAlnLen(database->currentTask));
+            if (P->partitionsRoot.size() > 1) {
+                // Store subtree profile
+                auto storeStart = std::chrono::high_resolution_clock::now();
+                database->storeSubtreeProfile(subT, option->type, subtree);
+                msa::io::writeSubAlignments(database, option, subtree, subT->root->getAlnLen(database->currentTask));
+                phylogeny::updateSubrootInfo(subRoot_T->allNodes[subT->root->identifier], subT, subtree);
+                database->cleanSubtreeDB();
+                auto storeEnd = std::chrono::high_resolution_clock::now();
+                std::chrono::nanoseconds storeTime = storeEnd - storeStart;
+                std::cerr << "Stored the subalignments in " << storeTime.count() / 1000000 << " ms.\n";
+            }
+            else {
+                // Output final alignment
+                auto outStart = std::chrono::high_resolution_clock::now();
+                msa::io::writeWholeAlignment(database, option, subT->root->getAlnLen(database->currentTask));
+                auto outEnd = std::chrono::high_resolution_clock::now();
+                std::chrono::nanoseconds outTime = outEnd - outStart;
+                std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
+                std::cerr << "Wrote alignment to " << outFileName << " in " <<  outTime.count() / 1000000 << " ms\n";
+            }
+            delete subT;
+            auto subtreeEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
+            if (P->partitionsRoot.size() > 1) std::cerr << "Finished subalignment No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
+            else                              std::cerr << "Finished the alignment in " << subtreeTime.count() / 1000000000 << " s\n";
         }
-        else {
-
+        if (P->partitionsRoot.size() > 1) {
+            auto alnSubtreeEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds alnSubtreeTime = alnSubtreeEnd - alnSubtreeStart;
+            std::cerr << "Finished all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
+            // Merge subalignment
+            database->currentTask = 2;
+            subRoot_T->showTree();
+            msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+            int totalSeqs = 0;
+            auto outStart = std::chrono::high_resolution_clock::now();
+            msa::io::writeFinalAlignments(database, option, totalSeqs);
+            msa::io::writeWholeAlignment(database, option, subRoot_T->root->getAlnLen(database->currentTask));
+            auto outEnd = std::chrono::high_resolution_clock::now();
+            std::chrono::nanoseconds outTime = outEnd - outStart;
+            std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
+            std::cerr << "Wrote " << subRoot_T->allNodes.size() << " subalignments (total " << totalSeqs << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
         }
+        delete T;
+        delete subRoot_T;
+        delete P;
     }
     
     auto mainEnd = std::chrono::high_resolution_clock::now();

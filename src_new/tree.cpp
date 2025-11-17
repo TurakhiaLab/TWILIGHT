@@ -227,7 +227,6 @@ void phylogeny::Tree::parseNewick(std::string& newickString, bool reroot) {
     this->calSeqWeight();
 }
 
-
 phylogeny::Tree::Tree (std::string treeFileName, bool reroot)
 {
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
@@ -255,7 +254,7 @@ phylogeny::Tree::Tree(Node* node) {
         current = s1.top();
         if (current->identifier != this->root->identifier) {
             Node* copyNode = new Node(current->identifier, this->allNodes[current->parent->identifier], current->branchLength);
-            copyNode->grpID = -1; copyNode->level = current->level - node->level;
+            copyNode->grpID = -1; copyNode->level = current->level - (node->level-1);
             // copyNode->weight = current->weight; copyNode->numLeaves = current->numLeaves;
             this->allNodes[current->identifier] = copyNode;
         }
@@ -286,53 +285,12 @@ phylogeny::Tree::Tree(std::unordered_set<std::string>& seqNames) {
     
 }
 
-
-/*
-phylogeny::Tree::Tree(std::unordered_map<std::string,int>& seqsLen, std::unordered_map<std::string,int>& seqsIdx) {
-    Node* treeRoot = new Node("node_1", 1.0);
-    this->root = treeRoot;
-    this->root->grpID = -1;
-    this->allNodes["node_1"] = treeRoot;
-    for (auto seq: seqsIdx) {
-        // int grpID = seq.second;
-        int grpID = this->root->grpID;
-        std::string nodeName = seq.first;
-        int msaLen = seqsLen[nodeName];
-        Node* newNode = new Node(nodeName, this->root, 1.0);
-        newNode->grpID = grpID;
-        this->allNodes[nodeName] = newNode;
-        // this->allNodes[nodeName]->msaAln = std::vector<int8_t> (msaLen, 0);
-    }
-}
-
-phylogeny::Tree::Tree(std::vector<std::string>& refSeq, std::vector<std::string>& qrySeq) {
-    Node* treeRoot = new Node("node_1", 0.0);
-    this->root = treeRoot;
-    this->root->grpID = -1;
-    this->allNodes["node_1"] = treeRoot;
-    for (auto seq: refSeq) {
-        // int grpID = seq.second;
-        int grpID = this->root->grpID;
-        Node* newNode = new Node(seq, this->root, 1.0);
-        newNode->grpID = grpID;
-        this->allNodes[seq] = newNode;
-    }
-    for (auto seq: qrySeq) {
-        // int grpID = seq.second;
-        int grpID = this->root->grpID;
-        Node* newNode = new Node(seq, this->root, 1.0);
-        newNode->grpID = grpID;
-        this->allNodes[seq] = newNode;
-    }
-}
-*/
 phylogeny::Tree::~Tree() {
     for (auto n: this->allNodes) {
         delete n.second;
     }
     this->allNodes.clear();
 }
-
 
 void phylogeny::Tree::calLeafNum() {
     
@@ -391,7 +349,6 @@ void phylogeny::Tree::calSeqWeight() {
     return;
 };
 
-
 void phylogeny::Tree::showTree() {
     std::function<void(Node*)> showTreeImpl = [&](Node* node) {
         std::cerr << std::left << std::setw(12) << node->identifier     // Identifier
@@ -399,10 +356,11 @@ void phylogeny::Tree::showTree() {
                   << std::setw(10) << (node->parent ? node->parent->identifier : "ROOT")  // Parent or ROOT
                   << std::setw(8)  << node->level
                   << std::setw(8)  << node->grpID
-                  << std::setw(10) << std::fixed << std::setprecision(3) << node->weight
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->seqsIncluded.size()
                   << '\n';
-        for (auto& c : node->children)
+        for (auto& c : node->children) {
             showTreeImpl(c);
+        }
     };
     std::cerr << std::left << std::setw(12) << "Identifier"
               << std::right << std::setw(10) << "Length"
@@ -414,7 +372,6 @@ void phylogeny::Tree::showTree() {
 
     if (this->root) showTreeImpl(this->root);
 }
-
 
 phylogeny::Tree* phylogeny::Tree::prune(std::unordered_set<std::string>& seqs) {
     
@@ -632,6 +589,8 @@ void phylogeny::Tree::reroot()
     // Choose the center node as new root
     // -----------------------------------------------------
     Node* newRoot = path[path.size() / 2];
+    if (newRoot->identifier == this->root->identifier) return;
+    
     std::function<void(Node*, int)> adjustDepth_children = [&](Node* node, int newRootDepth) {
         node->level -= newRootDepth;
         for (auto& c : node->children)
@@ -665,3 +624,12 @@ void phylogeny::Tree::reroot()
     newRoot->level = 1;
     this->root = newRoot;
 }
+
+void phylogeny::Tree::extractResult(Tree* placementT) {
+    this->root->seqsIncluded = placementT->root->seqsIncluded;
+    if (!placementT->root->msaFreq.empty()) this->root->msaFreq = placementT->root->msaFreq;
+    this->root->alnLen = placementT->root->alnLen;
+    this->root->alnNum = placementT->root->alnNum;
+    this->root->alnWeight = placementT->root->alnWeight;
+}
+

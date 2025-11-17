@@ -37,7 +37,7 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
                 if (node->children[i]->grpID == grpID) children.push_back(node->children[i]);
             }
             // Useless node, remove from the subtree
-            if (children.empty()) {
+            if (children.empty() && node->seqsIncluded.empty()) {
                 node->grpID = -2;
                 postStack.pop();
                 for (auto it = node->parent->children.begin(); it != node->parent->children.end(); ++it) {
@@ -49,7 +49,7 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
                 continue;
             }
             // Only one child, merge the child and the parent 
-            if (children.size() == 1 && node->parent != nullptr) {
+            if (children.size() == 1 && node->parent != nullptr && node->seqsIncluded.empty()) {
                 if (node->parent->grpID == grpID) {
                     for (int chIdx = 0; chIdx < node->parent->children.size(); ++chIdx) {
                         if (node->parent->children[chIdx]->identifier == node->identifier) {
@@ -64,19 +64,29 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
                 }
             }
             // Pair children
-            while (children.size() > 1) {
-                std::vector<Node*> nodeLeft;
-                for (int i = 0; i < children.size()-1; i+=2) {
-                    int firstIdx  = (NodeAlnOrder.find(children[i]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[i]->identifier]+1 : 0;
-                    int secondIdx = (NodeAlnOrder.find(children[i+1]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[i+1]->identifier]+1 : 0;
-                    int maxIdx = std::max(firstIdx, secondIdx);
-                    NodeAlnOrder[children[i]->identifier] = maxIdx;
-                    NodeAlnOrder[children[i+1]->identifier] = maxIdx;
-                    alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), maxIdx));
-                    nodeLeft.push_back(children[i]);
+            if (children.size() > 1) {
+                while (children.size() > 1) {
+                    std::vector<Node*> nodeLeft;
+                    for (int i = 0; i < children.size()-1; i+=2) {
+                        int firstIdx  = (NodeAlnOrder.find(children[i]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[i]->identifier]+1 : 0;
+                        int secondIdx = (NodeAlnOrder.find(children[i+1]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[children[i+1]->identifier]+1 : 0;
+                        int maxIdx = std::max(firstIdx, secondIdx);
+                        NodeAlnOrder[children[i]->identifier] = maxIdx;
+                        NodeAlnOrder[children[i+1]->identifier] = maxIdx;
+                        alnOrder.push_back(std::make_pair(std::make_pair(children[i], children[i+1]), maxIdx));
+                        nodeLeft.push_back(children[i]);
+                    }
+                    if (children.size()%2 == 1) nodeLeft.push_back(children.back());
+                    children = nodeLeft;
                 }
-                if (children.size()%2 == 1) nodeLeft.push_back(children.back());
-                children = nodeLeft;
+            }
+            if (children.size() == 1 && !node->seqsIncluded.empty()) {
+                int firstIdx  = (NodeAlnOrder.find(node->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[node->identifier]+1 : 0;
+                int secondIdx = (NodeAlnOrder.find(node->children[0]->identifier) != NodeAlnOrder.end()) ? NodeAlnOrder[node->children[0]->identifier]+1 : 0;
+                int maxIdx = std::max(firstIdx, secondIdx);
+                NodeAlnOrder[node->identifier] = maxIdx;
+                NodeAlnOrder[node->children[0]->identifier] = maxIdx;
+                alnOrder.push_back(std::make_pair(std::make_pair(node, node->children[0]), maxIdx));
             }
             NodeAlnOrder[node->identifier] = NodeAlnOrder[children[0]->identifier];
             postStack.pop();

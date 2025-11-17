@@ -51,9 +51,10 @@ void msa::io::readSequenceNames(std::string seqFile, std::unordered_set<std::str
     return;
 }
 
-void msa::io::readSequences(SequenceDB* database, Option* option, Tree*& tree) {
+void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* option, Tree*& tree) {
     auto seqReadStart = std::chrono::high_resolution_clock::now();
-    std::string seqFileName = option->seqFile;
+    std::string seqFileName = fileName;
+    bool placed = (option->alnMode == 3 && seqFileName == option->seqFile);
     gzFile f_rd = gzopen(seqFileName.c_str(), "r");
     if (!f_rd) {
         fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
@@ -61,7 +62,8 @@ void msa::io::readSequences(SequenceDB* database, Option* option, Tree*& tree) {
     }
     kseq_t* kseq_rd = kseq_init(f_rd);
     
-    int seqNum = 0, maxLen = 0, minLen = INT_MAX;
+    int seqNum_init = database->sequences.size(), maxLen = 0, minLen = INT_MAX;
+    int seqNum = seqNum_init;
     uint64_t totalLen = 0; // For average length calculation
     std::vector<int> seqsLens; // For median length calculation
     
@@ -85,7 +87,8 @@ void msa::io::readSequences(SequenceDB* database, Option* option, Tree*& tree) {
                 if (seqLen < minLen) minLen = seqLen;
                 if (seqLen == 0) std::cerr << "Null sequences, " << seqName << '\n';
                 totalLen += seqLen;
-                database->addSequence(seqNum, seqName, seq, subtreeIdx, tree->allNodes[seqName]->weight, option->debug);
+                database->addSequence(seqNum, seqName, seq, subtreeIdx, tree->allNodes[seqName]->weight, option->debug, option->alnMode);
+                tree->allNodes[seqName]->placed = placed; 
                 ++seqNum;
                 seqsLens.push_back(seqLen);
             }
@@ -95,7 +98,7 @@ void msa::io::readSequences(SequenceDB* database, Option* option, Tree*& tree) {
     gzclose(f_rd);
 
     // Prune Tree if necessary
-    if (tree->m_numLeaves != seqNum && option->alnMode != 2) {
+    if (tree->m_numLeaves != seqNum && option->alnMode == 0) {
         printf("Warning: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
         int kk = 0;
         for (auto node: tree->allNodes) {
@@ -113,44 +116,58 @@ void msa::io::readSequences(SequenceDB* database, Option* option, Tree*& tree) {
     }
 
     // Identify low quality sequences
-    uint32_t avgLen = totalLen/seqNum;
-    uint32_t medLen = seqsLens[seqNum/2];
+
+    uint32_t avgLen = totalLen/(seqNum - seqNum_init);
+    uint32_t medLen = seqsLens[(seqNum - seqNum_init)/2];
     float minLenTh = medLen * (1-option->lenDev), maxLenTh = medLen * (1+option->lenDev);
     std::atomic<int> numLowQ;
     numLowQ.store(0);
-    tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
-    for (int i = range.begin(); i < range.end(); ++i) {
-        auto seq = database->sequences[i];
-        int ambig = (option->type == 'n') ? 4 : 20;
-        if (option->lenDev > 0) seq->lowQuality = (seq->len > maxLenTh || seq->len < minLenTh);
-        if (!seq->lowQuality) {
-            int ambigCount = 0;
-            for (int j = 0; j < seq->len; ++j) {
-                if (letterIdx(option->type, toupper(seq->alnStorage[0][j])) == ambig) ambigCount++;
+    if (option->alnMode != 3 || placed) {
+        tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
+        for (int i = range.begin(); i < range.end(); ++i) {
+            auto seq = database->sequences[i];
+            int ambig = (option->type == 'n') ? 4 : 20;
+            if (option->lenDev > 0) seq->lowQuality = (seq->len > maxLenTh || seq->len < minLenTh);
+            if (!seq->lowQuality) {
+                int ambigCount = 0;
+                for (int j = 0; j < seq->len; ++j) {
+                    if (letterIdx(option->type, toupper(seq->alnStorage[0][j])) == ambig) ambigCount++;
+                }
+                seq->lowQuality = (ambigCount > (seq->len * option->maxAmbig));
             }
-            seq->lowQuality = (ambigCount > (seq->len * option->maxAmbig));
+            if (seq->lowQuality) numLowQ.fetch_add(1);
         }
-        if (seq->lowQuality) numLowQ.fetch_add(1);
-    }
-    });
-
-    // Print summary
-    if (option->printDetail) {
-        std::cerr << "===== Sequence Summary =====\n";
-        std::cerr << "Number : " << seqNum << '\n';
-        std::cerr << "Max. Length: " << maxLen << '\n';
-        std::cerr << "Min. Length: " << minLen << '\n';
-        std::cerr << "Avg. Length: " << avgLen << '\n';
-        std::cerr << "Med. Length: " << medLen << '\n';
-        if (option->noFilter) 
-        std::cerr << "Deferred sequences: " << numLowQ << '\n';
-        else 
-        std::cerr << "Excluded sequences: " << numLowQ << '\n';
-        std::cerr << "=============================\n";
+        });
     }
     auto seqReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
-    std::cerr << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    
+    // Print summary
+    if (option->alnMode != 3 || placed) {
+        if (option->printDetail) {
+            std::cerr << "====== Sequence Summary =====\n";
+            std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
+            std::cerr << "Max. Length: " << maxLen << '\n';
+            std::cerr << "Min. Length: " << minLen << '\n';
+            std::cerr << "Avg. Length: " << avgLen << '\n';
+            std::cerr << "Med. Length: " << medLen << '\n';
+            if (option->noFilter) 
+            std::cerr << "Deferred sequences: " << numLowQ << '\n';
+            else 
+            std::cerr << "Excluded sequences: " << numLowQ << '\n';
+            std::cerr << "=============================\n";
+        }
+        std::cerr << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    }
+    else {
+        if (option->printDetail) {
+            std::cerr << "===== Backbone Alignment ====\n";
+            std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
+            std::cerr << "Length:  " << avgLen << '\n';
+            std::cerr << "=============================\n";
+        }
+        std::cerr << "Backbone alignment read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    }
 }
 
 void msa::io::readAlignment(std::string msaFileName, SequenceDB* database, Option* option, Node*& node) {

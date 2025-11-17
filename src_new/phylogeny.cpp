@@ -37,3 +37,29 @@ phylogeny::Tree* phylogeny::constructTreeFromPartitions(Node* root, PartitionInf
     preOrderTraversal(nullNode, root, T, P->partitionsRoot);
     return T;
 }
+
+phylogeny::Tree* phylogeny::getPlacementTree(Tree* T) {
+    for (auto node: T->allNodes) {
+        if (node.second->is_leaf() && node.second->placed) {
+            Node* current = node.second;
+            while (current->parent != nullptr) {
+                if (current->parent->placed) break;
+                current->parent->placed = true;
+                current = current->parent;
+            }
+        }
+    }
+    Tree* placement_T = new Tree();
+    Node* rootNode = new Node(T->root);
+    placement_T->root = rootNode;
+    placement_T->allNodes[rootNode->identifier] = rootNode;
+    for (auto node: T->allNodes) {
+        if (node.second->placed) {
+            Node* copyNode = new Node(node.second);
+            for (auto c: node.second->children) 
+                if (c->placed) copyNode->children.push_back(c);
+            placement_T->allNodes[copyNode->identifier] = copyNode;
+        }
+    }
+    return placement_T;
+}
