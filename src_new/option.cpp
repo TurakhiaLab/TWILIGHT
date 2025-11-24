@@ -42,13 +42,13 @@ msa::Option::Option(po::variables_map& vm) {
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
     this->cpuNum = (vm.count("cpu")) ? vm["cpu"].as<int>() : maxCpuThreads;
     if (this->cpuNum <= 0 || cpuNum > maxCpuThreads) {
-        std::cerr << "ERROR: Invalid number of CPU cores. Please request between 1 and " << maxCpuThreads << ".\n";
+        std::cerr << "ERROR: Invalid number of CPU cores. Please request between 1 and " << maxCpuThreads << " (got " << this->cpuNum << ").\n";
         exit(1);
     }
 
     this->maxSubtree = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
     if (this->maxSubtree <= 0) {
-        std::cerr << "ERROR: Invalid value for --max-subtree. The value of --max-subtree should be a positive integer.\n";
+        std::cerr << "ERROR: Invalid value for --max-subtree. The value of --max-subtree should be a positive integer (got " << this->maxSubtree << ").\n";
         exit(1);
     }
     this->gappyVertical = vm["remove-gappy"].as<float>();
@@ -66,6 +66,25 @@ msa::Option::Option(po::variables_map& vm) {
         std::cerr << "ERROR: Invalid value for --max-ambig. The value of --max-ambig should be in (0,1]\n";
         exit(1);
     }
+    this->maxLen = vm.count("max-len") ? vm["max-len"].as<int>() : INT32_MAX;
+    if (this->maxLen <= 0 && vm.count("max-len")) {
+        std::cerr << "ERROR: Invalid value for --max-len. The value of --max-len should be larger than 0 (got " << this->maxLen << ").\n";
+        exit(1);
+    }
+    this->minLen =  vm.count("min-len") ? vm["min-len"].as<int>() : 0;
+    if (this->minLen <= 0 && vm.count("min-len")) {
+        std::cerr << "ERROR: Invalid value for --min-len. The value of --min-len should be larger than 0 (got " << this->minLen << ").\n";
+        exit(1);
+    }
+    if (this->minLen >= this->maxLen) {
+        std::cerr << "ERROR: Invalid value for --min-len and --max-len. --max-len should be larger than --min-len (got --max-len: " << this->maxLen << ", --min-len: " << this->minLen << ").\n";
+        exit(1);
+    }
+
+    if ((vm.count("min-len") || vm.count("max-len")) && vm.count("length-deviation")) {
+        std::cerr << "ERROR: Invalid arguments. --length-deviation cannot be used together with --min-len or --max-len.\n";
+        exit(1);
+    }
     
     this->reroot = !vm.count("rooted");
     this->debug = vm.count("check");
@@ -75,6 +94,7 @@ msa::Option::Option(po::variables_map& vm) {
     this->alignGappy = !vm.count("no-align-gappy");
     this->compressed = vm.count("compress");
     this->noFilter = !vm.count("filter");
+    this->writeFiltered = vm.count("write-filtered");
 
     // Detect Data Type
     if (vm.count("type")) {
@@ -224,7 +244,8 @@ msa::Option::Option(po::variables_map& vm) {
     std::cerr << "Disable removing gappy columns.\n";
     else
     std::cerr << "Threshold for removing gappy columns: " << this->gappyVertical << '\n';
-    if (this->lenDev > 0)   std::cerr << "Allowed deviation from the average length: " << (this->lenDev * 100) << "%\n";
+    if (this->lenDev > 0)   std::cerr << "Allowed deviation from the median length: " << (this->lenDev * 100) << "%\n";
+    else if (this->minLen > 0 || this->maxLen < INT32_MAX) std::cerr << "Allowed sequence length range: [" << this->minLen << ", " << this->maxLen << "]\n";
     if (this->maxAmbig < 1) std::cerr << "Allowed proportion of ambiguous characters: " << (this->maxAmbig * 100) << "%\n";
     fprintf(stderr, "Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
 }

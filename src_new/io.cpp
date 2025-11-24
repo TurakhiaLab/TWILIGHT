@@ -6,6 +6,7 @@
 #include <zlib.h>
 #include <boost/filesystem.hpp>
 #include <tbb/parallel_for.h>
+#include <tbb/spin_rw_mutex.h>
 #include <chrono>
 
 namespace fs = boost::filesystem;
@@ -51,7 +52,7 @@ void msa::io::readSequenceNames(std::string seqFile, std::unordered_set<std::str
     return;
 }
 
-void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* option, Tree*& tree) {
+void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* option, Tree*& tree, int subtree) {
     auto seqReadStart = std::chrono::high_resolution_clock::now();
     std::string seqFileName = fileName;
     bool placed = (option->alnMode == 3 && seqFileName == option->seqFile);
@@ -117,17 +118,25 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
 
     // Identify low quality sequences
 
+    if (seqNum == seqNum_init) {
+        std::cerr << "Error: no sequences were read from the input.\n";
+        exit(1);
+    }
+
     uint32_t avgLen = totalLen/(seqNum - seqNum_init);
     uint32_t medLen = seqsLens[(seqNum - seqNum_init)/2];
-    float minLenTh = medLen * (1-option->lenDev), maxLenTh = medLen * (1+option->lenDev);
+    int minLenTh = (option->lenDev > 0) ? static_cast<int>(medLen*(1-option->lenDev)) : option->minLen;
+    int maxLenTh = (option->lenDev > 0) ? static_cast<int>(medLen*(1+option->lenDev)) : option->maxLen;
     std::atomic<int> numLowQ;
+    tbb::spin_rw_mutex lowQMutex;
+    stringPairVec lowQSeqs;
     numLowQ.store(0);
     if (option->alnMode != 3 || placed) {
         tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
         for (int i = range.begin(); i < range.end(); ++i) {
             auto seq = database->sequences[i];
             int ambig = (option->type == 'n') ? 4 : 20;
-            if (option->lenDev > 0) seq->lowQuality = (seq->len > maxLenTh || seq->len < minLenTh);
+            seq->lowQuality = (seq->len > maxLenTh || seq->len < minLenTh);
             if (!seq->lowQuality) {
                 int ambigCount = 0;
                 for (int j = 0; j < seq->len; ++j) {
@@ -135,9 +144,26 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
                 }
                 seq->lowQuality = (ambigCount > (seq->len * option->maxAmbig));
             }
-            if (seq->lowQuality) numLowQ.fetch_add(1);
+            if (seq->lowQuality) {
+                numLowQ.fetch_add(1);
+                if ((!option->noFilter && option->writeFiltered)) {
+                    {
+                        tbb::spin_rw_mutex::scoped_lock lock(lowQMutex);
+                        lowQSeqs.push_back({seq->name, std::string(seq->alnStorage[0],seq->len)});
+                    }
+                }
+            }
         }
         });
+    }
+    if (!lowQSeqs.empty()) {
+        fs::path o(option->outFile);
+        fs::path p(option->seqFile);
+        std::string outPath = (o.parent_path().string() == "") ? "." : o.parent_path().string(); 
+        std::string lowQFileName = (subtree != -1) ? 
+            outPath + "/subtree-" + std::to_string(subtree) + ".filtered.fasta" :
+            outPath + "/" + p.stem().string() + ".filtered.fasta";
+        writeAlignment(lowQFileName, lowQSeqs, option->compressed, false);
     }
     auto seqReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
@@ -293,7 +319,7 @@ void msa::io::writeSubtrees(Tree* tree, PartitionInfo* partition, Option* option
     std::string tempDir = option->tempDir;
     for (auto subroot: partition->partitionsRoot) {
         int subtreeIdx = tree->allNodes[subroot.first]->grpID;
-        Tree* subT = new Tree(subroot.second.first);
+        Tree* subT = new Tree(subroot.second.first, false);
         std::string subtreeName = "subtree-" + std::to_string(subtreeIdx);
         std::string subtreeTreeFile = option->tempDir + '/' + subtreeName + ".nwk";
         std::string out_str = subT->getNewickString() + "\n";
@@ -317,7 +343,7 @@ void msa::io::writeSubAlignments(SequenceDB* database, Option* option, int subtr
     return;
 }
 
-void msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std::string fileName, int subtreeIdx) {
+int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std::string fileName, int subtreeIdx) {
     const int outBuffSize = 10000;
     int totalSeqs = 0;
     bool nochange = false;
@@ -407,13 +433,15 @@ void msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, st
         int delResult = system(command.c_str());
         if (delResult != 0) std::cerr << "ERROR: Unable to delete " << fileName << ".\n";
     }
+    return totalSeqs;
 }
 
-void msa::io::writeFinalAlignments(SequenceDB* database, Option* option, int& totalSeqs) {
+void msa::io::update_and_writeAlignments(SequenceDB* database, Option* option, int& totalSeqs) {
     int proceeded = 0;   
+    totalSeqs = 0;
     for (auto subAln: database->subAlnFiles) {
         auto subtreeStart = std::chrono::high_resolution_clock::now();
-        update_and_writeAlignment(database, option, subAln.first, subAln.second);
+        totalSeqs += update_and_writeAlignment(database, option, subAln.first, subAln.second);
         ++proceeded;
         auto subtreeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
@@ -422,7 +450,7 @@ void msa::io::writeFinalAlignments(SequenceDB* database, Option* option, int& to
     return;
 }
 
-void msa::io::writeWholeAlignment(SequenceDB* database, Option* option, int alnLen) {
+void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen) {
     std::string fileName = option->outFile;
     if (database->currentTask == 2) {
         if (option->compressed) fileName += ".gz";
@@ -444,159 +472,6 @@ void msa::io::writeWholeAlignment(SequenceDB* database, Option* option, int alnL
         std::cerr << "Final Alignment Length: " << alnLen << '\n';
         writeAlignment(fileName, database, alnLen, option->compressed);
     }
-    /*
-    else {
-        size_t seqLen = (option->treeFile != "") ? util->backboneAln.begin()->second.size() : T->root->msaAln.size();
-        std::cout << "Final Alignment Length: " << seqLen << '\n';
-        int catResult = 0;
-        // Write to backbone file
-        fs::path p_backbone(option->backboneAlnFile);
-        std::string backboneFile = option->tempDir + '/' + p_backbone.filename().string() + ".final.aln";
-        {
-            if (option->treeFile != "") {
-                std::vector<std::pair<std::string, std::string>> seqs;
-                for (auto seq: util->backboneAln) {
-                    if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
-                    seqs.push_back(std::make_pair(seq.first, seq.second));
-                }
-                outputAlignment(backboneFile, seqs, option->compressed);
-                seqs.clear();
-            }
-            else {
-                std::ofstream refFile;
-                if (option->compressed) {
-                    refFile.open((backboneFile+".gz"), std::ios::binary);
-                }
-                else {
-                    refFile.open(backboneFile);
-                }
-                if (!refFile) {
-                    fprintf(stderr, "ERROR: fail to open file: %s\n", backboneFile.c_str());
-                    exit(1);
-                }
-                std::vector<std::pair<std::string, std::string>> refSeq;
-                std::string msaFileName = option->backboneAlnFile;
-                int seqLen = T->root->msaAln.size();
-                gzFile f_rd = gzopen(msaFileName.c_str(), "r");
-                if (!f_rd) {
-                    fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
-                    exit(1);
-                }
-                kseq_t* kseq_rd = kseq_init(f_rd);
-                int batchSize = 8000000000 / seqLen; // 8GB memory limit
-                while (kseq_read(kseq_rd) >= 0) {
-                    std::string seqName = kseq_rd->name.s;
-                    int seqLen = kseq_rd->seq.l;
-                    refSeq.push_back({seqName, std::string(kseq_rd->seq.s, seqLen)});
-                    if (refSeq.size() % batchSize == 0) {
-                        tbb::this_task_arena::isolate( [&]{
-                        tbb::parallel_for(tbb::blocked_range<int>(0, refSeq.size()), [&](tbb::blocked_range<int> r) {
-                        for (int j = r.begin(); j < r.end(); ++j) {
-                            std::string updatedSeq = "";
-                            int rIdx = 0;
-                            for (auto a: T->root->msaAln) {
-                                if (a == 0) {
-                                    updatedSeq.push_back(refSeq[j].second[rIdx]);
-                                    rIdx++;
-                                }
-                                else updatedSeq.push_back('-');
-                            }
-                            refSeq[j].second = updatedSeq;
-                        }
-                        });
-                        });
-
-                        std::vector<std::string> chunks(refSeq.size());
-                        if (option->compressed) {
-                            tbb::parallel_for(size_t(0), refSeq.size(), [&](size_t i) {
-                                std::string fasta_chunk = ">" + refSeq[i].first + "\n" + refSeq[i].second + "\n";
-                                chunks[i] = gzip_compress(fasta_chunk);
-                            });
-                        }
-                        else {
-                            tbb::parallel_for(size_t(0), refSeq.size(), [&](size_t i) {
-                                std::string fasta_chunk = ">" + refSeq[i].first + "\n" + refSeq[i].second + "\n";
-                                chunks[i] = fasta_chunk;
-                            });
-                        }
-                        refSeq.clear();
-                        for (auto &c : chunks) {
-                            refFile.write(c.data(), c.size());
-                        }
-
-                    }
-                }
-                kseq_destroy(kseq_rd);
-                gzclose(f_rd);
-                tbb::this_task_arena::isolate( [&]{
-                tbb::parallel_for(tbb::blocked_range<int>(0, refSeq.size()), [&](tbb::blocked_range<int> r) {
-                for (int j = r.begin(); j < r.end(); ++j) {
-                    std::string updatedSeq = "";
-                    int rIdx = 0;
-                    for (auto a: T->root->msaAln) {
-                        if (a == 0) {
-                            updatedSeq.push_back(refSeq[j].second[rIdx]);
-                            rIdx++;
-                        }
-                        else updatedSeq.push_back('-');
-                    }
-                    refSeq[j].second = updatedSeq;
-                }
-                });
-                });
-
-                std::vector<std::string> chunks(refSeq.size());
-                if (option->compressed) {
-                    tbb::parallel_for(size_t(0), refSeq.size(), [&](size_t i) {
-                        std::string fasta_chunk = ">" + refSeq[i].first + "\n" + refSeq[i].second + "\n";
-                        chunks[i] = gzip_compress(fasta_chunk);
-                    });
-                }
-                else {
-                    tbb::parallel_for(size_t(0), refSeq.size(), [&](size_t i) {
-                        std::string fasta_chunk = ">" + refSeq[i].first + "\n" + refSeq[i].second + "\n";
-                        chunks[i] = fasta_chunk;
-                    });
-                }
-                refSeq.clear();
-                for (auto &c : chunks) {
-                    refFile.write(c.data(), c.size());
-                }
-                refFile.close();
-            }
-        }
-        // Write to placed seq file
-        fs::path p_new(option->seqFile);
-        std::string newFile = option->tempDir + '/' + p_new.filename().string() + ".final.aln";
-        {
-            std::vector<std::pair<std::string, std::string>> seqs;
-            for (auto seq: util->placedSeqs) {
-                if (seq.second.size() != seqLen) std::cout << "ERROR: " << seq.first << " sequence length not match\n";
-                seqs.push_back(std::make_pair(seq.first, seq.second));
-            }
-            outputAlignment(newFile, seqs, option->compressed);
-            seqs.clear();
-        }
-
-            
-        if (option->compressed) {
-            fileName += ".gz";
-            backboneFile += ".gz";
-            newFile += ".gz";
-        }
-        std::string command = "cat " + backboneFile + " " + newFile + " > " + fileName;
-        catResult = system(command.c_str());
-        if (catResult != 0) {
-            std::cerr << "ERROR: Unable to concatenate alignments.\n";
-        }
-        if (catResult == 0 && option->deleteTemp) {
-            std::string command = "rm -rf " + option->tempDir;
-            int delResult = system(command.c_str());
-            if (delResult != 0) std::cerr << "ERROR: Unable to delete temporary files.\n";
-        }
-    }
-    */
-    
     return;
 }
 

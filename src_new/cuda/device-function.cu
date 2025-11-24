@@ -89,17 +89,8 @@ __global__ void device_function::parallelProfileAlignment(
         }
 
         
-        // int16_t p_gapOpen = __float2int_rn(param[25]);
-        const float LEN_DIFF_TH = 1.00;
-        float len_diff = abs(refLen - qryLen);
-        len_diff /= static_cast<float>(max(refLen, qryLen));
-        // if (tile == 0 && len_diff > LEN_DIFF_TH) std::cout << reference.size() << ',' << query.size() << ',' << len_diff << '\n';
-        bool ref_short = (refLen < qryLen);
-        float gapOpenHead_ref = (ref_short && len_diff > LEN_DIFF_TH) ? 0 : p_gapOpen;
-        float gapExtendHead_ref = (ref_short && len_diff > LEN_DIFF_TH) ? 0 : p_gapExtend;
-        float gapOpenHead_qry = (!ref_short && len_diff > LEN_DIFF_TH) ? 0 : p_gapOpen;
-        float gapExtendHead_qry = (!ref_short && len_diff > LEN_DIFF_TH) ? 0 : p_gapExtend;
-        
+        float gapOpenHead = p_gapOpen;
+        float gapExtendHead = p_gapExtend;
         
         int32_t tile = 0;
         int32_t last_k = 0;
@@ -261,10 +252,10 @@ __global__ void device_function::parallelProfileAlignment(
                             }
                             similarScore = __float2int_rn(__fdiv_rn(numerator, denominator));
                             if (initGP && (i == 0 || j == 0)) {
-                                if (i == 0 && j > 0)      match = similarScore + gapOpenHead_ref + gapExtendHead_ref * (reference_idx+j - 1);
-                                else if (i > 0 && j == 0) match = similarScore + gapOpenHead_qry + gapExtendHead_qry * (query_idx+i - 1);
-                                else match = similarScore;
-                                // match = similarScore + p_gapBoundary * max(reference_idx + j, query_idx + i);
+                                // if (i == 0 && j > 0)      match = similarScore + gapOpenHead_ref + gapExtendHead_ref * (reference_idx+j - 1);
+                                // else if (i > 0 && j == 0) match = similarScore + gapOpenHead_qry + gapExtendHead_qry * (query_idx+i - 1);
+                                // else match = similarScore;
+                                match = similarScore + gapOpenHead + gapExtendHead * max(reference_idx + j - 1, query_idx + i - 1);
                             }
                             else if (offsetDiag < 0) match = similarScore;
                             else                     match = S[(k+1)%3*fLen+offsetDiag] + similarScore;
@@ -275,16 +266,6 @@ __global__ void device_function::parallelProfileAlignment(
                         int16_t pos_gapExtend_ref = __float2int_rn(gapExtend[2*bx*seqLen+reference_idx+j]);
                         int16_t pos_gapExtend_qry = __float2int_rn(gapExtend[(2*bx+1)*seqLen+query_idx+i]);
                         
-                        if (query_idx + i == qryLen - 1) {
-                            pos_gapOpen_ref = gapOpenHead_ref;
-                            pos_gapExtend_ref = gapExtendHead_ref;
-                        }
-                        if (reference_idx + j == refLen - 1) {
-                            pos_gapOpen_qry = gapOpenHead_qry;
-                            pos_gapExtend_qry = gapExtendHead_qry;
-                        }
-
-
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                             delOp =  S[(k+2)%3*fLen+offsetUp] + pos_gapOpen_ref;
                             delExt = D[(k+1)%2*fLen+offsetUp] + pos_gapExtend_ref;

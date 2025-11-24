@@ -26,6 +26,12 @@
 #include "TALCO-XDrop.hpp"
 #endif
 
+#include <tbb/parallel_for.h>
+#include <tbb/spin_rw_mutex.h>
+
+#define I_BOUNDARY -2
+#define D_BOUNDARY -3
+
 Talco_xdrop::Params::Params(msa::Params& param) {
     this->matrixSize = param.matrixSize;
     this->scoreMatrix = new float * [this->matrixSize];
@@ -37,6 +43,7 @@ Talco_xdrop::Params::Params(msa::Params& param) {
     }
     this->gapOpen = param.gapOpen;
     this->gapExtend = param.gapExtend;
+    this->gapCharScore = param.gapExtend;
     this->gapBoundary = param.gapBoundary;
     this->xdrop = static_cast<int32_t> (1000 * -1 * this->gapExtend);
     this->fLen = (1 << 12);
@@ -60,8 +67,7 @@ void Talco_xdrop::Align_freq (
     const std::pair<float, float>& num,
     std::vector<int8_t>& aln,
     int16_t& errorType
-) {
-        
+) {     
         int8_t state = 0;
         int32_t reference_idx, query_idx;
         reference_idx = 0; query_idx = 0;
@@ -109,6 +115,19 @@ int32_t Talco_xdrop::Reduction_tree(const int32_t *C, const int32_t start, const
         } 
     }
     return conv;
+}
+
+inline void freeMem(scoreType** S, scoreType** I, scoreType** D, int32_t** CS, int32_t** CI, int32_t** CD) {
+    for (size_t sIndx=0; sIndx<3; sIndx++) {
+        delete [] S[sIndx];
+        delete [] CS[sIndx];
+        if (sIndx < 2) { 
+            delete [] I[sIndx];
+            delete [] D[sIndx];
+            delete [] CI[sIndx];
+            delete [] CD[sIndx];
+        }
+    }
 }
 
 void Talco_xdrop::Traceback(
@@ -178,20 +197,20 @@ void Talco_xdrop::Traceback(
                 state = 0;
             }
         }
-        addr = addr - (idx  - ftr_lower_limit[ftr] + 1) - (ftr_length[ftr - 1]);
+        if (ftr > 0) addr = addr - (idx  - ftr_lower_limit[ftr] + 1) - (ftr_length[ftr - 1]);
         if (dir == 0){
-            addr = addr - (ftr_length[ftr - 2]) + (idx - ftr_lower_limit[ftr  - 2]);
+            if (ftr > 1) addr = addr - (ftr_length[ftr - 2]) + (idx - ftr_lower_limit[ftr  - 2]);
             ftr -= 2;
             idx -= 1;
             query_idx--;
             ref_idx--;
         }else if (dir == 1){
-            addr = addr + (idx - ftr_lower_limit[ftr  - 1]);
+            if (ftr > 0) addr = addr + (idx - ftr_lower_limit[ftr  - 1]);
             ftr -= 1;
             idx -=1;
             query_idx--;
         }else{
-            addr = addr + (idx - ftr_lower_limit[ftr  - 1] + 1);
+            if (ftr > 0) addr = addr + (idx - ftr_lower_limit[ftr  - 1] + 1);
             ftr -= 1;
             ref_idx--;
         }
@@ -229,21 +248,18 @@ void Talco_xdrop::Tile (
     ) {
                 
         // Initialising variables
-        scoreType  inf = 2.0*param->xdrop + 1.0;
+        scoreType inf = 2.0*param->xdrop + 1.0;
         int32_t marker = param->marker;
-        bool converged = false; bool conv_logic = false;
+        bool converged = false, conv_logic = false;
         float refNum = num.first, qryNum = num.second; 
         int32_t reference_length = reference.size() - reference_idx; 
         int32_t query_length = query.size() - query_idx;
         int32_t fLen = std::min(param->fLen, std::min(reference_length, query_length));
-        scoreType score = 0; scoreType max_score = 0; scoreType max_score_prime = -inf; // int32_t max_score_ref_idx = 0; int32_t max_score_query_idx = 0;
-        int32_t conv_score = 0; int32_t conv_value = 0; int32_t conv_ref_idx = 0; int32_t conv_query_idx = 0; 
+        scoreType max_score = 0; scoreType max_score_prime = -inf;
+        scoreType conv_score = 0; int32_t conv_value = 0; int32_t conv_ref_idx = 0; int32_t conv_query_idx = 0; 
         int32_t tb_start_addr = 0; int32_t tb_start_ftr = 0; // int32_t max_score_start_addr = 0; int32_t max_score_start_ftr = 0;
         int8_t tb_state = 0;
-        int8_t ptr = 0;  // Main pointer
-        bool Iptr = false;
-        bool Dptr = false; // I and D states; xx00 -> M, x001 -> I (M) open, x101 -> I (I) extend, 0x10 -> D (M) open, 1x10 -> D (D) extend
-
+        
         // For xdrop
         // int32_t max_score_marker = -inf; int32_t max_score_marker_ref_idx = 0; int32_t max_score_marker_query_idx = 0;
         // int32_t max_score_marker_start_addr = 0; int32_t max_score_marker_start_ftr = 0;
@@ -254,32 +270,8 @@ void Talco_xdrop::Tile (
         bool type = (reference[0].size() == 6) ? 0 : 1; // 0: dna/rna, 1: protein
         float gapOpen = param->gapOpen;
         float gapExtend = param->gapExtend;
-        float gapOpenEnd = (param->alnType == 0) ? gapOpen : 0;
-        float gapExtendEnd = (param->alnType == 0) ? gapExtend : 0;
-        const float LEN_DIFF_TH = 1.00;
-        float len_diff = (reference.size() > query.size()) ? reference.size() - query.size() : query.size() - reference.size();
-        len_diff /= static_cast<float>(std::max(reference.size(), query.size()));
-        // if (tile == 0 && len_diff > LEN_DIFF_TH) std::cout << reference.size() << ',' << query.size() << ',' << len_diff << '\n';
-        bool ref_short = (reference.size() < query.size());
-        float gapOpenHead_ref = (ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapOpen;
-        float gapExtendHead_ref = (ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapExtend;
-        float gapOpenHead_qry = (!ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapOpen;
-        float gapExtendHead_qry = (!ref_short && len_diff > LEN_DIFF_TH) ? 0 : gapExtend;
-        // if (tile == 0 && len_diff > LEN_DIFF_TH) std::cout << gapOpenHead_ref << ',' << gapExtendHead_ref  << ',' << gapOpenHead_qry << ',' << gapExtendHead_qry << '\n' ;
-        
-        float gapOpenTail_ref = (param->alnType == 1) ? 0 : gapOpenHead_ref;
-        float gapExtendTail_ref = (param->alnType == 1) ? 0 : gapExtendHead_ref;
-        float gapOpenTail_qry = (param->alnType == 1) ? 0 : gapOpenHead_qry;
-        float gapExtendTail_qry = (param->alnType == 1) ? 0 : gapExtendHead_qry;
-        // float gapOpenHead_ref   = 0;
-        // float gapExtendHead_ref = 0; 
-        // float gapOpenHead_qry   = 0; 
-        // float gapExtendHead_qry = 0; 
-        
-        // float gapOpenTail_ref   = 0;
-        // float gapExtendTail_ref = 0;
-        // float gapOpenTail_qry   = 0;
-        // float gapExtendTail_qry = 0;
+        float gapOpenAtEnds = (param->alnType == 0) ? gapOpen : 0;
+        float gapExtendAtEnds = (param->alnType == 0) ? gapExtend : 0;
         
         int32_t L[3], U[3];
         scoreType *S[3], *I[2], *D[2];
@@ -311,8 +303,8 @@ void Talco_xdrop::Tile (
                 if (sIndx < 2) {  
                     I[sIndx][sLenIndex] = -1;
                     D[sIndx][sLenIndex] = -1;
-                    CI[sIndx][sLenIndex] = -1;
-                    CD[sIndx][sLenIndex] = -2;
+                    CI[sIndx][sLenIndex] = I_BOUNDARY;
+                    CD[sIndx][sLenIndex] = D_BOUNDARY;
                 }
             }
         }
@@ -322,35 +314,16 @@ void Talco_xdrop::Tile (
             fprintf(stderr, "ERROR: Reference/Query index exceeded limit!\n");
             errorType = 3;
             aln.clear();
-            for (size_t sIndx=0; sIndx<3; sIndx++) {
-                delete [] S[sIndx];
-                delete [] CS[sIndx];
-                if (sIndx < 2) { 
-                    delete [] I[sIndx];
-                    delete [] D[sIndx];
-                    delete [] CI[sIndx];
-                    delete [] CD[sIndx];
-                }
-            }
+            freeMem(S, I, D, CS, CI, CD);
             return;
         }
         for (int32_t k = 0; k < reference_length + query_length - 1; k++){
-            
             // if (reference.size() == 1776 && query.size() == 6124) printf("Tile: %d, k: %d, L: %d, U: %d, (%d, %d)\n", tile, k, L[k%3], U[k%3]+1, reference_length, query_length);
             if (L[k%3] >= U[k%3]+1) { // No more cells to compute based on x-drop critieria
                 last_tile = true;
                 errorType = 1;
                 aln.clear();
-                for (size_t sIndx=0; sIndx<3; sIndx++) {
-                    delete [] S[sIndx];
-                    delete [] CS[sIndx];
-                    if (sIndx < 2) { 
-                        delete [] I[sIndx];
-                        delete [] D[sIndx];
-                        delete [] CI[sIndx];
-                        delete [] CD[sIndx];
-                    }
-                }
+                freeMem(S, I, D, CS, CI, CD);
                 return;
             }
             
@@ -359,16 +332,7 @@ void Talco_xdrop::Tile (
                 last_tile = true;
                 errorType = 2;
                 aln.clear();
-                for (size_t sIndx=0; sIndx<3; sIndx++) {
-                    delete [] S[sIndx];
-                    delete [] CS[sIndx];
-                    if (sIndx < 2) { 
-                        delete [] I[sIndx];
-                        delete [] D[sIndx];
-                        delete [] CI[sIndx];
-                        delete [] CD[sIndx];
-                    }
-                }
+                freeMem(S, I, D, CS, CI, CD);
                 return;
             }
 
@@ -378,22 +342,29 @@ void Talco_xdrop::Tile (
                 ftr_addr += U[k%3] - L[k%3] + 1;
             }
 
+            // std::vector<scoreType> max_scores (U[k%3]+1-L[k%3], max_score_prime);
+            // int tb_size = tb.size();
+            // if (k <= marker) tb.resize(tb_size+U[k%3]+1-L[k%3], -1);
+
+            // tbb::this_task_arena::isolate([&] { 
+            // tbb::parallel_for(tbb::blocked_range<int>(L[k%3], U[k%3]+1), [&](tbb::blocked_range<int> range) {
+            // for (int32_t i = range.begin(); i < range.end(); ++i) {
             for (int32_t i = L[k%3]; i < U[k%3]+1; i++) { // i-> query_idx, j -> reference_idx
+                int8_t ptr = 0;  // Main pointer
+                scoreType score = 0;
+                bool Iptr = false;
+                bool Dptr = false; // I and D states; xx00 -> M, x001 -> I (M) open, x101 -> I (I) extend, 0x10 -> D (M) open, 1x10 -> D (D) extend
                 int32_t Lprime = std::max(0, static_cast<int32_t>(k)-static_cast<int32_t>(reference_length) + 1); 
                 int32_t j = std::min(static_cast<int32_t>(k), static_cast<int32_t>(reference_length - 1)) - (i-Lprime); 
-                
                 if (j < 0) {
                     fprintf(stderr, "ERROR: j less than 0.\n");
                     exit(1);
                 }
-
                 scoreType match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
                 int32_t offset = i-L[k%3];
                 int32_t offsetDiag = L[k%3]-L[(k+1)%3]+offset-1; // L[0] - L[1] + 0 - 1
                 int32_t offsetUp = L[k%3]-L[(k+2)%3]+offset;
                 int32_t offsetLeft = L[k%3]-L[(k+2)%3]+offset-1;
-                
-                
                 if ((k==0) || 
                     ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) ||
                     (tile == 0 && (i == 0 || j == 0 ))) {
@@ -403,7 +374,7 @@ void Talco_xdrop::Tile (
                         for (int l = 0; l < 6; ++l) {
                             for (int m = 0; m < 6; ++m) {
                                 if (m == 5 && l == 5)      numerator += 0;
-                                else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*0;
+                                else if (m == 5 || l == 5) numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->gapCharScore;
                                 else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
                             }
                         }
@@ -417,70 +388,30 @@ void Talco_xdrop::Tile (
                             }
                         }
                     }
-                      
-
-                    // similarScore = static_cast<int32_t>(std::nearbyint(numerator/denominator));
                     similarScore = numerator/denominator;
                     if  (tile == 0 && (i == 0 || j == 0 )) {
-                        if (i == 0 && j > 0)      match = similarScore + gapOpenHead_ref + gapExtendHead_ref * (reference_idx+j - 1);
-                        else if (i > 0 && j == 0) match = similarScore + gapOpenHead_qry + gapExtendHead_qry * (query_idx+i - 1);
-                        else                      match = similarScore;
-                        // match = similarScore + param->gapExtend * std::max(reference_idx + j, query_idx + i);
-                        // if (i == 0 && j == 0) match = similarScore;
-                        // else                  match = similarScore + param->gapOpen + param->gapExtend * (std::max(0, std::max(reference_idx + j, query_idx + i) - 1));
+                        if (i == 0 && j == 0) match = similarScore;
+                        else                  match = similarScore + gapOpenAtEnds + gapExtendAtEnds * (std::max(0, std::max(reference_idx + j, query_idx + i) - 1));
                     }
                     else if (offsetDiag < 0)               match = similarScore;
                     else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
                 }
-
-                // int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(gapOp[0][reference_idx+j]));
-                // int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(gapOp[1][query_idx+i]));
                 scoreType pos_gapOpen_ref =  gapOp[0][reference_idx+j];
                 scoreType pos_gapOpen_qry =  gapOp[1][query_idx+i];
-                // float gapRef = reference[reference_idx+j][reference[0].size()-1];
-                // float gapQry = query[query_idx+i][query[0].size()-1];
-                
-                
-                // int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
-                // int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
                 scoreType pos_gapExtend_ref = gapEx[0][reference_idx+j];
                 scoreType pos_gapExtend_qry = gapEx[1][query_idx+i];
-                // int32_t pos_gapExtend_ref = (reference[reference_idx+j][21] > 0) ? gapExtend / 2 : gapExtend;
-                // int32_t pos_gapExtend_qry = (query[query_idx+i][21] > 0) ? gapExtend / 2 : gapExtend;
-
-                // int32_t pos_gapOpen_ref =   static_cast<int32_t>(std::nearbyint(param->gapOpen * (refNum-gapRef) * 1.0 / refNum));
-                // int32_t pos_gapOpen_qry =   static_cast<int32_t>(std::nearbyint(param->gapOpen * (qryNum-gapQry) * 1.0 / qryNum));
-                // int32_t pos_gapExtend_ref = static_cast<int32_t>(std::nearbyint(param->gapExtend * (refNum-gapRef) * 1.0 / refNum));
-                // int32_t pos_gapExtend_qry = static_cast<int32_t>(std::nearbyint(param->gapExtend * (qryNum-gapQry) * 1.0 / qryNum));
-                // int32_t pos_gapClose_ref = static_cast<int32_t>(std::nearbyint(gapEx[0][reference_idx+j]));
-                // int32_t pos_gapClose_qry = static_cast<int32_t>(std::nearbyint(gapEx[1][query_idx+i]));
-
-
-                if (query_idx + i == query.size() - 1) {
-                    pos_gapOpen_ref = gapOpenTail_ref;
-                    pos_gapExtend_ref = gapExtendTail_ref;
-                }
-                if (reference_idx + j == reference.size() - 1) {
-                    pos_gapOpen_qry = gapOpenTail_qry;
-                    pos_gapExtend_qry = gapExtendTail_qry;
-                }
-
                 if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
-                    delOp = S[(k+2)%3][offsetUp] + pos_gapOpen_ref;
+                    delOp =  S[(k+2)%3][offsetUp] + pos_gapOpen_ref;
                     delExt = D[(k+1)%2][offsetUp] + pos_gapExtend_ref;
                 }
-
                 if ((offsetLeft >= 0) && (offsetLeft <= U[(k+2)%3]-L[(k+2)%3])) {
-                    insOp = S[(k+2)%3][offsetLeft] + pos_gapOpen_qry;
+                    insOp =  S[(k+2)%3][offsetLeft] + pos_gapOpen_qry;
                     insExt = I[(k+1)%2][offsetLeft] + pos_gapExtend_qry;
                 }
-
                 I[k%2][offset] = insOp;
                 D[k%2][offset] = delOp;
-
                 Iptr = false;
                 Dptr = false;
-
                 if (insExt >= insOp) {
                     I[k%2][offset] = insExt;
                     Iptr = true;
@@ -489,9 +420,7 @@ void Talco_xdrop::Tile (
                     D[k%2][offset] = delExt;
                     Dptr = true;
                 }
-
                 // if (tile == 0 && param->alnType == 0 && k < 20) std::cout << '(' << i << ',' << j << ')' << match << ',' << I[k%2][offset] << ',' << D[k%2][offset] << '\n';
-                
                 if (match >= I[k%2][offset]) {
                     if (match >= D[k%2][offset]) {
                         S[k%3][offset] = match;
@@ -510,29 +439,6 @@ void Talco_xdrop::Tile (
                     S[k%3][offset] = D[k%2][offset];
                     ptr = 2;
                 }
-                
-                /*
-                int32_t tempI = I[k%2][offset] + pos_gapClose_qry;
-                int32_t tempD = D[k%2][offset] + pos_gapClose_ref;
-                if (match >= tempI) {
-                    if (match >= tempD) {
-                        S[k%3][offset] = match;
-                        ptr = 0;
-                    }
-                    else {
-                        S[k%3][offset] = tempD;
-                        ptr = 2;
-                    }
-                }
-                else if (tempI > tempD) {
-                    S[k%3][offset] = tempI;
-                    ptr = 1;
-                }
-                else {
-                    S[k%3][offset] = tempD;
-                    ptr = 2;
-                }
-                */
                 if (S[k%3][offset] < max_score-param->xdrop) {
                     S[k%3][offset] = -inf;
                 }
@@ -542,6 +448,7 @@ void Talco_xdrop::Tile (
                 if (max_score_prime < score) {
                     max_score_prime = score;
                 }
+                // if (max_scores[offset] < score) max_scores[offset] = score;
 
                 // if (i == L[k%3] && reference.size() == 3304 && query.size() == 1948) {
                 // if (pos_gapExtend_ref < -100000 || pos_gapExtend_qry < -100000 || pos_gapOpen_ref < -100000 || pos_gapOpen_qry < -100000) {
@@ -566,15 +473,15 @@ void Talco_xdrop::Tile (
                 } 
                 else if (k >= marker + 1){
                     if (Iptr) {
-                        CI[k%2][offset] = CI[(k+1)%2][offsetLeft]; 
+                        CI[k%2][offset] = (offsetLeft >= 0) ? CI[(k+1)%2][offsetLeft] : I_BOUNDARY; 
                     } else {
-                        CI[k%2][offset] = CS[(k+2)%3][offsetLeft]; 
+                        CI[k%2][offset] = (offsetLeft >= 0 && CS[(k+2)%3][offsetLeft] != -1) ? CS[(k+2)%3][offsetLeft] : I_BOUNDARY; 
                     }
 
                     if (Dptr) {
-                        CD[k%2][offset] = CD[(k+1)%2][offsetUp];
+                        CD[k%2][offset] = (offsetUp >= 0) ? CD[(k+1)%2][offsetUp] : D_BOUNDARY;
                     } else {
-                        CD[k%2][offset] = CS[(k+2)%3][offsetUp];
+                        CD[k%2][offset] = (offsetUp >= 0 && CS[(k+2)%3][offsetUp] != -1) ? CS[(k+2)%3][offsetUp] : D_BOUNDARY;
                     }
 
                     if (ptr == 0) {
@@ -592,13 +499,16 @@ void Talco_xdrop::Tile (
                     ptr |= 0x08;
                 }
                 if (k <= marker){
+                    // tb[tb_size+offset] = ptr;
                     tb.push_back(ptr);
                 }
             }
+            // });
+            // });
+            // max_score_prime = *std::max_element(max_scores.begin(), max_scores.end());
             
             int32_t newL = L[k%3];
             int32_t newU = U[k%3];
-
 
             while (newL <= U[k%3]) {
                 int32_t offset = newL - L[k%3];
@@ -609,7 +519,6 @@ void Talco_xdrop::Tile (
                     break;
                 }
             }
-
             while (newU >= L[k%3]) {
                 int32_t offset = newU - L[k%3];
                 if (S[k%3][offset] <= -inf) {
@@ -631,7 +540,6 @@ void Talco_xdrop::Tile (
                 }
                 prev_conv_s = conv_S;
             }
-
 
             int32_t v1 = static_cast<int32_t>(query_length)-1;
             int32_t v2 = static_cast<int32_t>(k)+2-static_cast<int32_t>(reference_length);
@@ -681,11 +589,11 @@ void Talco_xdrop::Tile (
             }
         }
 
-        if (conv_query_idx == 65535) {
+        if (conv_query_idx == (D_BOUNDARY & 0xFFFF)) {
             conv_query_idx = 0;
             conv_ref_idx = param->marker;
         }
-        else if (conv_query_idx == 65534) {
+        else if (conv_query_idx == (I_BOUNDARY & 0xFFFF)) {
             conv_query_idx = param->marker;
             conv_ref_idx = 0;
         }
@@ -697,18 +605,12 @@ void Talco_xdrop::Tile (
         query_length = query.size() - query_idx;
         if ((reference_length < 0) || (query_length < 0)) {
             fprintf(stderr, "ERROR: Reference/Query index exceeded limit!\n");
+            std::cerr << reference_length << ',' << reference_idx << ',' << conv_ref_idx << '\n';
+            std::cerr << query_length << ',' << query_idx << ',' << conv_query_idx << '\n';
+            
             errorType = 3;
             aln.clear();
-            for (size_t sIndx=0; sIndx<3; sIndx++) {
-                delete [] S[sIndx];
-                delete [] CS[sIndx];
-                if (sIndx < 2) { 
-                    delete [] I[sIndx];
-                    delete [] D[sIndx];
-                    delete [] CI[sIndx];
-                    delete [] CD[sIndx];
-                }
-            }
+            freeMem(S, I, D, CS, CI, CD);
             return;
         }
         
@@ -728,15 +630,7 @@ void Talco_xdrop::Tile (
         state = tb_state%3;
 
         // Deallocate memory
-        for (size_t sIndx=0; sIndx<3; sIndx++) {
-            delete [] S[sIndx];
-            delete [] CS[sIndx];
-            if (sIndx < 2) { 
-                delete [] I[sIndx];
-                delete [] D[sIndx];
-                delete [] CI[sIndx];
-                delete [] CD[sIndx];
-            }
-        }
+        freeMem(S, I, D, CS, CI, CD);
+        return;
 
     }

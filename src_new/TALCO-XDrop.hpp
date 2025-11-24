@@ -39,6 +39,7 @@ namespace Talco_xdrop {
         float gapOpen;
         float gapBoundary;
         float gapExtend;
+        float gapCharScore;
         int32_t matrixSize;
         int32_t xdrop;
         int32_t fLen;

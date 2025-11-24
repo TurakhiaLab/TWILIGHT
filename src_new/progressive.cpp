@@ -6,21 +6,6 @@
 #include <functional>
 
 
-void msa::progressive::collectPostOrder(Node* node, std::stack<Node*>& postStack) {
-    std::stack<Node*> s1;
-    s1.push(node); 
-    Node* current; 
-    while (!s1.empty()) {
-        current = s1.top(); 
-        postStack.push(current);
-        s1.pop(); 
-        for (int i = current->children.size()-1; i >= 0; --i) {
-            if (current->children[i]->grpID == current->grpID) s1.push(current->children[i]);     
-        }
-    } 
-    return;
-}
-
 void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>& alnOrder, std::stack<Node*> postStack, int grpID, int currentTask) {
     std::map<std::string, int> NodeAlnOrder;
     if (currentTask == 0) {
@@ -113,7 +98,7 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
 void msa::progressive::scheduling(Node* root, std::vector<NodePairVec>& levels, int currentTask) {
     levels.clear(); // Ensure levels is empty
     std::stack<Node*> msaStack;
-    collectPostOrder(root, msaStack);
+    root->collectPostOrder(msaStack);
     std::vector<std::pair<NodePair, int>> prgressivePairs;
     int grpID = root->grpID;
     getProgressivePairs(prgressivePairs, msaStack, grpID, currentTask);
@@ -181,10 +166,8 @@ void msa::progressive::progressiveAlignment(Tree *T, SequenceDB *database, Optio
     for (auto m : alnPairsPerLevel) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         updateNode(T, m, database);
-        if (database->currentTask == 1) database->debug();
-        if (database->currentTask == 1) std::cout <<  m.front().first->seqsIncluded.size() << '\n';
         alignmentKernel(T, m, database, option, param);
-        if (database->currentTask == 1) database->debug();
+        // database->debug();
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds alnTime = alnEnd - alnStart;
         if (option->printDetail) {
@@ -198,7 +181,7 @@ void msa::progressive::progressiveAlignment(Tree *T, SequenceDB *database, Optio
 }
 
         
-void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel) {
+void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree) {
     auto progressiveStart = std::chrono::high_resolution_clock::now();
     // Scheduling
     std::vector<msa::NodePairVec> alnPairsPerLevel; 

@@ -104,10 +104,11 @@ void msa::SequenceDB::debug() {
             }
             if (theFirst) {alnLen = offset; theFirst = false;}
             else {
-                if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", seqInfo->name.c_str(), offset, alnLen);
+                // if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", seqInfo->name.c_str(), offset, alnLen);
             }
             if (r != seqInfo->unalignedSeq) {
-                printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", seqInfo->name.c_str());            
+                printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", seqInfo->name.c_str());    
+                // std::cout << r << '\n' << seqInfo->unalignedSeq << '\n';  
             }
             ++debugNum;
         }

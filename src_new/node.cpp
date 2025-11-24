@@ -54,3 +54,18 @@ size_t phylogeny::Node::getNumNodes(){
     for (auto ch: children) num_nodes += ch->getNumNodes();
     return num_nodes;
 }
+
+void phylogeny::Node::collectPostOrder(std::stack<Node*>& postStack) {
+    std::stack<Node*> s1;
+    s1.push(this); 
+    Node* current; 
+    while (!s1.empty()) {
+        current = s1.top(); 
+        postStack.push(current);
+        s1.pop(); 
+        for (int i = current->children.size()-1; i >= 0; --i) {
+            if (current->children[i]->grpID == current->grpID) s1.push(current->children[i]);     
+        }
+    } 
+    return;
+}

@@ -82,6 +82,9 @@ namespace msa
         float gappyVertical;
         float lenDev;
         float maxAmbig;
+        int maxLen;
+        int minLen;
+        bool writeFiltered;
         bool debug;
         bool noFilter;
         bool reroot;
@@ -163,49 +166,12 @@ namespace msa
         
         SequenceDB() {};
         ~SequenceDB() {};
-
-        
-
-        // For debugging
-        // std::unordered_map<std::string, std::string> rawSeqs;
-
-        // std::unordered_map<std::string, int> seqsIdx;
-        // std::unordered_map<int, std::string> seqsName;
-        // std::unordered_map<std::string, int> seqsLen;
-        // std::unordered_map<int, bool> seqsStorage;
-        // std::map<int, std::vector<std::vector<float>>> profileFreq;
-        // std::unordered_map<std::string, std::string> seqsCIGAR;
-        // std::unordered_map<std::string, std::string> backboneAln;
-        // std::unordered_map<std::string, std::string> placedSeqs;
-        // std::unordered_map<int, bool> lowQuality;
-
-        // char **alnStorage[2] = {nullptr, nullptr};
-        // int nowProcess = 0;
-        // int subtreeIdx = 0;
-        // int memLen = 0;
-        // int *seqMemLen = 0;
-        // int memNum = 0;
-        // int seqLen = 0;
-        // int maxRawSeqLen = 0;
-        // const float timesBigger = 2.0;
-
-        // void setSubtreeIdx(int idx);
-        // void seqsFree();
-        // void seqFree(int i);
-        // void seqMalloc(int seqNum, int seqLen, option* option);
-        // void seqMalloc(int seqLen, int idx);
-        // void seqsMallocNStore(size_t seqLen, std::map<std::string, std::pair<std::string, int>>& seqsMap, option* option);
-        // void storeCIGAR();
-        // void memCheck(int seqLen, option* option);
-        // void memCheck(int seqLen, int idx);
-        // void clearAll();
-        // void debug(int& debugNum);
     };
 
     namespace io
     {
         void readSequenceNames(std::string seqFile, std::unordered_set<std::string> &seqNames);
-        void readSequences(std::string fileName, SequenceDB *database, Option *option, Tree *&T);
+        void readSequences(std::string fileName, SequenceDB *database, Option *option, Tree *&T, int subtree=-1);
         void readAlignment(std::string alnFileName, SequenceDB* database, Option* option, Node*& node);
         Tree* readAlignments_and_buildTree(SequenceDB *database, Option *option);
         void readBackboneAlignment(Tree* T, SequenceDB *database, Option *option);
@@ -213,11 +179,11 @@ namespace msa
         void writePrunedTree(Tree *T, msa::Option *option);
         void writeSubtrees(Tree *tree, PartitionInfo *partition, Option *option);
         void writeSubAlignments(SequenceDB* database, Option* option, int subtreeIdx, int alnLen);
-        void writeFinalAlignments(SequenceDB* database, Option* option, int& totalSeqs);
         void writeAlignment(std::string fileName, SequenceDB* database, int alnLen, bool compressed);
         void writeAlignment(std::string fileName, stringPairVec& seqs, bool compressed, bool append);
-        void update_and_writeAlignment(SequenceDB* database, Option* option, std::string fileName, int subtreeIdx);
-        void writeWholeAlignment(SequenceDB* database, Option* option, int alnLen);
+        int update_and_writeAlignment(SequenceDB* database, Option* option, std::string fileName, int subtreeIdx);
+        void update_and_writeAlignments(SequenceDB* database, Option* option, int& totalSeqs);
+        void writeFinalMSA(SequenceDB* database, Option* option, int alnLen);
     }
 
     using alnFunction = std::function<void(Tree *, NodePairVec &, SequenceDB *, Option *, Params &)>;
@@ -232,20 +198,22 @@ namespace msa
         void getConsensus(Option *option, float *profile, std::string &consensus, int len);
         void pairwiseGlobal(const std::string &seq1, const std::string &seq2, alnPath &alnPath, Params &param);
         void addGappyColumnsBack(alnPath &aln_before, alnPath &aln_after, std::pair<IntPairVec, IntPairVec> &gappyColumns, Params &param, IntPair rgcLens, stringPair orgSeqs);
-        void updateAlignment(NodePair &nodes, SequenceDB *database, alnPath &aln);
+        void updateAlignment(NodePair &nodes, SequenceDB *database, alnPath &aln, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln);
         void updateFrequency(NodePair &nodes, SequenceDB *database, alnPath &aln, FloatPair weights);
         void fallback2cpu(std::vector<int>& fallbackPairs,  NodePairVec& nodes, SequenceDB* database, Option* option);
+        void getStartingAndEndingPoints(std::string& ref, std::string& qry, IntPair& starting, IntPair& ending);
+        void alignEnds (NodePair &nodes, SequenceDB *database,  char type, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln);
+        IntPair smith_waterman(const std::string &seq1, const std::string &seq2);
+        alnPath smith_waterman_tb(const std::string &seq1, const std::string &seq2);
     }
 
     namespace progressive
     {
-
-        void collectPostOrder(Node *node, std::stack<Node *> &postStack);
         void getProgressivePairs(std::vector<std::pair<NodePair, int>> &alnOrder, std::stack<Node *> postStack, int grpID, int currentTask);
         void scheduling(Node *root, std::vector<NodePairVec> &alnPairsPerLevel, int currentTask);
         void updateNode(Tree *tree, NodePairVec &nodes, SequenceDB *database);
         void progressiveAlignment(Tree *T, SequenceDB *database, Option *option, std::vector<NodePairVec> &alnPairPerLevel, Params &param, alnFunction alignmentKernel);
-        void msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel);
+        void msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree=-1);
 
         namespace cpu 
         {

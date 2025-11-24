@@ -18,6 +18,7 @@ namespace phylogeny {
         Node(std::string id, float len);
         Node(std::string id, Node* par, float len);
         Node(Node*);
+        ~Node(){};
         size_t getNumLeaves();
         size_t getNumNodes();
         bool is_leaf() {return !(identifier.substr(0,4) == "node");}
@@ -47,14 +48,7 @@ namespace phylogeny {
         int getAlnLen(int currentTask) {
             return (currentTask == 2 && !msaFreq.empty()) ? msaFreq.size() : alnLen;
         };
-
-        // Unused
-        // Node* longestDescendant;
-        // void setLongestDescendant(Node* n) {longestDescendant = n;};
-        // std::vector<std::string> msa; //use this to store identifier
-        // std::vector<int> msaIdx;
-        // std::vector<int8_t> msaAln;
-        // std::vector<std::vector<float>> msaFreq;
+        void collectPostOrder(std::stack<Node*>& postStack);
     };
 
     struct PartitionInfo
@@ -88,6 +82,7 @@ namespace phylogeny {
         void parseNewick(std::string& newickString, bool reroot);
         void showTree();
         void reroot();
+        void convert2binaryTree();
         void extractResult(Tree* placementT);
         std::string getNewickString();
         Tree* prune(std::unordered_set<std::string>& seqs);
@@ -96,7 +91,7 @@ namespace phylogeny {
         // Used for whole Tree
         Tree(std::string newickFileName, bool reroot);
         // Used for subtree
-        Tree(Node* node);
+        Tree(Node* node, bool reroot);
         // Used for placement without tree
         Tree(std::unordered_set<std::string>& seqNames);
 

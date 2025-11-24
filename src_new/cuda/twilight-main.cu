@@ -36,8 +36,7 @@ void parseArguments(int argc, char** argv)
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files.")
         ("keep-temp,k", "Keep the temporary directory.")
         ("compress,c", "Write output files in compressed (.gz) format")
-        ("overwrite", "Force overwriting the output file.")
-        ("write-prune", "Write the pruned tree to the output directory.");
+        ("overwrite", "Force overwriting the output file.");
 
     // Section: Hardware
     po::options_description hardwareDesc("Hardware Usage");
@@ -53,13 +52,21 @@ void parseArguments(int argc, char** argv)
         ("type", po::value<std::string>(), "Data type. n: nucleotide, p: protein. Will be automatically inferred if not provided.")
         ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree.")
         ("remove-gappy,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
-        ("prune", "Prune the input guide tree based on the presence of unaligned sequences.")
         ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
-        ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
+        ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)")
+        ("prune", "Prune the input guide tree based on the presence of unaligned sequences.")
+        ("write-prune", "Write the pruned tree to the output directory.");
+
+    po::options_description seqFilterDesc("Sequence Filtering Options");
+    seqFilterDesc.add_options()
+        // ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
         // ("psgop", po::value<std::string>()->default_value("y"), "y: Enable, n: Disable position-specific gap open penalty.")
-        ("length-deviation", po::value<float>(), "Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded.")
+        ("length-deviation", po::value<float>(), "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.")
         ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
+        ("max-len", po::value<int>(), "Sequences longer than max-len will be deferred or excluded.")
+        ("min-len", po::value<int>(), "Sequences shorter than min-len will be deferred or excluded.")
         ("filter", "Exclude sequences with high ambiguity or length deviation.")
+        ("write-filtered", "Write the filtered sequences in FASTA format to the output directory.")
         ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)");
         
     // Section: Scoring Parameters
@@ -79,10 +86,10 @@ void parseArguments(int argc, char** argv)
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("verbose,v", "Print out every detail process.")
         ("help,h", "Print help messages.")
-        ("version", "Show program version.");
+        ("version,V", "Show program version.");
 
     // Setup boost::program_options
-    mainDesc.add(inputDesc).add(outputDesc).add(hardwareDesc).add(alignDesc).add(scoringDesc).add(generalDesc);
+    mainDesc.add(inputDesc).add(outputDesc).add(hardwareDesc).add(alignDesc).add(seqFilterDesc).add(scoringDesc).add(generalDesc);
 }
 
 int main(int argc, char** argv) {
@@ -97,6 +104,7 @@ int main(int argc, char** argv) {
     }
     catch(std::exception &e){
         std::cerr << "Error: " << e.what() << std::endl;
+        std::cerr << "For more details, please use the --help option.\n";
         // std::cerr << mainDesc << std::endl;
         if(vm.count("help"))
             return 0;
@@ -139,13 +147,13 @@ int main(int argc, char** argv) {
         for (auto subRoot: P->partitionsRoot) {
             auto subtreeStart = std::chrono::high_resolution_clock::now();
             ++proceeded;
-            int subtree = T->allNodes[subRoot.first]->grpID;
+            int subtree = (P->partitionsRoot.size() > 1) ? T->allNodes[subRoot.first]->grpID : -1;
             if (P->partitionsRoot.size() > 1) std::cerr << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             // Read sequences for each subtree
-            phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first);
-            msa::io::readSequences(option->seqFile, database, option, subT);
+            phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, false);
+            msa::io::readSequences(option->seqFile, database, option, subT, subtree);
             // Progressive alignment on each subtree
-            msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU);
+            msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU, subtree);
             // post-alignment debugging
             if (option->debug) database->debug();
             if (P->partitionsRoot.size() > 1) {
@@ -162,7 +170,7 @@ int main(int argc, char** argv) {
             else {
                 // Output final alignment
                 auto outStart = std::chrono::high_resolution_clock::now();
-                msa::io::writeWholeAlignment(database, option, subT->root->getAlnLen(database->currentTask));
+                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask));
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -184,8 +192,8 @@ int main(int argc, char** argv) {
             msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
-            msa::io::writeFinalAlignments(database, option, totalSeqs);
-            msa::io::writeWholeAlignment(database, option, subRoot_T->root->getAlnLen(database->currentTask));
+            msa::io::update_and_writeAlignments(database, option, totalSeqs);
+            msa::io::writeFinalMSA(database, option, subRoot_T->root->getAlnLen(database->currentTask));
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -202,8 +210,8 @@ int main(int argc, char** argv) {
         msa::progressive::msaOnSubtree(T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
         int totalSeqs = 0;
         auto outStart = std::chrono::high_resolution_clock::now();
-        msa::io::writeFinalAlignments(database, option, totalSeqs);
-        msa::io::writeWholeAlignment(database, option, T->root->getAlnLen(database->currentTask));
+        msa::io::update_and_writeAlignments(database, option, totalSeqs);
+        msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask));
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -224,7 +232,7 @@ int main(int argc, char** argv) {
         boost::filesystem::path seqPath(option->seqFile);
         std::string placedSeqFile = option->tempDir + "/" + seqPath.stem().string() + ".final.aln";
         msa::io::writeAlignment(placedSeqFile, database, T->root->getAlnLen(database->currentTask), option->compressed);
-        msa::io::writeWholeAlignment(database, option, T->root->getAlnLen(database->currentTask));
+        msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask));
         delete T;
     }
     else if (option->alnMode == PLACE_W_TREE) {
@@ -245,7 +253,7 @@ int main(int argc, char** argv) {
             int subtree = T->allNodes[subRoot.first]->grpID;
             if (P->partitionsRoot.size() > 1) std::cerr << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             // Read backbone alignment and sequences for each subtree
-            phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first);
+            phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, false);
             msa::io::readSequences(option->backboneAlnFile, database, option, subT);
             msa::io::readSequences(option->seqFile, database, option, subT);
             phylogeny::Tree* placementT = database->getPlacementTree(subT);
@@ -269,7 +277,7 @@ int main(int argc, char** argv) {
             else {
                 // Output final alignment
                 auto outStart = std::chrono::high_resolution_clock::now();
-                msa::io::writeWholeAlignment(database, option, subT->root->getAlnLen(database->currentTask));
+                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask));
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -291,8 +299,8 @@ int main(int argc, char** argv) {
             msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
-            msa::io::writeFinalAlignments(database, option, totalSeqs);
-            msa::io::writeWholeAlignment(database, option, subRoot_T->root->getAlnLen(database->currentTask));
+            msa::io::update_and_writeAlignments(database, option, totalSeqs);
+            msa::io::writeFinalMSA(database, option, subRoot_T->root->getAlnLen(database->currentTask));
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -302,6 +310,10 @@ int main(int argc, char** argv) {
         delete subRoot_T;
         delete P;
     }
+
+    delete option;
+    delete database;
+    delete param;
     
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;

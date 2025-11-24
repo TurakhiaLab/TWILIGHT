@@ -99,6 +99,7 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
         gappyColumns.first.push_back({start, length});
     }
     // Query
+    start = -1, length = 0;
     for (int i = 0; i < lens.second; ++i) {
         if ((hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > gap_threshold)
         {
@@ -253,14 +254,16 @@ void msa::alignment_helper::pairwiseGlobal(const std::string &seq1, const std::s
     M[0][0] = 0;
     for (int i = 1; i <= m; ++i)
     {
-        M[i][0] = gap_open + (i - 1) * gap_extend;
+        // M[i][0] = gap_open + (i - 1) * gap_extend;
+        M[i][0] = 0;
         X[i][0] = M[i][0];
         Y[i][0] = -1e9; // impossible
         tb[i][0] = 2;   // gap in query
     }
     for (int j = 1; j <= n; ++j)
     {
-        M[0][j] = gap_open + (j - 1) * gap_extend;
+        // M[0][j] = gap_open + (j - 1) * gap_extend;
+        M[0][j] = 0;
         Y[0][j] = M[0][j];
         X[0][j] = -1e9;
         tb[0][j] = 1; // gap in reference
@@ -271,7 +274,7 @@ void msa::alignment_helper::pairwiseGlobal(const std::string &seq1, const std::s
         for (int j = 1; j <= n; ++j)
         {
             // Compute scores
-            int idx_1 = letterIdx(type, seq1[i - 1]), idx_2 = letterIdx(type, seq2[j - 1]);
+            int idx_1 = letterIdx(type, toupper(seq1[i - 1])), idx_2 = letterIdx(type, toupper(seq2[j - 1]));
             float base_score = param.scoringMatrix[idx_1][idx_2];
             // Match/mismatch
             M[i][j] = base_score + std::max({M[i - 1][j - 1], X[i - 1][j - 1], Y[i - 1][j - 1]});
@@ -321,7 +324,7 @@ void msa::alignment_helper::addGappyColumnsBack(alnPath &aln_before, alnPath &al
 {
     int rIdx = 0, qIdx = 0, alnIdx = 0;
     int gc_rIdx = 0, gc_qIdx = 0;
-    for (alnIdx = 0; alnIdx < aln_before.size(); ++alnIdx) {
+    for (alnIdx = 0; alnIdx < aln_before.size()+1; ++alnIdx) {
         bool gapR = (gc_rIdx >= gappyColumns.first.size())  ? false : (rIdx == gappyColumns.first[gc_rIdx].first);
         bool gapQ = (gc_qIdx >= gappyColumns.second.size()) ? false : (qIdx == gappyColumns.second[gc_qIdx].first);
         if (gapR && gapQ) {
@@ -349,48 +352,76 @@ void msa::alignment_helper::addGappyColumnsBack(alnPath &aln_before, alnPath &al
                 gc_qIdx++;
             }
         }
-        aln_after.push_back(aln_before[alnIdx]);
-        switch (aln_before[alnIdx]) {
-        case 0:
-            ++rIdx; ++qIdx;
-            break;
-        case 1: 
-            ++qIdx;
-            break;
-        case 2:
-            ++rIdx;
-            break;
-        default:
-            std::cerr << "ERROR: Undefined TB Path: " << aln_before[alnIdx] << '\n';
-            break;
+        if (alnIdx < aln_before.size()) {
+            aln_after.push_back(aln_before[alnIdx]);
+            switch (aln_before[alnIdx]) {
+            case 0:
+                ++rIdx; ++qIdx;
+                break;
+            case 1: 
+                ++qIdx;
+                break;
+            case 2:
+                ++rIdx;
+                break;
+            default:
+                std::cerr << "ERROR: Undefined TB Path: " << aln_before[alnIdx] << '\n';
+                break;
+            }
         }
     }
     return;
 }
 
-void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *database, alnPath &aln)
+void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *database, alnPath &aln, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln)
 {
+    int totalLen = aln.size(), startLen = 0, endLen = 0;
+    std::vector<std::string> startAlnVec, endAlnVec;
+    bool refine = (!startAln.empty() && !endAln.empty());
+    if (refine) {
+        totalLen += startAln.begin()->second.size() + endAln.begin()->second.size();
+        startLen = startAln.begin()->second.size();
+        endLen = endAln.begin()->second.size();
+        for (auto sIdx: nodes.first->seqsIncluded) {
+            startAlnVec.push_back(startAln[sIdx]);
+            endAlnVec.push_back(endAln[sIdx]);
+        }
+    }
     tbb::this_task_arena::isolate([&] { 
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.first->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.first->seqsIncluded[idx];
+        // std::cout << database->id_map[sIdx]->name  << '\n';
+        
         bool updateSeq = (database->currentTask != 2) || 
                          (database->currentTask == 2 && database->id_map.find(sIdx) != database->id_map.end());
         if (updateSeq) {
-            database->id_map[sIdx]->memCheck(aln.size());
-            int orgIdx = 0;
+            database->id_map[sIdx]->memCheck(totalLen);
             int storeFrom = database->id_map[sIdx]->storage;
             int storeTo = 1 - storeFrom;
+            if (refine) {
+                for (int k = 0; k < startLen; ++k) {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = startAlnVec[idx][k];
+                }
+            }
+            int orgIdx = starting.first;
             for (int k = 0; k < aln.size(); ++k) {
+                int kto = k + startLen;
                 if (aln[k] == 0 || aln[k] == 2) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    database->id_map[sIdx]->alnStorage[storeTo][kto] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
                     orgIdx++;
                 }
                 else {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = '-';
+                    database->id_map[sIdx]->alnStorage[storeTo][kto] = '-';
                 }
             }
-            database->id_map[sIdx]->len = aln.size();
+            if (refine) {
+                for (int k = 0; k < endLen; ++k) {
+                    int kto = k + startLen + aln.size();
+                    database->id_map[sIdx]->alnStorage[storeTo][kto] = endAlnVec[idx][k];
+                }
+            }
+            database->id_map[sIdx]->len = totalLen;
             database->id_map[sIdx]->changeStorage();
         }
         else {
@@ -410,6 +441,12 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     } 
     }); 
     });
+    startAlnVec.clear();
+    endAlnVec.clear();
+    for (auto sIdx: nodes.second->seqsIncluded) {
+        startAlnVec.push_back(startAln[sIdx]);
+        endAlnVec.push_back(endAln[sIdx]);
+    }
     tbb::this_task_arena::isolate([&] { 
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.second->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
@@ -417,20 +454,32 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
         bool updateSeq = (database->currentTask != 2) || 
                          (database->currentTask == 2 && database->id_map.find(sIdx) != database->id_map.end());
         if (updateSeq) {
-            database->id_map[sIdx]->memCheck(aln.size());
-            int orgIdx = 0;
+            database->id_map[sIdx]->memCheck(totalLen);
+            int orgIdx = starting.second;
             int storeFrom = database->id_map[sIdx]->storage;
             int storeTo = 1 - storeFrom;
+            if (refine) {
+                for (int k = 0; k < startLen; ++k) {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = startAlnVec[idx][k];
+                }
+            }
             for (int k = 0; k < aln.size(); ++k) {
+                int kto = k + startLen;
                 if (aln[k] == 0 || aln[k] == 1) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    database->id_map[sIdx]->alnStorage[storeTo][kto] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
                     orgIdx++;
                 }
                 else {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = '-';
+                    database->id_map[sIdx]->alnStorage[storeTo][kto] = '-';
                 }
             }
-            database->id_map[sIdx]->len = aln.size();
+            if (refine) {
+                for (int k = 0; k < endAln[sIdx].size(); ++k) {
+                    int kto = k + startAln[sIdx].size() + aln.size();
+                    database->id_map[sIdx]->alnStorage[storeTo][kto] = endAlnVec[idx][k];
+                }
+            }
+            database->id_map[sIdx]->len = totalLen;
             database->id_map[sIdx]->changeStorage();
         }
         else {
@@ -453,7 +502,7 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     for (auto idx: nodes.second->seqsIncluded) nodes.first->seqsIncluded.push_back(idx);
     nodes.first->alnNum += nodes.second->alnNum;
     nodes.second->seqsIncluded.clear();
-    nodes.first->alnLen = aln.size();
+    nodes.first->alnLen = totalLen;
     nodes.first->alnWeight += nodes.second->alnWeight;
     return;
 }
@@ -463,7 +512,6 @@ void msa::alignment_helper::updateFrequency(NodePair &nodes, SequenceDB *databas
     if (nodes.first->msaFreq.empty() || nodes.second->msaFreq.empty()) return;
     int profileSize = nodes.first->msaFreq[0].size();
     float refWeight = weights.first, qryWeight = weights.second;
-
     Profile mergeFreq(aln.size(), std::vector<float>(profileSize, 0.0));
     int rIdx = 0, qIdx = 0;
     for (int j = 0; j < aln.size(); ++j) {
@@ -497,6 +545,7 @@ void msa::alignment_helper::updateFrequency(NodePair &nodes, SequenceDB *databas
 void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodePairVec& nodes, SequenceDB* database, Option* option) {
     int totalSeqs = 0;
     bool filtering = !option->noFilter;
+    std::sort(fallbackPairs.begin(), fallbackPairs.end());
     for (int i = 0; i < fallbackPairs.size(); ++i) {
         int nIdx = fallbackPairs[i];
         int32_t refNum = nodes[nIdx].first->seqsIncluded.size();
@@ -537,4 +586,353 @@ void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodeP
         else printf("Deferring/excluding %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
     }
     return;
+}
+
+void msa::alignment_helper::getStartingAndEndingPoints(std::string& ref, std::string& qry, IntPair& starting, IntPair& ending) {
+    const float ratio = 0.1;
+    int segLenRef = ref.size() * ratio, segLenQry = qry.size() * ratio;
+    std::string rStart = ref.substr(0, segLenRef), rEnd = ref.substr(ref.size()-segLenRef, segLenRef);
+    std::string qStart = qry.substr(0, segLenQry), qEnd = qry.substr(qry.size()-segLenQry, segLenQry);
+    std::reverse(rStart.begin(),rStart.end());
+    std::reverse(qStart.begin(), qStart.end());
+    starting = smith_waterman(rStart, qStart);
+    starting.first = segLenRef - starting.first;
+    starting.second = segLenQry - starting.second;
+    ending = smith_waterman(rEnd,qEnd);
+    ending.first = ref.size()-segLenRef + ending.first;
+    ending.second = qry.size()-segLenQry + ending.second;
+    return;
+}
+
+void msa::alignment_helper::alignEnds (NodePair &nodes, SequenceDB *database, char type, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln) 
+{
+    // Extract Sequence and remove gaps
+    int refNum = nodes.first->getAlnNum(database->currentTask);
+    int qryNum = nodes.second->getAlnNum(database->currentTask);
+    int refLen = nodes.first->getAlnLen(database->currentTask);
+    int qryLen = nodes.second->getAlnLen(database->currentTask);
+    std::vector<std::pair<int, std::string>> startingSeqs (refNum+qryNum), endingSeqs(refNum+qryNum);
+    // Reference
+    tbb::this_task_arena::isolate([&] { 
+    tbb::parallel_for(tbb::blocked_range<int>(0, nodes.first->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
+    for (int idx = range.begin(); idx < range.end(); ++idx) {
+        int sIdx = nodes.first->seqsIncluded[idx];
+        int storage = database->id_map[sIdx]->storage;
+        startingSeqs[idx] = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage], starting.first)};
+        // std::cout << starting.first << ',' << std::string(database->id_map[sIdx]->alnStorage[storage], starting.first) << ',' << std::string(database->id_map[sIdx]->alnStorage[storage], 10) << '\n';
+        endingSeqs[idx]   = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage]+ending.first, refLen-ending.first)};
+        size_t k = 0;
+        for (size_t i = 0; i < startingSeqs[idx].second.size(); ++i) {
+            if (startingSeqs[idx].second[i] != '-') startingSeqs[idx].second[k++] = startingSeqs[idx].second[i];
+        }
+        startingSeqs[idx].second.resize(k);
+        k = 0;
+        for (size_t i = 0; i < endingSeqs[idx].second.size(); ++i) {
+            if (endingSeqs[idx].second[i] != '-') endingSeqs[idx].second[k++] = endingSeqs[idx].second[i];
+        }
+        endingSeqs[idx].second.resize(k);
+    }
+    });
+    });
+    tbb::this_task_arena::isolate([&] { 
+    tbb::parallel_for(tbb::blocked_range<int>(0, nodes.second->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
+    for (int idx = range.begin(); idx < range.end(); ++idx) {
+        int sIdx = nodes.second->seqsIncluded[idx];
+        int storage = database->id_map[sIdx]->storage;
+        startingSeqs[idx+refNum] = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage], starting.second)};
+        endingSeqs[idx+refNum]   = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage]+ending.second, qryLen-ending.second)};
+        size_t k = 0;
+        for (size_t i = 0; i < startingSeqs[idx+refNum].second.size(); ++i) {
+            if (startingSeqs[idx+refNum].second[i] != '-') startingSeqs[idx+refNum].second[k++] = startingSeqs[idx+refNum].second[i];
+        }
+        startingSeqs[idx+refNum].second.resize(k);
+        k = 0;
+        for (size_t i = 0; i < endingSeqs[idx+refNum].second.size(); ++i) {
+            if (endingSeqs[idx+refNum].second[i] != '-') endingSeqs[idx+refNum].second[k++] = endingSeqs[idx+refNum].second[i];
+        }
+        endingSeqs[idx+refNum].second.resize(k);
+    }
+    });
+    });
+    std::sort(startingSeqs.begin(), startingSeqs.end(), [&](const std::pair<int,std::string> &a, const std::pair<int,std::string> &b) {
+        if (a.second.size() == b.second.size()) return a.first < b.first;
+        return a.second.size() > b.second.size(); // descending
+    });
+    std::sort(endingSeqs.begin(), endingSeqs.end(), [&](const std::pair<int,std::string> &a, const std::pair<int,std::string> &b) {
+        if (a.second.size() == b.second.size()) return a.first < b.first;
+        return a.second.size() > b.second.size(); // descending
+    });
+    // Alignment of starting
+    if (starting.first > 0 || starting.second > 0) {
+        int consensusLen = startingSeqs[0].second.size();
+        for (auto s: startingSeqs) startAln[s.first] = s.second;
+        for (int i = 1; i < startingSeqs.size(); ++i) {
+            std::string seqConsensus = "";
+            for (int k = 0; k < consensusLen; ++k) {
+                int charNum [6] = {0};
+                for (int j = 0; j < i; ++j) {
+                    int rsIdx = startingSeqs[j].first;
+                    charNum[letterIdx('n', toupper(startAln[rsIdx][k]))] += 1;
+                }
+                int idx = std::max_element(charNum, charNum + 5) - charNum;
+                if (idx == 0) seqConsensus += "A";
+                else if (idx == 1) seqConsensus += "C";
+                else if (idx == 2) seqConsensus += "G";
+                else if (idx == 3) seqConsensus += "T";
+                else               seqConsensus += "A";
+            }
+            auto seq = startingSeqs[i].second;
+            // std::reverse(seq.begin(), seq.end());
+            auto sIdx = startingSeqs[i].first;
+            std::cout << "Consen: " << seqConsensus << '\n';
+            std::cout << "Added : " << seq << '\n';
+            alnPath tempAln = smith_waterman_tb(seqConsensus, seq);
+            // std::reverse(tempAln.begin(), tempAln.end());
+            for (auto a: tempAln) std::cout << (a & 0xFFFF);
+            std::cout << '\n';
+            // Update aln path and consensus
+            std::string seqTemp = "";
+            seqTemp.reserve(tempAln.size());
+            // Update the consensus
+            // tbb::this_task_arena::isolate([&] { 
+            // tbb::parallel_for(tbb::blocked_range<int>(0, i), [&](tbb::blocked_range<int> range) {
+            // for (int j = range.begin(); j < range.end(); ++j) {
+            for (int j = 0; j < i; ++j) {
+                int rsIdx = startingSeqs[j].first, rsSeqIdx = 0;
+                std::string temp = "";
+                temp.reserve(tempAln.size());
+                for (auto a: tempAln) {
+                    if (a == 0 || a == 2) {
+                        temp += startAln[rsIdx][rsSeqIdx];
+                        rsSeqIdx++;
+                    }
+                    else if (a == 1) {
+                        temp += '-';
+                    }
+                    // std::cout << (a & 0xFFFF) << ',' << temp << '\n';
+                }
+                startAln[rsIdx] = temp;
+            }
+            // });
+            // });
+            // Update the newly aligned seq
+            {
+                int sqIdx = 0;
+                std::string temp = "";
+                temp.reserve(tempAln.size());
+                for (auto a: tempAln) {
+                    if (a == 0 || a == 1) {
+                        temp += startAln[sIdx][sqIdx];
+                        sqIdx++; 
+                    }
+                    else if (a == 2) {
+                        temp += '-';
+                    }
+                    // std::cout << (a & 0xFFFF) << ',' << temp << '\n';
+                }
+                startAln[sIdx] = temp;
+                consensusLen = tempAln.size();
+            }
+        }
+        for (auto a: startAln) {
+            std::cout << a.first << '\t' << a.second << '\n';
+        }
+    }
+    
+    if (ending.first < refLen || ending.second < qryLen) {
+        // Alignment of ending
+        int consensusLen = endingSeqs[0].second.size();
+        for (auto s: endingSeqs) endAln[s.first] = s.second;
+        for (int i = 1; i < endingSeqs.size(); ++i) {
+            std::string seqConsensus = "";
+            for (int k = 0; k < consensusLen; ++k) {
+                int charNum [6] = {0};
+                for (int j = 0; j < i; ++j) {
+                    int rsIdx = startingSeqs[j].first;
+                    charNum[letterIdx('n', toupper(startAln[rsIdx][k]))] += 1;
+                }
+                int idx = std::max_element(charNum, charNum + 5) - charNum;
+                if (idx == 0) seqConsensus += "A";
+                else if (idx == 1) seqConsensus += "C";
+                else if (idx == 2) seqConsensus += "G";
+                else if (idx == 3) seqConsensus += "T";
+                else               seqConsensus += "A";
+            }
+            auto seq = endingSeqs[i].second;
+            auto sIdx = endingSeqs[i].first;
+            std::cout << "Consen: " << seqConsensus << '\n';
+            std::cout << "Added : " << seq << '\n';
+            alnPath tempAln = smith_waterman_tb(seqConsensus, seq);
+            for (auto a: tempAln) std::cout << (a & 0xFFFF);
+            std::cout << '\n';
+            // Update aln path and consensus
+            std::string seqTemp = "";
+            seqTemp.reserve(tempAln.size());
+            // Update the consensus
+            // tbb::this_task_arena::isolate([&] { 
+            // tbb::parallel_for(tbb::blocked_range<int>(0, i), [&](tbb::blocked_range<int> range) {
+            // for (int j = range.begin(); j < range.end(); ++j) {
+            for (int j = 0; j < i; ++j) {
+                int rsIdx = endingSeqs[j].first, rsAlnIdx = 0;
+                std::string temp = "";
+                temp.reserve(tempAln.size());
+                for (auto a: tempAln) {
+                    if (a == 0 || a == 2) {
+                        temp += endAln[rsIdx][rsAlnIdx];
+                        rsAlnIdx++;
+                    }
+                    else if (a == 1) {
+                        temp += '-';
+                    }
+                    // std::cout << (a & 0xFFFF) << ',' << temp << '\n';
+                }
+                endAln[rsIdx] = temp;
+            }
+            // });
+            // });
+            // Update the newly aligned seq
+            {
+                int sqIdx = 0;
+                std::string temp;
+                temp.reserve(tempAln.size());
+                for (auto a: tempAln) {
+                    if (a == 0 || a == 1) {
+                        temp += endAln[sIdx][sqIdx];
+                        sqIdx++; 
+                    }
+                    else if (a == 2) {
+                        temp += '-';
+                    }
+                }
+                endAln[sIdx] = temp;
+                consensusLen = tempAln.size();
+            }
+        }
+        for (auto a: endAln) {
+            std::cout << a.first << '\t' << a.second << '\n';
+        }
+    }
+    
+    // Clean msaFreq
+    if (!nodes.first->msaFreq.empty() || !nodes.second->msaFreq.empty()) {
+        nodes.first->msaFreq.clear();
+        nodes.second->msaFreq.clear();
+    }
+
+}
+
+msa::IntPair msa::alignment_helper::smith_waterman(const std::string &seq1, const std::string &seq2) 
+{
+    int m = seq1.size();
+    int n = seq2.size();
+    // Scoring parameters
+    const int MATCH = 4;
+    const int MISMATCH = -1;
+    const int GAP = -2;
+    std::vector<std::vector<int>> H(m+1, std::vector<int>(n+1, 0));
+    int max_score = 0;
+    int max_i = 0, max_j = 0;
+    // Fill scoring matrix
+    for(int i=1;i<=m;++i){
+        for(int j=1;j<=n;++j){
+            int match = (seq1[i-1]==seq2[j-1]) ? MATCH : MISMATCH;
+            int score_diag = H[i-1][j-1] + match;
+            int score_up = H[i-1][j] + GAP;
+            int score_left = H[i][j-1] + GAP;
+            H[i][j] = std::max({0, score_diag, score_up, score_left});
+            if(H[i][j] > max_score){
+                max_score = H[i][j];
+                max_i = i;
+                max_j = j;
+            }
+        }
+    }
+    return {max_i, max_j};
+}
+
+msa::alnPath msa::alignment_helper::smith_waterman_tb(const std::string &seq1, const std::string &seq2)
+{
+    int m = seq1.size();
+    int n = seq2.size();
+    const int MATCH = 4;
+    const int MISMATCH = -2;
+    const int GAP_OPEN = -5;
+    const int GAP_EXTEND = -1;
+    const int NSCORE = 1;
+    // DP matrices: M = match/mismatch, X = gap in seq1 (deletion), Y = gap in seq2 (insertion)
+    std::vector<std::vector<float>> M(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<float>> X(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<float>> Y(m + 1, std::vector<float>(n + 1, 0));
+    std::vector<std::vector<int8_t>> tb(m + 1, std::vector<int8_t>(n + 1, 0)); // traceback: 0/1/2
+    alnPath aln;
+    // Initialization
+    M[0][0] = 0;
+    for (int i = 1; i <= m; ++i)
+    {
+        // M[i][0] = gap_open + (i - 1) * gap_extend;
+        M[i][0] = 0;
+        X[i][0] = M[i][0];
+        Y[i][0] = -1e9; // impossible
+        tb[i][0] = 2;   // gap in query
+    }
+    for (int j = 1; j <= n; ++j)
+    {
+        // M[0][j] = GAP_OPEN + (j - 1) * GAP_EXTEND;
+        M[0][j] = 0;
+        Y[0][j] = M[0][j];
+        X[0][j] = -1e9;
+        tb[0][j] = 1; // gap in reference
+    }
+    // Fill matrices
+    for (int i = 1; i <= m; ++i)
+    {
+        for (int j = 1; j <= n; ++j)
+        {
+            // Compute scores
+            int base_score = ((toupper(seq1[i - 1]) == 'N') || (toupper(seq2[j - 1]) == 'N')) ? NSCORE : 
+                             (toupper(seq1[i - 1]) == toupper(seq2[j - 1])) ? MATCH : MISMATCH;
+            // Match/mismatch
+            M[i][j] = base_score + std::max({M[i - 1][j - 1], X[i - 1][j - 1], Y[i - 1][j - 1]});
+            // Gap in seq1 (deletion)
+            X[i][j] = std::max(M[i - 1][j] + GAP_OPEN, X[i - 1][j] + GAP_EXTEND);
+            // if (i < m) X[i][j] = std::max(M[i - 1][j] + GAP_OPEN, X[i - 1][j] + GAP_EXTEND);
+            // else       X[i][j] = std::max(M[i - 1][j] + 0, X[i - 1][j] + GAP_EXTEND);
+            // Gap in seq2 (insertion)
+            Y[i][j] = std::max(M[i][j - 1] + GAP_OPEN, Y[i][j - 1] + GAP_EXTEND);
+            // if (j < n) Y[i][j] = std::max(M[i][j - 1] + GAP_OPEN, Y[i][j - 1] + GAP_EXTEND);
+            // else       Y[i][j] = std::max(M[i][j - 1] + 0, Y[i][j - 1] + GAP_EXTEND);
+            // Choose best path for traceback
+            float best = std::max({M[i][j], X[i][j], Y[i][j]});
+            if (best == M[i][j])
+                tb[i][j] = 0;
+            else if (best == X[i][j])
+                tb[i][j] = 2; // gap in ref (insert in query)
+            else
+                tb[i][j] = 1; // gap in qry (delete in ref)
+        }
+    }
+    // Traceback
+    aln.clear();
+    int i = m, j = n;
+    float max_score = std::max({M[m][n], X[m][n], Y[m][n]});
+    while (i > 0 || j > 0)
+    {
+        int8_t dir = tb[i][j];
+        aln.push_back(dir);
+        if (dir == 0)
+        {
+            i--;
+            j--;
+        }
+        else if (dir == 1)
+        {
+            j--;
+        }
+        else if (dir == 2)
+        {
+            i--;
+        }
+    }
+    std::reverse(aln.begin(), aln.end());
+    return aln;
 }

@@ -9,6 +9,7 @@
 #include <chrono>
 #include <iomanip>
 #include <functional>
+#include <cassert>
 
 
 void stringSplit (std::string const& s, char delim, std::vector<std::string>& words) {
@@ -216,13 +217,10 @@ void phylogeny::Tree::parseNewick(std::string& newickString, bool reroot) {
             if (node.second->identifier != this->root->identifier && node.second->branchLength == 0) node.second->branchLength = minBrLen;
         }
     }
-    if (reroot) {
-        int orgDepth = this->m_maxDepth;
-        this->reroot();
-        this->m_maxDepth = 0;
-        for (auto node: this->allNodes) this->m_maxDepth = std::max(this->m_maxDepth, node.second->level);
-        std::cerr << "Depth changed from " << orgDepth << " to " << this->m_maxDepth << " after re-rooting.\n";
-    }
+    // this->showTree();
+    // std::cerr << "=================================\n";
+    this->convert2binaryTree();
+    // this->showTree();
     this->calLeafNum();
     this->calSeqWeight();
 }
@@ -241,7 +239,7 @@ phylogeny::Tree::Tree (std::string treeFileName, bool reroot)
     std::cerr << "Newick string read in: " <<  treeBuiltTime.count() / 1000000 << " ms\n";
 }
   
-phylogeny::Tree::Tree(Node* node) {
+phylogeny::Tree::Tree(Node* node, bool reroot) {
     Node* root = new Node(node->identifier, node->branchLength);
     int grp = node->grpID;
     root->grpID = -1;
@@ -267,6 +265,20 @@ phylogeny::Tree::Tree(Node* node) {
         //     if (ch->grpID == grp) s1.push(ch);      
         // }
     } 
+    int beforeConvert = 0, beforeReroot = 0, afterReroot = 0;
+    for (auto n: this->allNodes) beforeConvert = (n.second->level > beforeConvert) ? n.second->level : beforeConvert;
+    this->convert2binaryTree();
+    for (auto n: this->allNodes) beforeReroot = (n.second->level > beforeReroot) ? n.second->level : beforeReroot;
+    std::cerr << "========== Tree Depth ==========\n";
+    std::cerr << "Original: " << beforeConvert << '\n';
+    std::cerr << "Binary: " << beforeReroot << '\n';
+    if (reroot) {
+        this->reroot();
+        for (auto n: this->allNodes) afterReroot = (n.second->level > afterReroot) ? n.second->level : afterReroot;
+        std::cerr << "Reroot: " << afterReroot << '\n';
+        // std::cerr << "Depth changed from " << orgDepth << " to " << this->m_maxDepth << " after re-rooting.\n";
+    }
+    std::cerr << "================================\n";
     this->calLeafNum();
     this->calSeqWeight();
 }
@@ -533,6 +545,56 @@ void phylogeny::updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx) {
     subroot->msaFreq = subT->root->msaFreq;
     subroot->alnWeight = subT->root->alnWeight;
     return;
+}
+
+void phylogeny::Tree::convert2binaryTree() {
+    std::stack<Node*> postOrder;
+    this->root->collectPostOrder(postOrder);
+    int maxDepth = this->m_maxDepth;
+    while(!postOrder.empty()) {
+        Node* node = postOrder.top();
+        if (node->children.size() > 2) {
+            int grp = node->grpID;
+            auto temp = node->children;
+            while (temp.size() > 2) {
+                std::vector<Node*> nodeLeft;
+                for (int i = 0; i < temp.size()-1; i+=2) {
+                    auto name = this->newInternalNodeId();
+                    Node* newNode = new Node (name, 0.0);
+                    newNode->children.push_back(temp[i]);
+                    newNode->children.push_back(temp[i+1]);
+                    newNode->grpID = grp;
+                    this->allNodes[name] = newNode;
+                    temp[i]->parent = newNode;
+                    temp[i+1]->parent = newNode;
+                    nodeLeft.push_back(newNode);
+                }
+                if (temp.size()%2 == 1) nodeLeft.push_back(temp.back());
+                temp = nodeLeft;
+            }
+            assert(temp.size() == 2);
+            node->children.clear();
+            node->children.push_back(temp[0]);
+            node->children.push_back(temp[1]);
+            temp[0]->parent = node;
+            temp[1]->parent = node;
+        }
+        postOrder.pop();
+    }
+
+    std::queue<Node*> q;
+    this->root->level = 1;
+    q.push(root);
+    while (!q.empty()) {
+        Node* cur = q.front();
+        q.pop();
+        int nextLevel = cur->level + 1;
+        for (Node* child : cur->children) {
+            child->level = nextLevel;
+            if (this->m_maxDepth < nextLevel) this->m_maxDepth = nextLevel;
+            q.push(child);
+        }
+    }
 }
 
 void phylogeny::Tree::reroot()

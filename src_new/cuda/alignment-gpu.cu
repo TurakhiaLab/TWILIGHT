@@ -188,6 +188,8 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
             // Initialization
             alnPathVec aln(alnPairs);
             stringPairVec consensus(alnPairs, {"", ""});
+            IntPairVec starting(alnPairs, {0,0});
+            IntPairVec ending(alnPairs, {0,0});
             std::vector<std::pair<IntPairVec, IntPairVec>> gappyColumns(alnPairs);
             gp->initializeHostMemory(option, gpuMemLen, numBlocks, param);
             // Compute Profile and Gap Penalties
@@ -203,12 +205,20 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                 int32_t offset_f = profileSize * 2 * gpuMemLen * (n%pairPerMemBlock);
                 int32_t offset_g =               2 * gpuMemLen * (n);
                 IntPair lens = {refLen, qryLen};
+                ending[n] = {refLen, qryLen};
                 float* rawProfile = new float [profileSize * 2 * gpuMemLen];
                 for (int i = 0; i < profileSize * 2 * gpuMemLen; ++i) rawProfile[i] = 0.0;
                 alignment_helper::calculateProfile(rawProfile, nodes[nIdx], database, option, gpuMemLen); 
                 // Get consensus sequences
                 alignment_helper::getConsensus(option, rawProfile,                       consensus[n].first,  lens.first);
                 alignment_helper::getConsensus(option, rawProfile+profileSize*gpuMemLen, consensus[n].second, lens.second);
+                // alignment_helper::getStartingAndEndingPoints(consensus[n].first, consensus[n].second, starting[n], ending[n]);
+                lens.first = (ending[n].first-starting[n].first);
+                lens.second = (ending[n].second-starting[n].second);
+                // for (int i = 0; i < profileSize * lens.first; ++i) rawProfile[i] = rawProfile[i+starting[n].first*profileSize];
+                // for (int i = profileSize * lens.first; i < profileSize * gpuMemLen; ++i) rawProfile[i] = 0.0;
+                // for (int i = 0; i < profileSize * lens.second; ++i) rawProfile[profileSize*gpuMemLen+i] = rawProfile[profileSize*gpuMemLen+i+starting[n].second*profileSize];
+                // for (int i = profileSize * lens.second; i < profileSize * gpuMemLen; ++i) rawProfile[profileSize*gpuMemLen+i] = 0.0;
                 alignment_helper::removeGappyColumns(rawProfile, nodes[nIdx], option, gappyColumns[n], gpuMemLen, lens, database->currentTask);
                 // Copy profile to host memory
                 for (int i = 0; i < profileSize * gpuMemLen; ++i) gp->hostFreq[memBlockIdx][offset_f+i] =                       (i < profileSize * lens.first)  ? rawProfile[i] : 0.0;
@@ -291,9 +301,29 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                             if (a == 1) {alnQry += 1;}
                             if (a == 2) {alnRef += 1;}
                         }
+                        if (alnRef != gp->hostLen[2*n])   std::cout << "R: Pre " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
+                        if (alnQry != gp->hostLen[2*n+1]) std::cout << "Q: Pre " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
+
                         // Add gappy columns back
                         IntPair debugIdx = std::make_pair(alnRef,alnQry);
                         msa::alignment_helper::addGappyColumnsBack(aln_wo_gc, aln[n], gappyColumns[n], param, {alnRef,alnQry}, consensus[n]);
+                        alnRef = 0, alnQry = 0;
+                        for (auto a: aln[n]) {
+                            if (a == 0) {alnRef += 1; alnQry += 1;}
+                            if (a == 1) {alnQry += 1;}
+                            if (a == 2) {alnRef += 1;}
+                        }
+                        if (alnRef != refLen) {
+                            std::cout << "R: Post " << nodes[nIdx].first->identifier <<  '\t' << refNum << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
+                            for (auto gp: gappyColumns[n].first) std::cout << '(' << gp.first << ',' << gp.second << ')' << ',';
+                            std::cout << '\n';
+                        }
+                        if (alnQry != qryLen) {
+                            std::cout << "Q: Post " << nodes[nIdx].second->identifier << '\t' << qryNum << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
+                            for (auto gp: gappyColumns[n].second) std::cout << '(' << gp.first << ',' << gp.second << ')' << ',';
+                            std::cout << '\n';
+                        }
+
                     }
                 }
             } 
@@ -304,8 +334,10 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
             for (int n = range.begin(); n < range.end(); ++n) {
                 if (!aln[n].empty()) {
                     int32_t nIdx = n + rn*numBlocks;
+                    std::map<int,std::string> startAln, endAln;
                     float refWeight = nodes[nIdx].first->alnWeight, qryWeight = nodes[nIdx].second->alnWeight;
-                    alignment_helper::updateAlignment(nodes[nIdx], database, aln[n]);
+                    // alignment_helper::alignEnds(nodes[nIdx], database, option->type, starting[n], ending[n], startAln, endAln);
+                    alignment_helper::updateAlignment(nodes[nIdx], database, aln[n], starting[n], ending[n], startAln, endAln);
                     alignment_helper::updateFrequency(nodes[nIdx], database, aln[n], {refWeight, qryWeight});
                 }
             } 
