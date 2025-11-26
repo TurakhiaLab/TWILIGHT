@@ -1,7 +1,7 @@
 #ifndef DEVICE_HPP
 
 #include <hip/hip_runtime.h>
-#include "device-function.cuh"
+#include "device-function.hip.hpp"
 #endif
 
 __global__ void device_function::parallelProfileAlignment(
@@ -361,7 +361,8 @@ __global__ void device_function::parallelProfileAlignment(
                     if (k <= p_marker) {
                         if (tx % 2 == 0) ptr = (ptr << 4) & 0xF0;
                         else             ptr = ptr & 0x0F;
-                        ptr += __shfl_xor_sync(0xffffffff, ptr, 1);
+                        // ptr += __shfl_xor_sync(0xffffffff, ptr, 1);
+                        ptr += __shfl_xor(ptr, 1);
                         if (tx < activeThread && tx%2 == 0) tb[tb_idx+rn*_THREAD_NUM/2+tx/2] = ptr;
                     }
                     __syncthreads();

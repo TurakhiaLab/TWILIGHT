@@ -107,7 +107,7 @@ int main(int argc, char** argv) {
     catch(std::exception &e){
         std::cerr << "Error: " << e.what() << std::endl;
         std::cerr << "For more details, please use the --help option.\n";
-        std::cerr << mainDesc << std::endl;
+        // std::cerr << mainDesc << std::endl;
         if(vm.count("help"))
             return 0;
         else

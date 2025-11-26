@@ -5,7 +5,11 @@
 #endif
 
 #ifndef DEVICE_HPP
-#include "device-function.cuh"
+#include "device-function.hip.hpp"
+#endif
+
+#ifndef TALCO_HPP
+#include "../TALCO-XDrop.hpp"
 #endif
 
 #include <tbb/parallel_for.h>
@@ -192,6 +196,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
             stringPairVec consensus(alnPairs, {"", ""});
             IntPairVec starting(alnPairs, {0,0});
             IntPairVec ending(alnPairs, {0,0});
+            std::vector<int> memBlockIdxs (alnPairs, 0);
             std::vector<std::pair<IntPairVec, IntPairVec>> gappyColumns(alnPairs);
             gp->initializeHostMemory(option, gpuMemLen, numBlocks, param);
             // Compute Profile and Gap Penalties
@@ -204,6 +209,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                 int32_t refNum = nodes[nIdx].first->getAlnNum(database->currentTask);
                 int32_t qryNum = nodes[nIdx].second->getAlnNum(database->currentTask);
                 int memBlockIdx = gp->hostAlnLen[n];  
+                memBlockIdxs[n] = gp->hostAlnLen[n];
                 int32_t offset_f = profileSize * 2 * gpuMemLen * (n%pairPerMemBlock);
                 int32_t offset_g =               2 * gpuMemLen * (n);
                 IntPair lens = {refLen, qryLen};
@@ -303,6 +309,70 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                             if (a == 1) {alnQry += 1;}
                             if (a == 2) {alnRef += 1;}
                         }
+                        
+                        if (alnRef != gp->hostLen[2*n] || alnQry != gp->hostLen[2*n+1]) {
+                            std::cout << "CPU on No. " << nIdx << " ( " << nodes[nIdx].second->identifier << " )\n";
+                            int memBlockIdx = memBlockIdxs[n];
+                            int32_t offset_f = profileSize * 2 * gpuMemLen * (n%pairPerMemBlock);
+                            int32_t offset_g =               2 * gpuMemLen * (n);
+                            int newRef = gp->hostLen[2*n], newQry = gp->hostLen[2*n+1];
+                            std::vector<std::vector<float>> freqRef (newRef, std::vector<float>(profileSize, 0.0));
+                            std::vector<std::vector<float>> freqQry (newQry, std::vector<float>(profileSize, 0.0));
+                            std::vector<std::vector<float>> gapOp (2), gapEx (2);
+                            for (int s = 0; s < newRef; s++) for (int t = 0; t < profileSize; ++t) freqRef[s][t] = gp->hostFreq[memBlockIdx][offset_f+profileSize*s+t];
+                            for (int s = 0; s < newQry; s++) for (int t = 0; t < profileSize; ++t) freqQry[s][t] = gp->hostFreq[memBlockIdx][offset_f+profileSize*(seqLen+s)+t];     
+                            for (int r = 0; r < newRef; ++r) {
+                                gapOp[0].push_back(gp->hostGapOp[offset_g+r]);
+                                gapEx[0].push_back(gp->hostGapEx[offset_g+r]);
+                            }
+                            for (int q = 0; q < newQry; ++q) {
+                                gapOp[1].push_back(gp->hostGapOp[offset_g+gpuMemLen+q]);
+                                gapEx[1].push_back(gp->hostGapEx[offset_g+gpuMemLen+q]);
+                            }                 
+                            std::pair<float, float> num = std::make_pair(static_cast<float>(refNum), static_cast<float>(qryNum));
+                            Talco_xdrop::Params* talco_params = new Talco_xdrop::Params(param);
+                            alnPath aln_reduced;
+                            if (refLen == 0) for (int j = 0; j < qryLen; ++j) aln_reduced.push_back(1);
+                            if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_reduced.push_back(2);
+                            while (aln_reduced.empty()) {
+                                int16_t errorType = 0;
+                                aln_reduced.clear();
+                                Talco_xdrop::Align_freq (
+                                    talco_params,
+                                    freqRef,
+                                    freqQry,
+                                    gapOp,
+                                    gapEx,
+                                    num,
+                                    aln_reduced,
+                                    errorType
+                                );
+                                if (errorType == 2) {
+                                    if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+                                    talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->fLen * 1.2) << 1, std::min(newRef, newQry)));
+                                }
+                                else if (errorType == 3) {
+                                    std::cout << "There might be some bugs in the code!\n";
+                                    exit(1);
+                                }
+                                else if (errorType == 1) {
+                                    if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << '\n';
+                                    talco_params->updateXDrop(static_cast<int32_t>(talco_params->xdrop * 1.2));
+                                    talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->xdrop * 4) << 1, std::min(newRef, newQry)));
+                                }
+                            }
+                            delete talco_params;
+                            aln_wo_gc = aln_reduced;
+                            alnRef = 0;
+                            alnQry = 0;
+                            for (auto a: aln_wo_gc) {
+                                if (a == 0) {alnRef += 1; alnQry += 1;}
+                                if (a == 1) {alnQry += 1;}
+                                if (a == 2) {alnRef += 1;}
+                            }
+
+                        }
+
                         if (alnRef != gp->hostLen[2*n])   std::cout << "R: Pre " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
                         if (alnQry != gp->hostLen[2*n+1]) std::cout << "Q: Pre " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
 
