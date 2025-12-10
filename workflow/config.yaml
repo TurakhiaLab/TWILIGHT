@@ -35,3 +35,10 @@ matrix: ""
 
 # Iterative Mode
 mask_gappy: 0.995                         # Minimum proportion of gappy sites that would be mask before proceed to tree inference step
+
+
+# IQ-TREE Model Selection
+# Automatically determine the best model without specifying one, though this may take some time.
+# If you would like to speed up the process, please specify a model (e.g., "-m GTR"). 
+# See "https://iqtree.github.io/doc/Substitution-Models" for more details on available models.
+iqtree_model: ""

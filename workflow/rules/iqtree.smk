@@ -5,7 +5,7 @@ rule iqtree:
     params:
         iqtree_exe=config["iqtree"],
         temp=config["work_dir"],
-        model="",
+        model=config["iqtree_model"],
         threshold=config["mask_gappy"],
         tempFile=config["work_dir"]+"/msa.mask.fa"
     threads: config["num_threads"]
@@ -13,7 +13,7 @@ rule iqtree:
         '''
         python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
         {params.iqtree_exe} -s {params.tempFile} {params.model} --threads-max {threads}
-        mv {params.temp}/msa_iter1.mask.fa.treefile {output}
-        rm {params.temp}/msa_iter1.mask.fa.*
+        mv {params.temp}/msa.mask.fa.treefile {output}
+        rm {params.temp}/msa.mask.fa.*
         rm {params.tempFile}
         '''
