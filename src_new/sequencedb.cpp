@@ -96,19 +96,19 @@ void msa::SequenceDB::debug() {
             offset = 0;
             while ((seqInfo->alnStorage[storage][offset] >= 'A' && seqInfo->alnStorage[storage][offset] <= 'Z') || 
                    (seqInfo->alnStorage[storage][offset] >= 'a' && seqInfo->alnStorage[storage][offset] <= 'z') || 
-                   (seqInfo->alnStorage[storage][offset] == '-')) {
-                if (seqInfo->alnStorage[storage][offset] != '-') {
+                   (seqInfo->alnStorage[storage][offset] == '-' || seqInfo->alnStorage[storage][offset] == '.')) {
+                if (seqInfo->alnStorage[storage][offset] != '-' && seqInfo->alnStorage[storage][offset] != '.') {
                     r += seqInfo->alnStorage[storage][offset];
                 }
                 ++offset;
             }
             if (theFirst) {alnLen = offset; theFirst = false;}
             else {
-                // if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", seqInfo->name.c_str(), offset, alnLen);
+                if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", seqInfo->name.c_str(), offset, alnLen);
             }
             if (r != seqInfo->unalignedSeq) {
                 printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", seqInfo->name.c_str());    
-                // std::cout << r << '\n' << seqInfo->unalignedSeq << '\n';  
+                std::cout << r << '\n' << seqInfo->unalignedSeq << '\n';  
             }
             ++debugNum;
         }
@@ -230,7 +230,6 @@ phylogeny::Tree* msa::SequenceDB::getPlacementTree(Tree* T) {
         }
     }
     
-    placement_T->reroot();
     size_t depth = 0, numLeaves = 0;
     for (auto node: placement_T->allNodes) {
         depth = std::max(depth, node.second->level);
@@ -238,6 +237,7 @@ phylogeny::Tree* msa::SequenceDB::getPlacementTree(Tree* T) {
     }
     placement_T->m_numLeaves = numLeaves;
     placement_T->m_maxDepth = depth;
+    
     // placement_T->showTree();
 
     for (auto seq: this->sequences) if (seq->len <  seq->unalignedSeq.size()) std::cout << seq->name << ':' << seq->len << '\t' << seq->unalignedSeq.size() << '\n';

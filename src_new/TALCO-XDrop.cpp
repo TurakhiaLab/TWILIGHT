@@ -26,8 +26,7 @@
 #include "TALCO-XDrop.hpp"
 #endif
 
-#include <tbb/parallel_for.h>
-#include <tbb/spin_rw_mutex.h>
+#include <immintrin.h>
 
 #define I_BOUNDARY -2
 #define D_BOUNDARY -3
@@ -369,7 +368,7 @@ void Talco_xdrop::Tile (
                     ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) ||
                     (tile == 0 && (i == 0 || j == 0 ))) {
                     scoreType similarScore = 0;
-                    float numerator = 0;
+                    float numerator = 0.0f;
                     if (type == 0) {
                         for (int l = 0; l < 6; ++l) {
                             for (int m = 0; m < 6; ++m) {
@@ -380,6 +379,36 @@ void Talco_xdrop::Tile (
                         }
                     }
                     else {
+                        
+                        const float* refColumns = reference[reference_idx + j].data();
+                        const float* qryColumns = query[query_idx + i].data();
+                        for (int l = 0; l < 21; ++l) {   // skip 21 for now (gap row)
+                            __m256 sumvec = _mm256_setzero_ps();             
+                            float ref_l = refColumns[l];
+                            __m256 refv = _mm256_set1_ps(ref_l);  
+                            const float* smat = param->scoreMatrix[l];   // contiguous row of scores
+                            // process 8 at a time (0..15)
+                            for (int m = 0; m < 16; m += 8) {
+                                __m256 q   = _mm256_loadu_ps(&qryColumns[m]);
+                                __m256 mat = _mm256_loadu_ps(&smat[m]);
+                                __m256 prod = _mm256_mul_ps(q, mat);
+                                prod = _mm256_mul_ps(prod, refv);
+                                sumvec = _mm256_add_ps(sumvec, prod);
+                            }
+                            // remaining elements m = 16..20 (scalar)
+                            for (int m = 16; m < 21; ++m) {
+                                numerator += ref_l * qryColumns[m] * smat[m];
+                            }
+                            // horizontal reduction
+                            alignas(32) float tmp[8];
+                            _mm256_store_ps(tmp, sumvec);
+                            numerator += (tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4] + tmp[5] + tmp[6] + tmp[7]);
+                        }
+                        // Handle gap row/column (21)
+                        for (int l = 0; l < 21; ++l) numerator += refColumns[l] * qryColumns[21] * param->gapCharScore;
+                        for (int m = 0; m < 21; ++m) numerator += refColumns[21] * qryColumns[m] * param->gapCharScore;
+                        
+                        /*
                         for (int l = 0; l < 22; ++l) {
                             for (int m = 0; m < 22; ++m) {
                                 if (m == 21 && l == 21)      numerator += 0;
@@ -387,6 +416,7 @@ void Talco_xdrop::Tile (
                                 else                         numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
                             }
                         }
+                        */
                     }
                     similarScore = numerator/denominator;
                     if  (tile == 0 && (i == 0 || j == 0 )) {

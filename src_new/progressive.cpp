@@ -6,9 +6,9 @@
 #include <functional>
 
 
-void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>& alnOrder, std::stack<Node*> postStack, int grpID, int currentTask) {
+void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>& alnOrder, std::stack<Node*> postStack, int grpID, int mode) {
     std::map<std::string, int> NodeAlnOrder;
-    if (currentTask == 0) {
+    if (mode == 0) {
         while(!postStack.empty()) {
             Node* node = postStack.top();
             // Leaf or not belongs to the subtree
@@ -77,7 +77,7 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
             postStack.pop();
         }
     }
-    else {
+    else if (mode == 1) {
         while(!postStack.empty()) {
             Node* node = postStack.top();
             // Pair children with their parent
@@ -92,16 +92,26 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
             postStack.pop();
         }
     }
+    else {
+        while(!postStack.empty()) {
+            Node* node = postStack.top();
+            // Pair children with their parent
+            if (node->parent != nullptr) {
+                alnOrder.push_back(std::make_pair(std::make_pair(node->parent, node), 0));
+            }
+            postStack.pop();
+        }
+    }
     return;
 }
 
-void msa::progressive::scheduling(Node* root, std::vector<NodePairVec>& levels, int currentTask) {
+void msa::progressive::scheduling(Node* root, std::vector<NodePairVec>& levels, int mode) {
     levels.clear(); // Ensure levels is empty
     std::stack<Node*> msaStack;
     root->collectPostOrder(msaStack);
     std::vector<std::pair<NodePair, int>> prgressivePairs;
     int grpID = root->grpID;
-    getProgressivePairs(prgressivePairs, msaStack, grpID, currentTask);
+    getProgressivePairs(prgressivePairs, msaStack, grpID, mode);
     for (auto h : prgressivePairs) {
         while (levels.size() < h.second + 1) {
             std::vector<std::pair<Node *, Node *>> temp;
@@ -183,15 +193,18 @@ void msa::progressive::progressiveAlignment(Tree *T, SequenceDB *database, Optio
         
 void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree) {
     auto progressiveStart = std::chrono::high_resolution_clock::now();
+    std::cerr << "============================\n";
     // Scheduling
     std::vector<msa::NodePairVec> alnPairsPerLevel; 
-    scheduling(T->root, alnPairsPerLevel, database->currentTask);
+    int mode = (option->alnMode == PLACE_WO_TREE) ? 2 : ((database->currentTask == 0) ? 0 : 1);
+    scheduling(T->root, alnPairsPerLevel, mode);
     auto scheduleEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds scheduleTime = scheduleEnd - progressiveStart;
     if (option->printDetail) std::cerr << "Scheduling in " << scheduleTime.count() / 1000 << " us\n";
 
     // Start Progressive Alignment
     msa::progressive::progressiveAlignment(T, database, option, alnPairsPerLevel, param, alignmentKernel);
+    if (option->alnMode == PLACE_WO_TREE) msa::alignment_helper::mergeInsertions(database, T->root);
     // Push msa results to roots of the tree
     if (database->currentTask == 0) {
         Node* lastAligned = alnPairsPerLevel.back()[0].first;
@@ -205,9 +218,16 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
     }
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progressiveTime = progressiveEnd - progressiveStart;
-    if (database->currentTask != 2) std::cerr << "Progressive alignment (length: " << T->root->alnLen << ") in " << progressiveTime.count() / 1000000000 << " s\n";
-    else std::cerr<< "Progressive alignment on " << T->allNodes.size() << " subalignments (length: " << T->root->getAlnLen(database->currentTask) << ") in " << progressiveTime.count() / 1000000 << " ms\n";
-
+    if (option->alnMode == PLACE_WO_TREE) {
+        int placedNum = 0;
+        for (auto s: database->sequences) if (!s->lowQuality) placedNum++;
+        T->root->alnNum += placedNum;
+        std::cerr << "Placed " << placedNum << " sequences in " << progressiveTime.count() / 1000000000 << " s\n";
+    }
+    else {
+        if (database->currentTask != 2) std::cerr << "Alignment (length: " << T->root->alnLen << ") completed in " << progressiveTime.count() / 1000000000 << " s\n";
+        else std::cerr<< "Alignment on " << T->allNodes.size() << " subalignments (length: " << T->root->getAlnLen(database->currentTask) << ") in " << progressiveTime.count() / 1000000 << " ms\n";
+    }
     if (database->fallback_nodes.empty())
         return;
 

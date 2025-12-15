@@ -3,14 +3,14 @@
 #endif
 
 __global__ void device_function::parallelProfileAlignment(
-    float* pointers [], 
-    int8_t *aln, 
+    float* freqPointers [], 
+    int8_t *alnPointers [], 
     int32_t* len, 
     int32_t* num, 
     int32_t* alnLen, 
     int32_t *seqInfo,  
-    float* gapOpen, 
-    float* gapExtend, 
+    float* gapOpenPointers [], 
+    float* gapExtendPointers [], 
     float* param)
 {
     int tx = threadIdx.x;
@@ -50,7 +50,10 @@ __global__ void device_function::parallelProfileAlignment(
         
         int32_t freqIdx = alnLen[bx];
         alnLen[bx] = 0;
-        float* freq = pointers[freqIdx];
+        float* freq = freqPointers[freqIdx];
+        float* gapOpen = gapOpenPointers[freqIdx];
+        float* gapExtend = gapExtendPointers[freqIdx];
+        int8_t* aln = alnPointers[freqIdx];
         int32_t seqLen = seqInfo[1];
         int32_t profileSize = seqInfo[2];
         int32_t pairPerMemBlock = seqInfo[3];
@@ -72,6 +75,8 @@ __global__ void device_function::parallelProfileAlignment(
         float denominator = refNum * qryNum;
         int32_t refFreqStart = profileSize*(2*offset_freq)*seqLen;
         int32_t qryFreqStart = profileSize*(2*offset_freq+1)*seqLen;
+        int32_t refGapStart = (2*offset_freq)*seqLen;
+        int32_t qryGapStart = (2*offset_freq+1)*seqLen;
                             
         if (profileSize == 6) {
             for (int i = 0; i < 25;    ++i) p_scoreMat[i] = param[i];
@@ -229,10 +234,28 @@ __global__ void device_function::parallelProfileAlignment(
                             ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) ||
                             (initGP && (i == 0 || j == 0))) {
                             int16_t similarScore = 0;
-                            float numerator = 0;
+                            float numerator = 0.0f;
                             int32_t refFreqIdx = reference_idx + j;
                             int32_t qryFreqIdx = query_idx + i;
                             if (profileSize == 6) {
+                                float r[6], q[6];
+                                #pragma unroll
+                                for(int l=0;l<6;l++) r[l] = freq[refFreqStart + 6*refFreqIdx + l];
+                                #pragma unroll
+                                for(int m=0;m<6;m++) q[m] = freq[qryFreqStart + 6*qryFreqIdx + m];
+                                #pragma unroll
+                                for(int l=0;l<5;l++) {
+                                    #pragma unroll
+                                    for(int m=0;m<5;m++){
+                                        numerator = __fmaf_rn(r[l]*q[m], p_scoreMat[m*5+l], numerator);
+                                    }
+                                }
+                                #pragma unroll
+                                for(int i=0;i<5;i++){
+                                    numerator = __fmaf_rn(r[5]*q[i], p_gapExtend, numerator); // last row
+                                    numerator = __fmaf_rn(r[i]*q[5], p_gapExtend, numerator); // last column
+                                }
+                                /*
                                 for (int l=0; l<6; l++) {
                                     for (int m=0; m<6; m++) {
                                         if (m == 5 && l == 5)      numerator += 0;
@@ -240,8 +263,27 @@ __global__ void device_function::parallelProfileAlignment(
                                         else                       numerator = __fmaf_rn(__fmul_rn(freq[refFreqStart+6*(refFreqIdx)+l], freq[qryFreqStart+6*(qryFreqIdx)+m]), p_scoreMat[m*5+l], numerator);
                                     }
                                 }
+                                */
                             }
                             else {
+                                float r[22], q[22];
+                                #pragma unroll
+                                for (int l=0; l<22; ++l) r[l] = freq[refFreqStart + 22*refFreqIdx + l];
+                                #pragma unroll
+                                for (int m=0; m<22; ++m) q[m] = freq[qryFreqStart + 22*qryFreqIdx + m];
+                                #pragma unroll
+                                for (int l=0; l<21; ++l) {
+                                    #pragma unroll
+                                    for (int m=0; m<21; ++m) {
+                                        numerator = __fmaf_rn(r[l]*q[m], p_scoreMat[m*21 + l], numerator);
+                                    }
+                                }
+                                #pragma unroll
+                                for (int i=0; i<21; ++i) {
+                                    numerator = __fmaf_rn(r[21]*q[i], p_gapExtend, numerator);
+                                    numerator = __fmaf_rn(r[i]*q[21], p_gapExtend, numerator);
+                                }
+                                /*
                                 for (int l=0; l<22; l++) {
                                     for (int m=0; m<22; m++) {
                                         if (m == 21 && l == 21)      numerator += 0;
@@ -249,6 +291,7 @@ __global__ void device_function::parallelProfileAlignment(
                                         else                         numerator = __fmaf_rn(__fmul_rn(freq[refFreqStart+22*(refFreqIdx)+l], freq[qryFreqStart+22*(qryFreqIdx)+m]), p_scoreMat[m*21+l], numerator);
                                     }
                                 }
+                                */
                             }
                             similarScore = __float2int_rn(__fdiv_rn(numerator, denominator));
                             if (initGP && (i == 0 || j == 0)) {
@@ -261,10 +304,10 @@ __global__ void device_function::parallelProfileAlignment(
                             else                     match = S[(k+1)%3*fLen+offsetDiag] + similarScore;
                         }
                         
-                        int16_t pos_gapOpen_ref   = __float2int_rn(gapOpen[2*bx*seqLen+reference_idx+j]);
-                        int16_t pos_gapOpen_qry   = __float2int_rn(gapOpen[(2*bx+1)*seqLen+query_idx+i]);
-                        int16_t pos_gapExtend_ref = __float2int_rn(gapExtend[2*bx*seqLen+reference_idx+j]);
-                        int16_t pos_gapExtend_qry = __float2int_rn(gapExtend[(2*bx+1)*seqLen+query_idx+i]);
+                        int16_t pos_gapOpen_ref   = __float2int_rn(gapOpen[refGapStart+reference_idx+j]);
+                        int16_t pos_gapOpen_qry   = __float2int_rn(gapOpen[qryGapStart+query_idx+i]);
+                        int16_t pos_gapExtend_ref = __float2int_rn(gapExtend[refGapStart+reference_idx+j]);
+                        int16_t pos_gapExtend_qry = __float2int_rn(gapExtend[qryGapStart+query_idx+i]);
                         
                         if ((offsetUp >= 0) && (offsetUp <= U[(k+2)%3]-L[(k+2)%3])) {
                             delOp =  S[(k+2)%3*fLen+offsetUp] + pos_gapOpen_ref;
@@ -652,7 +695,7 @@ __global__ void device_function::parallelProfileAlignment(
                 
                 if (conv_ref_idx >= 0) reference_idx += conv_ref_idx;
                 if (conv_query_idx >= 0) query_idx += conv_query_idx;
-                int32_t alnStartIdx = bx * 2 * seqLen + alnLen[bx];
+                int32_t alnStartIdx = offset_freq * 2 * seqLen + alnLen[bx];
                 bool containFirstDir = (((reference_idx > 0 && query_idx > 0) && ((tile == 0 && includeHead) || initGP)) || (reachCond));
                 int txNum = containFirstDir ? aln_idx : aln_idx - 1;
                 if  (containFirstDir) {

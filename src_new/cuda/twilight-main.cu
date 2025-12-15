@@ -12,11 +12,6 @@
 #include <boost/filesystem.hpp>
 #include <chrono>
 
-#define DEFAULT_ALN 0
-#define MERGE_MSA 1
-#define PLACE_WO_TREE 2
-#define PLACE_W_TREE 3
-
 po::options_description mainDesc("TWILIGHT Command Line Arguments", 120);
 
 void parseArguments(int argc, char** argv)
@@ -66,8 +61,7 @@ void parseArguments(int argc, char** argv)
         ("max-len", po::value<int>(), "Sequences longer than max-len will be deferred or excluded.")
         ("min-len", po::value<int>(), "Sequences shorter than min-len will be deferred or excluded.")
         ("filter", "Exclude sequences with high ambiguity or length deviation.")
-        ("write-filtered", "Write the filtered sequences in FASTA format to the output directory.")
-        ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)");
+        ("write-filtered", "Write the filtered sequences in FASTA format to the output directory.");
         
     // Section: Scoring Parameters
     po::options_description scoringDesc("Scoring Parameters");
@@ -79,7 +73,8 @@ void parseArguments(int argc, char** argv)
         ("gap-extend", po::value<float>()->default_value(-5), "Gap-Extend penalty.")
         ("gap-ends", po::value<float>(), "Gap penalty at ends, default set to the same as the gap extension penalty.")
         ("xdrop", po::value<float>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty.")
-        ("matrix,x", po::value<std::string>(), "Use a user-defined substitution matrix.");        
+        ("matrix,x", po::value<std::string>(), "Use a user-defined substitution matrix (only for nucleotide).")
+        ("blosum,b", po::value<int>()->default_value(62), "BLOSUM matrix to use for protein sequences: 45, 62, or 80.");
 
     po::options_description generalDesc("General");
     generalDesc.add_options()
@@ -103,13 +98,14 @@ int main(int argc, char** argv) {
         po::notify(vm);
     }
     catch(std::exception &e){
-        std::cerr << "Error: " << e.what() << std::endl;
-        std::cerr << "For more details, please use the --help option.\n";
-        // std::cerr << mainDesc << std::endl;
-        if(vm.count("help"))
+        if(vm.count("help")) {
             return 0;
-        else
+        }
+        else {
+            std::cerr << "Error: " << e.what() << std::endl;
+            std::cerr << "For more details, please use the --help option.\n";
             return 1;
+        }
     }
     if(vm.count("help") || argc == 1) {
         std::cerr << mainDesc << std::endl;
@@ -126,8 +122,8 @@ int main(int argc, char** argv) {
     option->getGpuInfo(vm);
     msa::Params* param = new msa::Params(vm, option->type);
 
-    if (option->alnMode == DEFAULT_ALN) { // Twilight
-        phylogeny::Tree* T = new phylogeny::Tree(option->treeFile, option->reroot);
+    if (option->alnMode == msa::DEFAULT_ALN) { // Twilight
+        phylogeny::Tree* T = new phylogeny::Tree(option->treeFile);
         if (vm.count("prune")) {
             std::unordered_set<std::string> seqNames;
             msa::io::readSequenceNames(option->seqFile, seqNames);
@@ -150,7 +146,7 @@ int main(int argc, char** argv) {
             int subtree = (P->partitionsRoot.size() > 1) ? T->allNodes[subRoot.first]->grpID : -1;
             if (P->partitionsRoot.size() > 1) std::cerr << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
             // Read sequences for each subtree
-            phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, false);
+            phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, option->reroot);
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
             // Progressive alignment on each subtree
             msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU, subtree);
@@ -188,7 +184,6 @@ int main(int argc, char** argv) {
             std::cerr << "Finished all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
             // Merge subalignment
             database->currentTask = 2;
-            subRoot_T->showTree();
             msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
@@ -203,10 +198,10 @@ int main(int argc, char** argv) {
         delete subRoot_T;
         delete P;
     }
-    else if (option->alnMode == MERGE_MSA) { // Twilight Merging alignments
+    else if (option->alnMode == msa::MERGE_MSA) { // Twilight Merging alignments
         phylogeny::Tree* T = msa::io::readAlignments_and_buildTree(database, option);
         database->currentTask = 2;
-        T->showTree();
+        // T->showTree();
         msa::progressive::msaOnSubtree(T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
         int totalSeqs = 0;
         auto outStart = std::chrono::high_resolution_clock::now();
@@ -218,7 +213,7 @@ int main(int argc, char** argv) {
         std::cerr << "Wrote " << T->allNodes.size() << " Alignments (total " << totalSeqs << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
         delete T;
     }
-    else if (option->alnMode == PLACE_WO_TREE) {
+    else if (option->alnMode == msa::PLACE_WO_TREE) {
         database->currentTask = 2;
         std::unordered_set<std::string> seqNames;
         msa::io::readSequenceNames(option->seqFile, seqNames);
@@ -228,15 +223,23 @@ int main(int argc, char** argv) {
         // T->showTree();
         msa::progressive::msaOnSubtree(T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
         if (option->debug) database->debug();
+        auto outStart = std::chrono::high_resolution_clock::now();
         msa::io::update_and_writeAlignment(database, option, option->backboneAlnFile, -1);
+        auto backboneEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds backboneTime = backboneEnd - outStart;
+        std::cerr << "Updated and wrote backbone alignment in " << backboneTime.count() / 1000000 << " ms\n";
         boost::filesystem::path seqPath(option->seqFile);
         std::string placedSeqFile = option->tempDir + "/" + seqPath.stem().string() + ".final.aln";
         msa::io::writeAlignment(placedSeqFile, database, T->root->getAlnLen(database->currentTask), option->compressed);
         msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask));
+        auto outEnd = std::chrono::high_resolution_clock::now();
+        std::chrono::nanoseconds outTime = outEnd - outStart;
+        std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
+        std::cerr << "Wrote placed sequences and backbone alignment (total " << T->root->alnNum << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
         delete T;
     }
-    else if (option->alnMode == PLACE_W_TREE) {
-        phylogeny::Tree* T = new phylogeny::Tree(option->treeFile, option->reroot);
+    else if (option->alnMode == msa::PLACE_W_TREE) {
+        phylogeny::Tree* T = new phylogeny::Tree(option->treeFile);
         phylogeny::PartitionInfo * P = new phylogeny::PartitionInfo(option->maxSubtree, 0, 0); 
         P->partitionTree(T->root);
         phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions(T->root, P);
@@ -256,6 +259,7 @@ int main(int argc, char** argv) {
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, false);
             msa::io::readSequences(option->backboneAlnFile, database, option, subT);
             msa::io::readSequences(option->seqFile, database, option, subT);
+            if (option->reroot) subT->reroot(true);
             phylogeny::Tree* placementT = database->getPlacementTree(subT);
             // Progressive alignment on each subtree
             msa::progressive::msaOnSubtree(placementT, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);

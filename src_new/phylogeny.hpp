@@ -46,7 +46,7 @@ namespace phylogeny {
             return (currentTask == 2) ? alnNum : seqsIncluded.size();
         };
         int getAlnLen(int currentTask) {
-            return (currentTask == 2 && !msaFreq.empty()) ? msaFreq.size() : alnLen;
+            return alnLen;
         };
         void collectPostOrder(std::stack<Node*>& postStack);
     };
@@ -79,9 +79,9 @@ namespace phylogeny {
 
         void calLeafNum();
         void calSeqWeight();
-        void parseNewick(std::string& newickString, bool reroot);
+        void parseNewick(std::string& newickString);
         void showTree();
-        void reroot();
+        void reroot(bool placement=false);
         void convert2binaryTree();
         void extractResult(Tree* placementT);
         std::string getNewickString();
@@ -89,7 +89,7 @@ namespace phylogeny {
         // Empty tree, used for align alignments
         Tree() {root = nullptr;}
         // Used for whole Tree
-        Tree(std::string newickFileName, bool reroot);
+        Tree(std::string newickFileName);
         // Used for subtree
         Tree(Node* node, bool reroot);
         // Used for placement without tree
@@ -104,6 +104,7 @@ namespace phylogeny {
     Tree* constructTreeFromPartitions(Node* root, PartitionInfo* P);
     void updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx);
     Tree* getPlacementTree(Tree*);
+    void updateLevels(Node* node, size_t currentLevel);
 }
 
 

@@ -24,31 +24,15 @@ namespace po = boost::program_options;
 char checkOnly(char inChar);
 int letterIdx(char type, char inChar);
 
-const float BLOSUM62[20][20] = {
-    //    A   C   D   E   F   G   H   I   K   L   M   N   P   Q   R   S   T   V   W   Y
-    {4, 0, -2, -1, -2, 0, -2, -1, -1, -1, -1, -2, -1, -1, -1, 1, 0, 0, -3, -2},
-    {0, 9, -3, -4, -2, -3, -3, -1, -3, -1, -1, -3, -3, -3, -3, -1, -1, -1, -2, -2},
-    {-2, -3, 6, 2, -3, -1, -1, -3, -1, -4, -3, 1, -1, 0, -2, 0, -1, -3, -4, -3},
-    {-1, -4, 2, 5, -3, -2, 0, -3, 1, -3, -2, 0, -1, 2, 0, 0, -1, -2, -3, -2},
-    {-2, -2, -3, -3, 6, -3, -1, 0, -3, 0, 0, -3, -4, -3, -3, -2, -2, -1, 1, 3},
-    {0, -3, -1, -2, -3, 6, -2, -4, -2, -4, -3, 0, -2, -2, -2, 0, -2, -3, -2, -3},
-    {-2, -3, -1, 0, -1, -2, 8, -3, -1, -3, -2, 1, -2, 0, 0, -1, -2, -3, -2, 2},
-    {-1, -1, -3, -3, 0, -4, -3, 4, -3, 2, 1, -3, -3, -3, -3, -2, -1, 3, -3, -1},
-    {-1, -3, -1, 1, -3, -2, -1, -3, 5, -2, -1, 0, -1, 1, 2, 0, -1, -2, -3, -2},
-    {-1, -1, -4, -3, 0, -4, -3, 2, -2, 4, 2, -3, -3, -2, -2, -2, -1, 1, -2, -1},
-    {-1, -1, -3, -2, 0, -3, -2, 1, -1, 2, 5, -2, -2, 0, -1, -1, -1, 1, -1, -1},
-    {-2, -3, 1, 0, -3, 0, 1, -3, 0, -3, -2, 6, -2, 0, 0, 1, 0, -3, -4, -2},
-    {-1, -3, -1, -1, -4, -2, -2, -3, -1, -3, -2, -2, 7, -1, -2, -1, -1, -2, -4, -3},
-    {-1, -3, 0, 2, -3, -2, 0, -3, 1, -2, 0, 0, -1, 5, 1, 0, -1, -2, -2, -1},
-    {-1, -3, -2, 0, -3, -2, 0, -3, 2, -2, -1, 0, -2, 1, 5, -1, -1, -3, -3, -2},
-    {1, -1, 0, 0, -2, 0, -1, -2, 0, -2, -1, 1, -1, 0, -1, 4, 1, -2, -3, -2},
-    {0, -1, -1, -1, -2, -2, -2, -1, -1, -1, -1, 0, -1, -1, -1, 1, 5, 0, -2, -2},
-    {0, -1, -3, -2, -1, -3, -3, 3, -2, 1, 1, -3, -2, -2, -3, -2, 0, 4, -3, -1},
-    {-3, -2, -4, -3, 1, -2, -2, -3, -3, -2, -1, -4, -4, -2, -3, -3, -2, -3, 11, 2},
-    {-2, -2, -3, -2, 3, -3, 2, -1, -2, -1, -1, -2, -3, -1, -2, -2, -2, -1, 2, 7}};
-
 namespace msa
 {
+    enum Type {
+        DEFAULT_ALN = 0,
+        MERGE_MSA   = 1,
+        PLACE_WO_TREE = 2,
+        PLACE_W_TREE  = 3
+    };
+    
     using Node = phylogeny::Node;
     using Tree = phylogeny::Tree;
     using PartitionInfo = phylogeny::PartitionInfo;
@@ -135,7 +119,7 @@ namespace msa
             int subtreeIdx;
             float weight;
             // Storage
-            bool storage; // where the sequence is stored, buffer 0 or 1
+            bool storage;  // where the sequence is stored, buffer 0 or 1
             bool backbone; // Used in PLACE_W_TREE
             int memLen;
             char *alnStorage[2];
@@ -198,13 +182,14 @@ namespace msa
         void getConsensus(Option *option, float *profile, std::string &consensus, int len);
         void pairwiseGlobal(const std::string &seq1, const std::string &seq2, alnPath &alnPath, Params &param);
         void addGappyColumnsBack(alnPath &aln_before, alnPath &aln_after, std::pair<IntPairVec, IntPairVec> &gappyColumns, Params &param, IntPair rgcLens, stringPair orgSeqs);
-        void updateAlignment(NodePair &nodes, SequenceDB *database, alnPath &aln, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln);
+        void updateAlignment(NodePair &nodes, SequenceDB *database, Option *option, alnPath &aln);
         void updateFrequency(NodePair &nodes, SequenceDB *database, alnPath &aln, FloatPair weights);
         void fallback2cpu(std::vector<int>& fallbackPairs,  NodePairVec& nodes, SequenceDB* database, Option* option);
-        void getStartingAndEndingPoints(std::string& ref, std::string& qry, IntPair& starting, IntPair& ending);
-        void alignEnds (NodePair &nodes, SequenceDB *database,  char type, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln);
-        IntPair smith_waterman(const std::string &seq1, const std::string &seq2);
-        alnPath smith_waterman_tb(const std::string &seq1, const std::string &seq2);
+        void mergeInsertions(SequenceDB *database, Node* root);
+        // void getStartingAndEndingPoints(std::string& ref, std::string& qry, IntPair& starting, IntPair& ending);
+        // void alignEnds (NodePair &nodes, SequenceDB *database,  char type, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln);
+        // IntPair smith_waterman(const std::string &seq1, const std::string &seq2);
+        // alnPath smith_waterman_tb(const std::string &seq1, const std::string &seq2);
     }
 
     namespace progressive
@@ -229,23 +214,33 @@ namespace msa
             constexpr int _MAX_LENGTH_P = (1 << 14);
             // Pointers to GPU memory
             struct GPU_pointers {
-                float *deviceFreq [8];
-                float **devicePointers = nullptr;
-                float *deviceGapOp = nullptr;
-                float *deviceGapEx = nullptr;
-                float *deviceParam = nullptr; // parameters
-                int8_t  *deviceAln = nullptr;
+                float  *deviceFreq [8];
+                float  *deviceGapOp [8];
+                float  *deviceGapEx [8];
+                int8_t *deviceAln [8];
+
+                float  **deviceFreqPointers = nullptr;
+                float  **deviceGapOpPointers = nullptr; 
+                float  **deviceGapExPointers = nullptr;
+                int8_t **deviceAlnPointers = nullptr;
+                
+                float   *deviceParam = nullptr; // parameters
                 int32_t *deviceLen = nullptr;
                 int32_t *deviceNum = nullptr;
                 int32_t *deviceAlnLen = nullptr;
                 int32_t *deviceSeqInfo = nullptr;
                 // Pointers to Host memory
-                float *hostFreq [8];
-                float **hostPointers = nullptr;
-                float *hostGapOp = nullptr;
-                float *hostGapEx = nullptr; // gap extend
+                float  *hostFreq [8];
+                float  *hostGapOp [8];
+                float  *hostGapEx [8];
+                int8_t *hostAln [8];
+
+                float  **hostFreqPointers = nullptr;
+                float  **hostGapOpPointers = nullptr; 
+                float  **hostGapExPointers = nullptr;
+                int8_t **hostAlnPointers = nullptr;
+                
                 float *hostParam = nullptr;
-                int8_t  *hostAln = nullptr;
                 int32_t *hostLen = nullptr;
                 int32_t *hostNum = nullptr;
                 int32_t *hostAlnLen = nullptr;
@@ -256,7 +251,7 @@ namespace msa
                 void initializeHostMemory(Option *option, int len, int numBlocks, Params &param);
                 void freeMemory();
                 void memcpyHost2Device(Option *option, int len, int alnPairs, int numBlocks);
-                void memcpyDevice2Host(Option *option, int len, int alnPairs);
+                void memcpyDevice2Host(Option *option, int len, int alnPairs, int numBlocks);
                 GPU_pointers(int index, int block){
                     this->gpu_index = index; 
                     this->memBlock = block;

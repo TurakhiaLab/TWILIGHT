@@ -56,26 +56,12 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
         allocateMemory_and_Initialize(hostFreq, hostGapOp, hostGapEx, memLen, profileSize);
         std::pair<IntPairVec, IntPairVec> gappyColumns;
         stringPair consensus({"", ""});
-        IntPair lens = {refLen, qryLen}, starting = {0,0}, ending = {refLen,qryLen};
+        IntPair lens = {refLen, qryLen};
+        
 
-        const int refineTh = 1000;
-        // bool refine = (refNum < refineTh && qryNum < refineTh && (refNum+qryNum > refineTh));
-        bool refine = false;
         alignment_helper::calculateProfile(hostFreq, nodes[nIdx], database, option, memLen);
         alignment_helper::getConsensus(option, hostFreq,                    consensus.first,  refLen);
         alignment_helper::getConsensus(option, hostFreq+profileSize*memLen, consensus.second, qryLen);
-        if (refine) {
-            alignment_helper::getStartingAndEndingPoints(consensus.first, consensus.second, starting, ending);
-            lens.first = (ending.first-starting.first);
-            lens.second = (ending.second-starting.second);
-            std::cout << refNum << ',' << qryNum << '\n';
-            std::cout << starting.first << ',' << starting.second << ',' << ending.first << ',' << ending.second << '\n';
-            std::cout << refLen << ',' << qryLen << ',' << lens.first << ',' << lens.second << '\n';
-            for (int i = 0; i < profileSize * lens.first; ++i) hostFreq[i] = hostFreq[profileSize*starting.first+i];
-            for (int i = profileSize * lens.first; i < profileSize * memLen; ++i) hostFreq[i] = 0.0;
-            for (int i = 0; i < profileSize * lens.second; ++i) hostFreq[profileSize*memLen+i] = hostFreq[profileSize*(memLen+starting.second)+i];
-            for (int i = profileSize * lens.second; i < profileSize * memLen; ++i) hostFreq[profileSize*memLen+i] = 0.0;
-        }
         alignment_helper::removeGappyColumns(hostFreq, nodes[nIdx], option, gappyColumns, memLen, lens, database->currentTask);
         alignment_helper::calculatePSGP(hostFreq, hostGapOp, hostGapEx, nodes[nIdx], database, option, memLen, {0,0}, lens, param);
         auto preEnd = std::chrono::high_resolution_clock::now();
@@ -102,8 +88,8 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
         if (database->currentTask == 1 || database->currentTask == 2 || refNum > 10000 || qryNum > 10000) talco_params->gapCharScore = 0;
         if (refLen == 0) for (int j = 0; j < qryLen; ++j) aln_wo_gc.push_back(1);
         if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_wo_gc.push_back(2);
-        bool lowQ_r = (refNum == 1) && database->id_map[nodes[nIdx].first->seqsIncluded[0]]->lowQuality;
-        bool lowQ_q = (qryNum == 1) && database->id_map[nodes[nIdx].second->seqsIncluded[0]]->lowQuality;
+        bool lowQ_r = (option->alnMode == MERGE_MSA) ? false : ((refNum == 1) && database->id_map[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
+        bool lowQ_q = (option->alnMode == MERGE_MSA) ? false : ((qryNum == 1) && database->id_map[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
         if (option->noFilter || (!lowQ_r && !lowQ_q)) {
             auto talcoStart = std::chrono::high_resolution_clock::now();
             while (aln_wo_gc.empty()) {
@@ -175,14 +161,17 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 if (a == 2) {alnRef += 1;}
             }
             float refWeight = nodes[nIdx].first->alnWeight, qryWeight = nodes[nIdx].second->alnWeight;
-            if (alnRef != ending.first-starting.first)   std::cout << "R: Post " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
-            if (alnQry != ending.second-starting.second) std::cout << "Q: Post " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
+            if (alnRef != refLen) std::cout << "R: Post " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
+            if (alnQry != qryLen) std::cout << "Q: Post " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
             std::map<int,std::string> startAln, endAln;
-            if (refine) database->debug();
-            if (refine) alignment_helper::alignEnds(nodes[nIdx], database, option->type, starting, ending, startAln, endAln);
-            alignment_helper::updateAlignment(nodes[nIdx], database, aln_w_gc, starting, ending, startAln, endAln);
-            alignment_helper::updateFrequency(nodes[nIdx], database, aln_w_gc, {refWeight, qryWeight});
-            if (refine) database->debug();
+            
+            if (option->alnMode != PLACE_WO_TREE) {
+                alignment_helper::updateFrequency(nodes[nIdx], database, aln_w_gc, {refWeight, qryWeight});
+                alignment_helper::updateAlignment(nodes[nIdx], database, option, aln_w_gc);
+            }
+            else {
+                database->subtreeAln[nodes[nIdx].second->seqsIncluded[0]] = aln_w_gc;
+            }
         }
     }    
     });

@@ -2,6 +2,10 @@
 #include "msa.hpp"
 #endif
 
+#ifndef BLOSUM_HPP
+#include "blosum.hpp"
+#endif
+
 #include <iostream>
 
 char checkOnly(char inChar) {
@@ -43,6 +47,7 @@ constexpr std::array<int, 256> make_aa_lookup()
     table['W'] = 19;
     table['Y'] = 20;
     table['-'] = 22;
+    table['.'] = 22;
     return table;
 }
 
@@ -55,6 +60,7 @@ constexpr std::array<int, 256> make_nb_lookup()
     table['T'] = 4;
     table['U'] = 4;
     table['-'] = 6;
+    table['.'] = 6;
     return table;
 }
 
@@ -92,7 +98,7 @@ msa::Params::Params(po::variables_map& vm, char type) {
     this->scoringMatrix = new float* [this->matrixSize];
     for (int i = 0; i < this->matrixSize; ++i) this->scoringMatrix[i] = new float[this->matrixSize];
         
-            
+    int blosumType = vm["blosum"].as<int>();
     if (!userDefine) {
         if (type == 'n') {
             for (int i = 0; i < 5; ++i) {
@@ -105,15 +111,29 @@ msa::Params::Params(po::variables_map& vm, char type) {
             }
         }
         else if (type == 'p') {
+            if (blosumType != 45 && blosumType != 62 && blosumType != 80) {
+                std::cerr << "WARNING: Invalid BLOSUM matrix \"" << blosumType
+                          << "\". Please choose from 45, 62, or 80.\n";
+                std::cerr << "Using default: BLOSUM62.\n";
+                blosumType = 62;
+            }
             float Nscore = 0.0;
             for (int i = 0; i < 20; ++i) Nscore += BLOSUM62[i][i];
             Nscore /= 20;
             for (int i = 0; i < 21; ++i) {
-                for (int j = 0; j < 21; ++j) {
-                    if (i == 20 || j == 20) this->scoringMatrix[i][j] = vm.count("wildcard") ? 5 * Nscore : 0.0;
-                    else                    this->scoringMatrix[i][j] = 5 * BLOSUM62[i][j];
-                }
+                this->scoringMatrix[i][20] = vm.count("wildcard") ? 5 * Nscore : 0.0;
+                this->scoringMatrix[20][i] = vm.count("wildcard") ? 5 * Nscore : 0.0;
             }
+            if (blosumType == 62) {
+                for (int i = 0; i < 20; ++i) for (int j = 0; j < 20; ++j) this->scoringMatrix[i][j] = 5 * BLOSUM62[i][j];
+            }
+            else if (blosumType == 45) {
+                for (int i = 0; i < 20; ++i) for (int j = 0; j < 20; ++j) this->scoringMatrix[i][j] = 5 * BLOSUM45[i][j];
+            }
+            else if (blosumType == 80) {
+                for (int i = 0; i < 20; ++i) for (int j = 0; j < 20; ++j) this->scoringMatrix[i][j] = 5 * BLOSUM80[i][j];
+            }
+            
         }
     }
     else {
@@ -182,32 +202,36 @@ msa::Params::Params(po::variables_map& vm, char type) {
     }
     
     if (vm.count("verbose")) {
-        std::cout << "======== Parameters ========\n";
-        std::cout << std::setw(5) << " ";
+        std::cerr << "======== Parameters ========\n";
+        if (type == 'p') {
+            if      (blosumType == 45) std::cerr << "BLOSUM45\n";
+            else if (blosumType == 62) std::cerr << "BLOSUM62\n";
+            else if (blosumType == 80) std::cerr << "BLOSUM80\n";
+        }
+        std::cerr << std::setw(5) << " ";
         for (size_t i = 0; i < this->matrixSize-1; ++i) {
             auto letter = letterMap.begin();
             std::advance(letter, i);
             letter++;
-            std::cout << std::setw(5) << letter->first;
+            std::cerr << std::setw(5) << letter->first;
         }
-        std::cout << std::setw(5) << ((type == 'n') ? 'N' : 'X');
-        std::cout << "\n";
+        std::cerr << std::setw(5) << ((type == 'n') ? 'N' : 'X');
+        std::cerr << "\n";
         for (size_t i = 0; i < this->matrixSize; ++i) {
             auto letter = letterMap.begin();
             std::advance(letter, i);
             letter++;
-            if (i < this->matrixSize-1) std::cout << std::setw(5) << letter->first;
-            else std::cout << std::setw(5) << ((type == 'n') ? 'N' : 'X');
+            if (i < this->matrixSize-1) std::cerr << std::setw(5) << letter->first;
+            else std::cerr << std::setw(5) << ((type == 'n') ? 'N' : 'X');
             for (size_t j = 0; j < this->matrixSize; ++j) {
-                std::cout << std::setw(5) << this->scoringMatrix[i][j];
+                std::cerr << std::setw(5) << this->scoringMatrix[i][j];
             }
-            std::cout << "\n";
+            std::cerr << "\n";
         }
-        std::cout << "Gap-Open:   " << this->gapOpen << "\n"
+        std::cerr << "Gap-Open:   " << this->gapOpen << "\n"
                   << "Gap-Extend: " << this->gapExtend << "\n"
                   << "Gap-Ends:   " << this->gapBoundary << "\n"
                   << "Xdrop:      " << this->xdrop << '\n';
-        std::cout << "============================\n";
     }
 }
 

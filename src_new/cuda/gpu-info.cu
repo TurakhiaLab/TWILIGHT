@@ -4,6 +4,7 @@
 
 
 void msa::Option::getGpuInfo(po::variables_map &vm) {
+
     int maxGpuNum = 0;
     cudaError_t err = cudaGetDeviceCount(&maxGpuNum);
     if (err != cudaSuccess) {
@@ -64,6 +65,8 @@ void msa::Option::getGpuInfo(po::variables_map &vm) {
 
     std::vector<size_t> gpuMem;
     std::vector<size_t> gpuTotalMem;
+    const size_t MB = 1024 *1024;
+
     for (auto idx: gpuIdx) {
         cudaSetDevice(idx);
         size_t free_bytes, total_bytes;
@@ -72,18 +75,20 @@ void msa::Option::getGpuInfo(po::variables_map &vm) {
             std::cerr << "Error: " << cudaGetErrorString(status) << std::endl;
             exit(1);
         }
-        gpuTotalMem.push_back(total_bytes);
-        gpuMem.push_back(free_bytes);
+        gpuTotalMem.push_back(total_bytes/MB);
+        gpuMem.push_back(free_bytes/MB);
     }
     
     this->gpuNum = gpuNum;
     this->gpuIdx = gpuIdx;
     this->gpuMem = gpuMem;
 
-    const size_t MB = 1024 *1024;
+    if (this->gpuNum == 0) return;
+
+    
     std::cerr << "========= GPU Info =========\n";
     for (int i = 0; i < this->gpuIdx.size(); ++i) {
-        std::cerr << "GPU " << this->gpuIdx[i] << ", Available Memory: "<< (this->gpuMem[i]/MB) << " / " << (gpuTotalMem[i]/MB) << " MB.\n";
+        std::cerr << "GPU " << this->gpuIdx[i] << ", Available Memory: "<< (this->gpuMem[i]) << " / " << (gpuTotalMem[i]) << " MB.\n";
     }
     return;
 }

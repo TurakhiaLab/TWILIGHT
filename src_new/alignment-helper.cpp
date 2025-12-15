@@ -32,7 +32,7 @@ void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, Se
                 });
             }
             if (storeFreq) {
-                nodes.first->msaFreq.resize(refLen, std::vector<float>(6, 0.0));
+                nodes.first->msaFreq.resize(refLen, std::vector<float>(profileSize, 0.0));
                 for (int t = 0; t < refLen; ++t) 
                     for (int v = 0; v < profileSize; ++v)
                         nodes.first->msaFreq[t][v] = profile[profileSize * t + v] / refNum * refWeight;
@@ -60,7 +60,7 @@ void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, Se
                 });
             }
             if (storeFreq) {
-                nodes.second->msaFreq.resize(qryLen, std::vector<float>(6, 0.0));
+                nodes.second->msaFreq.resize(qryLen, std::vector<float>(profileSize, 0.0));
                 for (int t = 0; t < qryLen; ++t)
                     for (int v = 0; v < profileSize; ++v)
                         nodes.second->msaFreq[t][v] = profile[profileSize * (memLen + t) + v] / qryNum * qryWeight;
@@ -373,38 +373,19 @@ void msa::alignment_helper::addGappyColumnsBack(alnPath &aln_before, alnPath &al
     return;
 }
 
-void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *database, alnPath &aln, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln)
+void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *database, Option* option, alnPath &aln)
 {
     int totalLen = aln.size(), startLen = 0, endLen = 0;
-    std::vector<std::string> startAlnVec, endAlnVec;
-    bool refine = (!startAln.empty() && !endAln.empty());
-    if (refine) {
-        totalLen += startAln.begin()->second.size() + endAln.begin()->second.size();
-        startLen = startAln.begin()->second.size();
-        endLen = endAln.begin()->second.size();
-        for (auto sIdx: nodes.first->seqsIncluded) {
-            startAlnVec.push_back(startAln[sIdx]);
-            endAlnVec.push_back(endAln[sIdx]);
-        }
-    }
+    bool updateSeq = (database->currentTask != 2);
     tbb::this_task_arena::isolate([&] { 
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.first->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.first->seqsIncluded[idx];
-        // std::cout << database->id_map[sIdx]->name  << '\n';
-        
-        bool updateSeq = (database->currentTask != 2) || 
-                         (database->currentTask == 2 && database->id_map.find(sIdx) != database->id_map.end());
         if (updateSeq) {
             database->id_map[sIdx]->memCheck(totalLen);
             int storeFrom = database->id_map[sIdx]->storage;
             int storeTo = 1 - storeFrom;
-            if (refine) {
-                for (int k = 0; k < startLen; ++k) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = startAlnVec[idx][k];
-                }
-            }
-            int orgIdx = starting.first;
+            int orgIdx = 0;
             for (int k = 0; k < aln.size(); ++k) {
                 int kto = k + startLen;
                 if (aln[k] == 0 || aln[k] == 2) {
@@ -413,12 +394,6 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
                 }
                 else {
                     database->id_map[sIdx]->alnStorage[storeTo][kto] = '-';
-                }
-            }
-            if (refine) {
-                for (int k = 0; k < endLen; ++k) {
-                    int kto = k + startLen + aln.size();
-                    database->id_map[sIdx]->alnStorage[storeTo][kto] = endAlnVec[idx][k];
                 }
             }
             database->id_map[sIdx]->len = totalLen;
@@ -441,28 +416,15 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     } 
     }); 
     });
-    startAlnVec.clear();
-    endAlnVec.clear();
-    for (auto sIdx: nodes.second->seqsIncluded) {
-        startAlnVec.push_back(startAln[sIdx]);
-        endAlnVec.push_back(endAln[sIdx]);
-    }
     tbb::this_task_arena::isolate([&] { 
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.second->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.second->seqsIncluded[idx];
-        bool updateSeq = (database->currentTask != 2) || 
-                         (database->currentTask == 2 && database->id_map.find(sIdx) != database->id_map.end());
         if (updateSeq) {
             database->id_map[sIdx]->memCheck(totalLen);
-            int orgIdx = starting.second;
+            int orgIdx = 0;
             int storeFrom = database->id_map[sIdx]->storage;
             int storeTo = 1 - storeFrom;
-            if (refine) {
-                for (int k = 0; k < startLen; ++k) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = startAlnVec[idx][k];
-                }
-            }
             for (int k = 0; k < aln.size(); ++k) {
                 int kto = k + startLen;
                 if (aln[k] == 0 || aln[k] == 1) {
@@ -471,12 +433,6 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
                 }
                 else {
                     database->id_map[sIdx]->alnStorage[storeTo][kto] = '-';
-                }
-            }
-            if (refine) {
-                for (int k = 0; k < endAln[sIdx].size(); ++k) {
-                    int kto = k + startAln[sIdx].size() + aln.size();
-                    database->id_map[sIdx]->alnStorage[storeTo][kto] = endAlnVec[idx][k];
                 }
             }
             database->id_map[sIdx]->len = totalLen;
@@ -588,6 +544,102 @@ void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodeP
     return;
 }
 
+void msa::alignment_helper::mergeInsertions(SequenceDB *database, Node* root) {
+    
+    std::vector<std::unordered_map<int,int>> insertions (database->subtreeAln.size());
+    int refLen = database->subtreeAln[-1].size();
+    tbb::parallel_for(tbb::blocked_range<int>(0, database->subtreeAln.size()), [&](tbb::blocked_range<int> r) {
+    for (int s = r.begin(); s < r.end(); ++s) {
+        if (database->subtreeAln.find(s) != database->subtreeAln.end() && !database->id_map[s]->lowQuality) {
+            int refIdx = 0,  start = -1, len = 0;
+            for (int i = 0; i < database->subtreeAln[s].size(); ++i) {
+                if (database->subtreeAln[s][i] == 1) {
+                    if (start == -1) start = refIdx;
+                    len++;
+                }
+                else {
+                    if (start != -1) {
+                        insertions[s][start] = len;
+                        start = -1;
+                        len = 0;
+                    }
+                    refIdx++;
+                }
+            }
+            if (start != -1) insertions[s][start] = len;
+            if (refIdx != refLen) {
+                std::cerr << "ERROR: Length not match.\t" <<database->subtreeAln[s].size() << ","<< refLen << '-' << refIdx << '\n';
+            }
+        }
+    }
+    });
+
+    std::vector<int> longest_insertions (refLen, 0);
+    tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+    for (int i = r.begin(); i < r.end(); ++i) {
+        int maxLen = 0;
+        for (int s = 0; s < database->subtreeAln.size(); ++s) {
+            if (insertions[s].find(i) != insertions[s].end()) {
+                maxLen = std::max(maxLen, insertions[s][i]);
+            }
+        }
+        longest_insertions[i] = maxLen;
+    }
+    });
+
+    int totalLen = refLen;
+    for (auto l: longest_insertions) totalLen += l;
+    alnPath refAln;
+    refAln.reserve(totalLen);
+    for (auto l: longest_insertions) {
+        for (int i = 0; i < l; ++i) refAln.push_back(3);
+        refAln.push_back(0);
+    }
+
+    tbb::parallel_for(tbb::blocked_range<int>(0, database->sequences.size()), [&](tbb::blocked_range<int> range) {
+    for (int sIdx = range.begin(); sIdx < range.end(); ++sIdx) {
+        if (database->id_map[sIdx]->lowQuality) continue;
+        database->id_map[sIdx]->memCheck(totalLen);
+        int orgIdx = 0, alnIdx = 0;
+        int storeFrom = database->id_map[sIdx]->storage;
+        int storeTo = 1 - storeFrom;
+        for (int k = 0; k < totalLen; ++k) {
+            if (refAln[k] == 0) {
+                if (database->subtreeAln[sIdx][alnIdx] == 0) {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    ++alnIdx; ++orgIdx;
+                }
+                else if (database->subtreeAln[sIdx][alnIdx] == 2) {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = '-';
+                    ++alnIdx;
+                }
+                else {
+                    std::cerr << "ERROR: " << k << ": " << database->subtreeAln[sIdx][alnIdx] << '\n';
+                }
+            }
+            else { // refAln[k] == 3
+                if (database->subtreeAln[sIdx][alnIdx] == 1) {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    alnIdx++; ++orgIdx;
+                }
+                else {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = '.';
+                }
+            }
+            
+        }
+        database->id_map[sIdx]->changeStorage();
+    }
+    });
+    database->subtreeAln[-1] = refAln;
+    root->alnLen = totalLen;
+    return;
+}
+
+
+
+
+/*
 void msa::alignment_helper::getStartingAndEndingPoints(std::string& ref, std::string& qry, IntPair& starting, IntPair& ending) {
     const float ratio = 0.1;
     int segLenRef = ref.size() * ratio, segLenQry = qry.size() * ratio;
@@ -936,3 +988,4 @@ msa::alnPath msa::alignment_helper::smith_waterman_tb(const std::string &seq1, c
     std::reverse(aln.begin(), aln.end());
     return aln;
 }
+*/

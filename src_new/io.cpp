@@ -89,6 +89,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
                 if (seqLen == 0) std::cerr << "Null sequences, " << seqName << '\n';
                 totalLen += seqLen;
                 database->addSequence(seqNum, seqName, seq, subtreeIdx, tree->allNodes[seqName]->weight, option->debug, option->alnMode);
+                if (option->alnMode == PLACE_WO_TREE) database->subtreeAln[database->name_map[seqName]->id] = alnPath (seqLen, 0);
                 tree->allNodes[seqName]->placed = placed; 
                 ++seqNum;
                 seqsLens.push_back(seqLen);
@@ -99,7 +100,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     gzclose(f_rd);
 
     // Prune Tree if necessary
-    if (tree->m_numLeaves != seqNum && option->alnMode == 0) {
+    if (tree->m_numLeaves != seqNum && option->alnMode == DEFAULT_ALN) {
         printf("Warning: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
         int kk = 0;
         for (auto node: tree->allNodes) {
@@ -135,6 +136,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
         tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
         for (int i = range.begin(); i < range.end(); ++i) {
             auto seq = database->sequences[i];
+            if (!tree->allNodes[seq->name]->placed) continue;
             int ambig = (option->type == 'n') ? 4 : 20;
             seq->lowQuality = (seq->len > maxLenTh || seq->len < minLenTh);
             if (!seq->lowQuality) {
@@ -170,29 +172,25 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     
     // Print summary
     if (option->alnMode != 3 || placed) {
-        if (option->printDetail) {
-            std::cerr << "====== Sequence Summary =====\n";
-            std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
-            std::cerr << "Max. Length: " << maxLen << '\n';
-            std::cerr << "Min. Length: " << minLen << '\n';
-            std::cerr << "Avg. Length: " << avgLen << '\n';
-            std::cerr << "Med. Length: " << medLen << '\n';
-            if (option->noFilter) 
-            std::cerr << "Deferred sequences: " << numLowQ << '\n';
-            else 
-            std::cerr << "Excluded sequences: " << numLowQ << '\n';
-            std::cerr << "=============================\n";
-        }
+        std::cerr << "===== Sequence Summary =====\n";
+        std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
+        std::cerr << "Max. Length: " << maxLen << '\n';
+        std::cerr << "Min. Length: " << minLen << '\n';
+        std::cerr << "Avg. Length: " << avgLen << '\n';
+        std::cerr << "Med. Length: " << medLen << '\n';
+        if (option->noFilter) 
+        std::cerr << "Deferred sequences: " << numLowQ << '\n';
+        else 
+        std::cerr << "Excluded sequences: " << numLowQ << '\n';
         std::cerr << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+        // std::cerr << "============================\n";
     }
     else {
-        if (option->printDetail) {
-            std::cerr << "===== Backbone Alignment ====\n";
-            std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
-            std::cerr << "Length:  " << avgLen << '\n';
-            std::cerr << "=============================\n";
-        }
+        std::cerr << "==== Backbone Alignment ====\n";
+        std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
+        std::cerr << "Length:  " << avgLen << '\n';
         std::cerr << "Backbone alignment read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+        // std::cerr << "============================\n";
     }
 }
 
@@ -256,18 +254,23 @@ phylogeny::Tree* msa::io::readAlignments_and_buildTree(SequenceDB *database, Opt
         }
     }
     // Read alignments and calculate profiles
+    std::cerr << "====== Alignment Info ======\n";
     std::sort(files.begin(), files.end());
     std::vector<Node*> nodes;
     int profileSize = option->type == 'n' ? 6 : 22;
     for (auto msaFileName: files) {
         std::string nodeName = "node_" + std::to_string(subtreeIdx+1);
         Node* node = new Node(nodeName, 1.0);
+        node->grpID = 0;
         node->seqsIncluded.push_back(subtreeIdx);
         readAlignment(msaFileName, database, option, node);
         database->subtreeAln[subtreeIdx] = alnPath (node->msaFreq.size(), 0);
         nodes.push_back(node);
         database->subAlnFiles.push_back({msaFileName, subtreeIdx});
         ++subtreeIdx;
+        std::cerr << "[" << (subtreeIdx) << "/" << files.size() << "] "
+                  << fs::path(msaFileName).filename().string()
+                  << " (Count: " << node->alnNum << ", Length: " << node->alnLen << ")\n";
     }
     // Sort alignments by sequence count
     std::sort(nodes.begin(), nodes.end(), [](Node* a, Node* b) {
@@ -282,9 +285,13 @@ phylogeny::Tree* msa::io::readAlignments_and_buildTree(SequenceDB *database, Opt
         T->root->children.push_back(nodes[i]);
         T->allNodes[nodes[i]->identifier] = nodes[i];
     }
+    phylogeny::updateLevels(T->root, 1);
     auto alnReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds alnReadTime = alnReadEnd - alnReadStart;
-    std::cerr << "Loaded " << T->allNodes.size() << " MSA files in " << alnReadTime.count() / 1e6 << " ms.\n";
+    
+        
+    std::cerr << "Read " << T->allNodes.size() << " MSA files in " << alnReadTime.count() / 1e6 << " ms.\n";
+    std::cerr << "============================\n";
     return T;
 }
 
@@ -347,6 +354,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
     const int outBuffSize = 10000;
     int totalSeqs = 0;
     bool nochange = false;
+    char gapType = (option->alnMode == PLACE_WO_TREE) ? '.' : '-';
     stringPairVec seqs_before, seqs_after;
     if (option->alnMode == 0 && option->compressed) fileName += ".gz";
     fs::path p(fileName);
@@ -377,7 +385,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
                         ++r;
                     }
                     else {
-                        seqs_after[n].second += '-';
+                        seqs_after[n].second += gapType;
                     }
                 }
                 if (seqs_after[n].second.size() != database->subtreeAln[subtreeIdx].size()) {
@@ -408,7 +416,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
                     ++r;
                 }
                 else {
-                    seqs_after[n].second += '-';
+                    seqs_after[n].second += gapType;
                 }
             }
             if (seqs_after[n].second.size() != database->subtreeAln[subtreeIdx].size()) {
