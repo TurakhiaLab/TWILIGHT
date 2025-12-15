@@ -12,14 +12,14 @@ namespace device_function {
     constexpr int _MARKER = 200;
     
     __global__ void parallelProfileAlignment (
-        float* pointers [],
-        int8_t* aln,
+        float* freqPointers [],
+        int8_t* alnPointers [],
         int32_t* len,
         int32_t* num,
         int32_t* alnLen,
         int32_t* seqInfo,
-        float* gapOpen,
-        float* gapExtend,
+        float* gapOpenPointers [],
+        float* gapExtendPointers [],
         float* param
     );
 }
