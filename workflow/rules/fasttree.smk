@@ -11,7 +11,7 @@ rule fasttree:
     threads: config["num_threads"]
     shell:
         '''
-        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py --threads {threads} {input.msa} {params.tempFile} {params.threshold}
         export OMP_NUM_THREADS={threads}
         {params.fasttree_exe} {params.model} -fastest {params.tempFile} > {params.tempTree} 
         python3 scripts/resolveTree.py {params.tempTree} {output.tree}

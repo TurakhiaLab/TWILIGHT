@@ -34,7 +34,7 @@ gapextend: -5
 matrix: ""
 
 # Iterative Mode
-mask_gappy: 0.995                         # Minimum proportion of gappy sites that would be mask before proceed to tree inference step
+mask_gappy: 0.95                         # Minimum proportion of gappy sites that would be mask before proceed to tree inference step
 
 
 # IQ-TREE Model Selection

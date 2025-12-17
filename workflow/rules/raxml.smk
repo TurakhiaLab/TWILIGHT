@@ -10,7 +10,7 @@ rule raxml:
     threads: config["num_threads"]
     shell:
         '''
-        python3 scripts/reduceLen.py {input.msa} {params.tempFile} {params.threshold}
+        python3 scripts/reduceLen.py --threads {threads} {input.msa} {params.tempFile} {params.threshold}
         {params.raxml_exe} -s {params.tempFile} -m {params.model} -n raxml.tree -T {threads} -p 235813
         mv RAxML_bestTree.raxml.tree {output}
         rm *.raxml.tree
