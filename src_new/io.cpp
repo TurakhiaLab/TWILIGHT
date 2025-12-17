@@ -136,7 +136,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
         tbb::parallel_for(tbb::blocked_range<int>(0, seqNum), [&](tbb::blocked_range<int> range){ 
         for (int i = range.begin(); i < range.end(); ++i) {
             auto seq = database->sequences[i];
-            if (!tree->allNodes[seq->name]->placed) continue;
+            if (option->alnMode == 3 && !tree->allNodes[seq->name]->placed) continue;
             int ambig = (option->type == 'n') ? 4 : 20;
             seq->lowQuality = (seq->len > maxLenTh || seq->len < minLenTh);
             if (!seq->lowQuality) {
@@ -154,6 +154,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
                         lowQSeqs.push_back({seq->name, std::string(seq->alnStorage[0],seq->len)});
                     }
                 }
+                if (!option->noFilter) database->sequences[i]->len = 0;
             }
         }
         });
