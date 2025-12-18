@@ -25,15 +25,12 @@
 #ifndef TALCO_HPP
 #define TALCO_HPP
 
-#include <stdint.h>
+#include "msa.hpp"
+
 #include <vector>
 #include <string>
 #include <iostream>
 #include <stdlib.h>
-#include <fstream>
-#include <vector>
-#include <unordered_map>
-#include <cmath>
 
 
 namespace Talco_xdrop {
@@ -42,38 +39,18 @@ namespace Talco_xdrop {
         float gapOpen;
         float gapBoundary;
         float gapExtend;
+        float gapCharScore;
         int32_t matrixSize;
         int32_t xdrop;
         int32_t fLen;
         int32_t marker;
         int alnType; // 0: global, 1: global-local
 
-        void updateXDrop(int32_t new_xdrop) { 
-            this->xdrop = new_xdrop;
-        }
+        void updateXDrop(int32_t new_xdrop) { this->xdrop = new_xdrop; }
         void updateFLen(int32_t new_flen) { this->fLen = new_flen;}
 
-        Params(float* t_param, int matrixSize) {
-            this->matrixSize = matrixSize;
-            this->scoreMatrix = new float * [matrixSize];
-            for (int i = 0; i < matrixSize; ++i) this->scoreMatrix[i] = new float [matrixSize];
-            for (int i = 0; i < matrixSize; ++i) {
-                for (int j = 0; j < matrixSize; ++j) {
-                    this->scoreMatrix[i][j] = t_param[i*matrixSize+j];
-                }
-            }
-            this->gapOpen = t_param[matrixSize*matrixSize];
-            this->gapExtend = t_param[matrixSize*matrixSize+1];
-            this->gapBoundary = t_param[matrixSize*matrixSize+2];
-            this->xdrop = static_cast<int32_t> (1000 * -1 * this->gapExtend);
-            this->fLen = (1 << 12);
-            this->marker = (1 << 10); //reduce this value to save memory
-            this->alnType = 0;
-        }
-        ~Params() {
-            for (int i = 0; i < this->matrixSize; ++i) delete [] this->scoreMatrix[i];
-            delete [] this->scoreMatrix;
-        }
+        Params(msa::Params& param); 
+        ~Params();
     };
     
     void Align_freq (
