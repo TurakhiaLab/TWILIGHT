@@ -369,7 +369,28 @@ void Talco_xdrop::Tile (
                     (tile == 0 && (i == 0 || j == 0 ))) {
                     scoreType similarScore = 0;
                     float numerator = 0.0f;
+                    const float* refColumns = reference[reference_idx + j].data();
+                    const float* qryColumns = query[query_idx + i].data();
                     if (type == 0) {
+                        __m256i mask = _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0); // first 5 valid
+                        for (int l = 0; l < 5; ++l) {
+                            __m256 sumvec = _mm256_setzero_ps();
+                            float ref_l = refColumns[l];
+                            const float* smat = param->scoreMatrix[l];
+                            __m256 refv = _mm256_set1_ps(ref_l);
+                            __m256 q   = _mm256_maskload_ps(&qryColumns[0], mask);
+                            __m256 mat = _mm256_maskload_ps(&smat[0], mask);
+                            __m256 prod = _mm256_mul_ps(q, mat);
+                            prod = _mm256_mul_ps(prod, refv);
+                            sumvec = _mm256_add_ps(sumvec, prod);
+                            // horizontal reduction
+                            alignas(32) float tmp[8];
+                            _mm256_store_ps(tmp, sumvec);
+                            numerator += (tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4]);
+                        }
+                        for (int l = 0; l < 5; ++l) numerator += refColumns[l] * qryColumns[5] * param->gapCharScore;
+                        for (int m = 0; m < 5; ++m) numerator += refColumns[5] * qryColumns[m] * param->gapCharScore;
+                        /*
                         for (int l = 0; l < 6; ++l) {
                             for (int m = 0; m < 6; ++m) {
                                 if (m == 5 && l == 5)      numerator += 0;
@@ -377,11 +398,10 @@ void Talco_xdrop::Tile (
                                 else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
                             }
                         }
+                        */
+                        
                     }
                     else {
-                        
-                        const float* refColumns = reference[reference_idx + j].data();
-                        const float* qryColumns = query[query_idx + i].data();
                         for (int l = 0; l < 21; ++l) {   // skip 21 for now (gap row)
                             __m256 sumvec = _mm256_setzero_ps();             
                             float ref_l = refColumns[l];
