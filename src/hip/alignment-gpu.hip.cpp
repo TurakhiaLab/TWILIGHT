@@ -208,7 +208,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
         new_numBlocks >>= 1;
         numBlocks = new_numBlocks;
     }
-    std::cerr << "SeqLen: " << seqLen << '\n';
+    // std::cerr << "SeqLen: " << seqLen << '\n';
     // std::cout << numBlocks << ',' << availableMem << ',' << (availableMem/requiredMem) << '\n';
     int memBlock = (option->type == 'n') ? 
                    ((seqLen * numBlocks) / (_MAX_LENGTH_N * device_function::_BLOCKSIZE) + 1):
