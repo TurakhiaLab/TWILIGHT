@@ -47,15 +47,22 @@ if(USE_CUDA)
 		endif()
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -march=native")
 		set(SRC_FILES src/cuda/twilight-main.cu
+					  src/cuda/gpu-info.cu
+				      src/cuda/alignment-gpu.cu
+				      src/cuda/device-function.cu
+					  src/phylogeny.cpp
 					  src/tree.cpp
-					  src/setting.cpp
-					  src/treePartition.cpp
+					  src/partitionInfo.cpp
+					  src/node.cpp
+					  src/scoring-matrix.cpp
+					  src/io.cpp
+					  src/option.cpp
+					  src/sequencedb.cpp
+					  src/progressive.cpp
+					  src/alignment-cpu.cpp
+					  src/alignment-helper.cpp
 					  src/TALCO-XDrop.cpp
-					  src/util.cpp
-					  src/msa-cpu.cpp
-					  src/align-util.cpp
-					  src/cuda/msa-gpu.cu
-					  src/cuda/align.cu
+					  
 		)
 	else()
 	    message(FATAL_ERROR "No CUDA found")
@@ -71,15 +78,21 @@ elseif(USE_HIP)
 		include_directories("/opt/rocm-${HIP_COMPILE_VERSION}/include/")
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated -march=native")
 		set(SRC_FILES src/hip/twilight-main.hip.cpp
-			  		  src/tree.cpp
-			  		  src/setting.cpp
-			  		  src/treePartition.cpp
-			  		  src/TALCO-XDrop.cpp
-			  		  src/util.cpp
-			  		  src/msa-cpu.cpp
-					  src/align-util.cpp
-			  		  src/hip/msa-gpu.hip.cpp
-			  		  src/hip/align.hip.cpp
+					  src/hip/gpu-info.hip.cpp
+				      src/hip/alignment-gpu.hip.cpp
+				      src/hip/device-function.hip.cpp
+			  		  src/phylogeny.cpp
+					  src/tree.cpp
+					  src/partitionInfo.cpp
+					  src/node.cpp
+					  src/scoring-matrix.cpp
+					  src/io.cpp
+					  src/option.cpp
+					  src/sequencedb.cpp
+					  src/progressive.cpp
+					  src/alignment-cpu.cpp
+					  src/alignment-helper.cpp
+					  src/TALCO-XDrop.cpp
 	    )	
 	else()
 	    message(FATAL_ERROR "No HIP found")
@@ -107,15 +120,21 @@ else()
 			endif()
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -march=native")
 			set(SRC_FILES src/cuda/twilight-main.cu
+					      src/cuda/gpu-info.cu
+				          src/cuda/alignment-gpu.cu
+				          src/cuda/device-function.cu
+					      src/phylogeny.cpp
 					      src/tree.cpp
-					      src/setting.cpp
-					      src/treePartition.cpp
+					      src/partitionInfo.cpp
+					      src/node.cpp
+					      src/scoring-matrix.cpp
+					      src/io.cpp
+					      src/option.cpp
+					      src/sequencedb.cpp
+					      src/progressive.cpp
+					      src/alignment-cpu.cpp
+					      src/alignment-helper.cpp
 					      src/TALCO-XDrop.cpp
-					      src/util.cpp
-					      src/msa-cpu.cpp
-					      src/align-util.cpp
-				              src/cuda/msa-gpu.cu
-					      src/cuda/align.cu
 			)
 		else()
 			message(STATUS "No CUDA-capable GPU found.")
@@ -130,51 +149,42 @@ else()
 			include_directories("/opt/rocm-${HIP_COMPILE_VERSION}/include/")
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated -march=native")
 			set(SRC_FILES src/hip/twilight-main.hip.cpp
-				  		  src/tree.cpp
-				  		  src/setting.cpp
-				  		  src/treePartition.cpp
-				  		  src/TALCO-XDrop.cpp
-				  		  src/util.cpp
-				  		  src/msa-cpu.cpp
-						  src/align-util.cpp
-				  		  src/hip/msa-gpu.hip.cpp
-				  		  src/hip/align.hip.cpp
+					      src/hip/gpu-info.hip.cpp
+				          src/hip/alignment-gpu.hip.cpp
+				          src/hip/device-function.hip.cpp
+			  		      src/phylogeny.cpp
+					      src/tree.cpp
+					      src/partitionInfo.cpp
+					      src/node.cpp
+					      src/scoring-matrix.cpp
+					      src/io.cpp
+					      src/option.cpp
+					      src/sequencedb.cpp
+					      src/progressive.cpp
+					      src/alignment-cpu.cpp
+					      src/alignment-helper.cpp
+					      src/TALCO-XDrop.cpp
 	    	)
 		else()
 			message(STATUS "No CUDA or HIP detected — building CPU version.")
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated -march=native")
 			set(SRC_FILES src/twilight-main.cpp
+					      src/phylogeny.cpp
 					      src/tree.cpp
-					      src/setting.cpp
-					      src/treePartition.cpp
+					      src/partitionInfo.cpp
+					      src/node.cpp
+					      src/scoring-matrix.cpp
+					      src/io.cpp
+					      src/option.cpp
+					      src/sequencedb.cpp
+					      src/progressive.cpp
+					      src/alignment-cpu.cpp
+					      src/alignment-helper.cpp
 					      src/TALCO-XDrop.cpp
-					      src/util.cpp
-					      src/msa-cpu.cpp
-					      src/align-util.cpp
 		    )	
 		endif()
 	endif()
 endif()
-
-add_executable (twilight_new
-				src_new/cuda/twilight-main.cu
-				src_new/phylogeny.cpp
-				src_new/tree.cpp
-				src_new/partitionInfo.cpp
-				src_new/node.cpp
-				src_new/scoring-matrix.cpp
-				src_new/io.cpp
-				src_new/option.cpp
-				src_new/sequencedb.cpp
-				src_new/progressive.cpp
-				src_new/alignment-cpu.cpp
-				src_new/alignment-helper.cpp
-				src_new/TALCO-XDrop.cpp
-				src_new/cuda/gpu-info.cu
-				src_new/cuda/alignment-gpu.cu
-				src_new/cuda/device-function.cu)
-
-
 
 find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -182,5 +192,3 @@ include_directories(${ZLIB_INCLUDE_DIR})
 find_package(TBB REQUIRED CONFIG)
 add_executable (twilight ${SRC_FILES})
 target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
-
-target_link_libraries(twilight_new PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)

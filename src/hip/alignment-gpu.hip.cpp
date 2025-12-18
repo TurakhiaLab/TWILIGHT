@@ -467,7 +467,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
     }
     });
 
-    std::cerr << "Kernel Time: " << kernelTime / 1000000 << "ms\n";
+    // std::cerr << "Kernel Time: " << kernelTime / 1000000 << "ms\n";
 
     // free memory
     if (fallbackPairs.empty()) return;

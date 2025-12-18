@@ -1,8 +1,8 @@
 #ifndef MSA_HPP
-#include "../msa.hpp"
+#include "msa.hpp"
 #endif
 
-#include "../version.hpp"
+#include "version.hpp"
 
 #include <tbb/global_control.h>
 #include <boost/filesystem.hpp>
@@ -32,10 +32,10 @@ void parseArguments(int argc, char** argv)
     // Section: Hardware
     po::options_description hardwareDesc("Hardware Usage");
     hardwareDesc.add_options()
-        ("cpu,C", po::value<int>(), "Number of CPU cores. Default: all available cores.")
-        ("gpu,G", po::value<int>(), "Number of GPUs. Default: all available GPUs.")
-        ("gpu-index", po::value<std::string>(), "Specify the GPU to be used, separated by commas. Ex. 0,2,3")
-        ("cpu-only", "Run the program only on CPU.");
+        ("cpu,C", po::value<int>(), "Number of CPU cores. Default: all available cores.");
+        // ("gpu,G", po::value<int>(), "Number of GPUs. Default: all available GPUs.")
+        // ("gpu-index", po::value<std::string>(), "Specify the GPU to be used, separated by commas. Ex. 0,2,3")
+        // ("cpu-only", "Run the program only on CPU.");
 
     // Section: Alignment Parameters
     po::options_description alignDesc("Alignment Options and Parameters");
@@ -115,7 +115,7 @@ int main(int argc, char** argv) {
     msa::Option* option = new msa::Option(vm);
     msa::SequenceDB* database = new msa::SequenceDB();
     tbb::global_control init(tbb::global_control::max_allowed_parallelism, option->cpuNum);
-    option->getGpuInfo(vm);
+    // option->getGpuInfo(vm);
     msa::Params* param = new msa::Params(vm, option->type);
 
     if (option->alnMode == msa::DEFAULT_ALN) { // Twilight
@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, option->reroot);
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
             // Progressive alignment on each subtree
-            msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU, subtree);
+            msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU, subtree);
             // post-alignment debugging
             if (option->debug) database->debug();
             if (P->partitionsRoot.size() > 1) {
