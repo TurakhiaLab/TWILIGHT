@@ -610,6 +610,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         float* hostGapOp = (float*)malloc(              2 * seqLen * sizeof(float));
         float* hostGapEx = (float*)malloc(              2 * seqLen * sizeof(float));
         gappyColumnQueue gappyColumns;
+        std::pair<alnPathList,alnPathList> endsPaths;
         // initialize
         for (int n = 0; n < profileSize * 2 * seqLen; ++n) hostFreq[n] = 0;
         for (int n = 0; n <               2 * seqLen; ++n) hostGapOp[n] = 0;
@@ -639,6 +640,8 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         }
         std::pair<int,int> lens = std::make_pair(refLen, qryLen), rawLens (std::make_pair(0, 0)), offset (std::make_pair(0, 0));
         removeGappyColumns(hostFreq, tree, nodes[nIdx], util, option, gappyColumns, seqLen, seqLen, lens, rawLens);
+        removeEnds(hostFreq, tree, nodes[nIdx], util, option, seqLen, seqLen, lens, endsPaths);
+                            
         int32_t newRef = lens.first, newQry = lens.second;
         calculatePSGOP(hostFreq, hostGapOp, hostGapEx, tree, nodes[nIdx], util, option, seqLen, offset, lens, param);                  
         float refNum_f = 0, qryNum_f = 0;
@@ -725,6 +728,7 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
         
         if (!aln_old.empty()) {
             int alnRef = 0, alnQry = 0;
+            /*
             for (auto a: aln_old) {
                 // if (nIdx == 0) std::cout << (a & 0xFFFF);
                 if (a == 0) {alnRef += 1; alnQry += 1;}
@@ -734,7 +738,26 @@ void msaCpu(Tree* tree, std::vector<std::pair<Node*, Node*>>& nodes, msa::utilit
             // if (nIdx == 0) std::cout << '\n';
             if (!option->alignGappy) alnQry *= -1;
             std::pair<int, int> debugIdx = std::make_pair(-1*alnRef,alnQry);
-            addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, hostParam, param);
+            */
+            
+            alnPathList aln_reduced_add_ends;
+            for (auto a: endsPaths.first) aln_reduced_add_ends.push_back(a);
+            for (auto a: aln_old) aln_reduced_add_ends.push_back(a);
+            for (auto a: endsPaths.second) aln_reduced_add_ends.push_back(a);
+            
+            for (auto a: aln_reduced_add_ends) {
+                // if (n == 92) std::cout << (a & 0xFFFF);
+                if (a == 0) {alnRef += 1; alnQry += 1;}
+                if (a == 1) {alnQry += 1;}
+                if (a == 2) {alnRef += 1;}
+            }
+            if (!option->alignGappy) alnQry *= -1;
+            std::pair<int, int> debugIdx = std::make_pair(-1*alnRef,alnQry);
+            
+            addGappyColumnsBack(aln_reduced_add_ends, aln, gappyColumns, debugIdx, hostParam, param);
+            // addGappyColumnsBack(aln_old, aln, gappyColumns, debugIdx, hostParam, param);
+            // std::cout << "No. " << nIdx << " Length: " << aln.size() << '\n'; 
+
             if (debugIdx.first != refLen || debugIdx.second != qryLen) {
                 std::cout << "Name (" << nIdx << "): " << nodes[nIdx].first->identifier << '-' << nodes[nIdx].second->identifier << '\n';
                 std::cout << "Len: " << debugIdx.first << '/' << refLen << '-' << debugIdx.second << '/' << qryLen << '\n';

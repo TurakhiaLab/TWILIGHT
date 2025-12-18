@@ -45,7 +45,7 @@ if(USE_CUDA)
 			message(STATUS "No CUDA-capable GPU found. Generating binary to support multiple GPU generations.")
 			set(CMAKE_CUDA_ARCHITECTURES 70 75 80 86 89 90)
 		endif()
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -march=native")
 		set(SRC_FILES src/cuda/twilight-main.cu
 					  src/tree.cpp
 					  src/setting.cpp
@@ -69,7 +69,7 @@ elseif(USE_HIP)
 		add_definitions(-D__HIP_PLATFORM_AMD__)
 		set(CMAKE_CXX_COMPILER "/opt/rocm-${HIP_COMPILE_VERSION}/bin/hipcc")
 		include_directories("/opt/rocm-${HIP_COMPILE_VERSION}/include/")
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated -march=native")
 		set(SRC_FILES src/hip/twilight-main.hip.cpp
 			  		  src/tree.cpp
 			  		  src/setting.cpp
@@ -101,11 +101,11 @@ else()
 		if("${FIND_GPU_COMPILE_RESULT}" AND ("${FIND_GPU_RESULT}" EQUAL 0))
 			message(STATUS "CUDA-capable GPU found. GPU architecture: ${GPU_ARCH_OUTPUT}")
 			if(${CMAKE_VERSION} VERSION_LESS "3.18")
-				set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_${GPU_ARCH_OUTPUT}")
+				set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -arch=sm_${GPU_ARCH_OUTPUT} -G -g -lineinfo")
 			else()
 				set(CMAKE_CUDA_ARCHITECTURES ${GPU_ARCH_OUTPUT})
 			endif()
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable")
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -march=native")
 			set(SRC_FILES src/cuda/twilight-main.cu
 					      src/tree.cpp
 					      src/setting.cpp
@@ -128,7 +128,7 @@ else()
 			add_definitions(-D__HIP_PLATFORM_AMD__)
 			set(CMAKE_CXX_COMPILER "/opt/rocm-${HIP_COMPILE_VERSION}/bin/hipcc")
 			include_directories("/opt/rocm-${HIP_COMPILE_VERSION}/include/")
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated")
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated -march=native")
 			set(SRC_FILES src/hip/twilight-main.hip.cpp
 				  		  src/tree.cpp
 				  		  src/setting.cpp
@@ -142,7 +142,7 @@ else()
 	    	)
 		else()
 			message(STATUS "No CUDA or HIP detected — building CPU version.")
-			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated")
+			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -Wno-unused-result -Wno-unused-but-set-variable -Wno-self-assign -Wno-deprecated -march=native")
 			set(SRC_FILES src/twilight-main.cpp
 					      src/tree.cpp
 					      src/setting.cpp
@@ -156,9 +156,31 @@ else()
 	endif()
 endif()
 
+add_executable (twilight_new
+				src_new/cuda/twilight-main.cu
+				src_new/phylogeny.cpp
+				src_new/tree.cpp
+				src_new/partitionInfo.cpp
+				src_new/node.cpp
+				src_new/scoring-matrix.cpp
+				src_new/io.cpp
+				src_new/option.cpp
+				src_new/sequencedb.cpp
+				src_new/progressive.cpp
+				src_new/alignment-cpu.cpp
+				src_new/alignment-helper.cpp
+				src_new/TALCO-XDrop.cpp
+				src_new/cuda/gpu-info.cu
+				src_new/cuda/alignment-gpu.cu
+				src_new/cuda/device-function.cu)
+
+
+
 find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
 include_directories(${ZLIB_INCLUDE_DIR})
 find_package(TBB REQUIRED CONFIG)
 add_executable (twilight ${SRC_FILES})
 target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
+
+target_link_libraries(twilight_new PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
