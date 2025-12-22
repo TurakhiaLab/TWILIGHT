@@ -376,12 +376,11 @@ void msa::alignment_helper::addGappyColumnsBack(alnPath &aln_before, alnPath &al
 void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *database, Option* option, alnPath &aln)
 {
     int totalLen = aln.size(), startLen = 0, endLen = 0;
-    bool updateSeq = (database->currentTask != 2);
     tbb::this_task_arena::isolate([&] { 
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.first->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.first->seqsIncluded[idx];
-        if (updateSeq) {
+        if (database->currentTask != 2 && sIdx >= 0) {
             database->id_map[sIdx]->memCheck(totalLen);
             int storeFrom = database->id_map[sIdx]->storage;
             int storeTo = 1 - storeFrom;
@@ -420,7 +419,7 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.second->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.second->seqsIncluded[idx];
-        if (updateSeq) {
+        if (database->currentTask != 2 && sIdx >= 0) {
             database->id_map[sIdx]->memCheck(totalLen);
             int orgIdx = 0;
             int storeFrom = database->id_map[sIdx]->storage;
@@ -455,11 +454,31 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     } 
     }); 
     });
-    for (auto idx: nodes.second->seqsIncluded) nodes.first->seqsIncluded.push_back(idx);
     nodes.first->alnNum += nodes.second->alnNum;
-    nodes.second->seqsIncluded.clear();
     nodes.first->alnLen = totalLen;
     nodes.first->alnWeight += nodes.second->alnWeight;
+    for (auto idx: nodes.second->seqsIncluded) nodes.first->seqsIncluded.push_back(idx);
+    nodes.second->seqsIncluded.clear();
+    if (nodes.first->seqsIncluded.size() > _UPDATE_SEQ_TH && !nodes.first->msaFreq.empty() && database->currentTask != 2) {
+        int seqCount = 0, firstSeqID = 0;
+        for (auto idx: nodes.first->seqsIncluded) {
+            if (idx > 1) {
+               if (firstSeqID == 0) firstSeqID = -idx;
+               seqCount++;
+            }
+        }
+        if (seqCount >= _UPDATE_SEQ_TH) {
+            database->subtreeAln[firstSeqID] = alnPath(totalLen, 0);
+            std::vector<int> new_seqsIncluded;
+            new_seqsIncluded.push_back(firstSeqID);
+            for (auto idx: nodes.first->seqsIncluded) {
+                if (idx >= 0) database->id_map[idx]->subtreeIdx = firstSeqID;
+                else new_seqsIncluded.push_back(idx);
+            }
+            nodes.first->seqsIncluded = new_seqsIncluded;
+        }
+    }
+    
     return;
 }
 

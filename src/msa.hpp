@@ -175,6 +175,7 @@ namespace msa
     namespace alignment_helper
     {
         constexpr int _CAL_PROFILE_TH = 1000;
+        constexpr int _UPDATE_SEQ_TH = 1000;
 
         void calculateProfile(float *profile, NodePair &nodes, SequenceDB *database, Option *option, int32_t memLen);
         void removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask);
@@ -199,6 +200,7 @@ namespace msa
         void updateNode(Tree *tree, NodePairVec &nodes, SequenceDB *database);
         void progressiveAlignment(Tree *T, SequenceDB *database, Option *option, std::vector<NodePairVec> &alnPairPerLevel, Params &param, alnFunction alignmentKernel);
         void msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree=-1);
+        void updateAlignment(Node* node, SequenceDB *database);
 
         namespace cpu 
         {

@@ -43,7 +43,8 @@ namespace phylogeny {
         int alnNum = {0};
         float alnWeight = {0};
         int getAlnNum(int currentTask) {
-            return (currentTask == 2) ? alnNum : seqsIncluded.size();
+            // return (currentTask == 2) ? alnNum : seqsIncluded.size();
+            return alnNum;
         };
         int getAlnLen(int currentTask) {
             return alnLen;

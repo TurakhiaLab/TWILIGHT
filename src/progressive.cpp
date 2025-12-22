@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <functional>
+#include <tbb/parallel_for.h>
 
 
 void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>& alnOrder, std::stack<Node*> postStack, int grpID, int mode) {
@@ -190,6 +191,43 @@ void msa::progressive::progressiveAlignment(Tree *T, SequenceDB *database, Optio
     }
 }
 
+void msa::progressive::updateAlignment(Node* node, SequenceDB *database) {
+    std::vector<int> new_seqsIncludes;
+    tbb::this_task_arena::isolate([&] { 
+    tbb::parallel_for(tbb::blocked_range<int>(0, database->sequences.size()), [&](tbb::blocked_range<int> range) {
+    for (int idx = range.begin(); idx < range.end(); ++idx) {
+        auto seq = database->sequences[idx];
+        auto sIdx = seq->id;
+        if (seq->subtreeIdx < -1) {
+            auto aln = database->subtreeAln[seq->subtreeIdx];
+            database->id_map[sIdx]->memCheck(aln.size());
+            int orgIdx = 0;
+            int storeFrom = database->id_map[sIdx]->storage;
+            int storeTo = 1 - storeFrom;
+            for (int k = 0; k < aln.size(); ++k) {
+                if (aln[k] == 0) {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    orgIdx++;
+                }
+                else {
+                    database->id_map[sIdx]->alnStorage[storeTo][k] = '-';
+                }
+            }
+            database->id_map[sIdx]->len = aln.size();
+            database->id_map[sIdx]->changeStorage();
+        }
+    }
+    });
+    });
+    for (auto sIdx: node->seqsIncluded) {
+        if (sIdx >= 0) new_seqsIncludes.push_back(sIdx);
+    }
+    for (auto seq: database->sequences) {
+        if (seq->subtreeIdx < 0) new_seqsIncludes.push_back(seq->id);
+    }
+    node->seqsIncluded = new_seqsIncludes;
+    return;
+}
         
 void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree) {
     auto progressiveStart = std::chrono::high_resolution_clock::now();
@@ -228,8 +266,11 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
         if (database->currentTask != 2) std::cerr << "Alignment (length: " << T->root->alnLen << ") completed in " << progressiveTime.count() / 1000000000 << " s\n";
         else std::cerr<< "Alignment on " << T->allNodes.size() << " subalignments (length: " << T->root->getAlnLen(database->currentTask) << ") in " << progressiveTime.count() / 1000000 << " ms\n";
     }
-    if (database->fallback_nodes.empty())
+    if (database->fallback_nodes.empty()) {
+        if (option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE) updateAlignment(T->root, database);
         return;
+    }
+        
 
     // Adding bad sequences back
     auto badStart = std::chrono::high_resolution_clock::now();
@@ -248,6 +289,7 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
     std::cerr << "Realign profiles that have been deferred. Total profiles/sequences: " << database->fallback_nodes.size() << " / " << badSeqBefore << '\n';
     database->fallback_nodes.clear();
     progressiveAlignment(T, database, option, alnPairsPerLevel,param, cpu::alignmentKernel_CPU);
+    if (option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE) updateAlignment(T->root, database);
     // Reset currentTask
     database->currentTask = 0;
     auto badEnd = std::chrono::high_resolution_clock::now();
