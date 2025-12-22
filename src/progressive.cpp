@@ -254,6 +254,7 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
         lastAligned->seqsIncluded.clear();
         lastAligned->msaFreq.clear();
     }
+    if ((option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE) && database->fallback_nodes.empty()) updateAlignment(T->root, database);
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progressiveTime = progressiveEnd - progressiveStart;
     if (option->alnMode == PLACE_WO_TREE) {
@@ -267,7 +268,6 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
         else std::cerr<< "Alignment on " << T->allNodes.size() << " subalignments (length: " << T->root->getAlnLen(database->currentTask) << ") in " << progressiveTime.count() / 1000000 << " ms\n";
     }
     if (database->fallback_nodes.empty()) {
-        if (option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE) updateAlignment(T->root, database);
         return;
     }
         

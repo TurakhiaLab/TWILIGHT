@@ -123,7 +123,7 @@ namespace msa
             bool backbone; // Used in PLACE_W_TREE
             int memLen;
             char *alnStorage[2];
-            const float timesBigger = 2.0;
+            const int timesBigger = 2;
             // Functions
             void changeStorage();
             void memCheck(int len);
