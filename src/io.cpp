@@ -292,7 +292,7 @@ phylogeny::Tree* msa::io::readAlignments_and_buildTree(SequenceDB *database, Opt
     
         
     std::cerr << "Read " << T->allNodes.size() << " MSA files in " << alnReadTime.count() / 1e6 << " ms.\n";
-    std::cerr << "============================\n";
+    // std::cerr << "============================\n";
     return T;
 }
 
@@ -304,7 +304,7 @@ void msa::io::readBackboneAlignment(Tree* T, SequenceDB *database, Option *optio
     T->root->seqsIncluded.push_back(subtreeIdx);
     auto alnReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds alnReadTime = alnReadEnd - alnReadStart;
-    std::cerr << "Loaded backbone alignment in " << alnReadTime.count() / 1e6 << " ms. (Count: " << T->root->alnNum << ", Length: " << T->root->msaFreq.size() << ")\n";
+    std::cerr << "Backbone alignment read in " << alnReadTime.count() / 1000000 << " ms. (Count: " << T->root->alnNum << ", Length: " << T->root->msaFreq.size() << ")\n";
     return;
 }
 
@@ -357,7 +357,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
     bool nochange = false;
     char gapType = (option->alnMode == PLACE_WO_TREE) ? '.' : '-';
     stringPairVec seqs_before, seqs_after;
-    if (option->alnMode == 0 && option->compressed) fileName += ".gz";
+    if (option->alnMode == DEFAULT_ALN && option->compressed) fileName += ".gz";
     fs::path p(fileName);
     std::string filename = p.stem().string();
     std::string finalAlnFileName = option->tempDir + "/" + filename + ".final.aln";
@@ -431,6 +431,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
         seqs_after.clear();
         seqs_before.clear();
     }
+    if (option->alnMode == PLACE_WO_TREE) std::cerr << "Final Alignment Length: " << database->subtreeAln[subtreeIdx].size() << '\n';    
     database->subtreeAln[subtreeIdx].clear();
     if (nochange) {
         std::string command = "cp " + fileName + " " + finalAlnFileName;
