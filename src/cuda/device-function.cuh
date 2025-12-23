@@ -22,6 +22,18 @@ namespace device_function {
         float* gapExtendPointers [],
         float* param
     );
+
+    __global__ void parallelProfileAlignment_Fast(
+        float* freq, 
+        int8_t *aln, 
+        int32_t* len, 
+        int32_t* num, 
+        int32_t* alnLen, 
+        int32_t *seqInfo,  
+        float* gapOpen, 
+        float* gapExtend, 
+        float* param
+    );
 }
 
 

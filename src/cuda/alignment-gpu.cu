@@ -228,13 +228,19 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
     if (roundGPU < gpuNum) gpuNum = roundGPU;
     // Adjust Length
     int gpuMemLen = seqLen;
-
     std::atomic<int> nowRound;
     nowRound.store(0);
     tbb::spin_rw_mutex fallbackMutex;
-    std::atomic<uint64_t> kernelTime, copyTime;
-    kernelTime.store(0);
-    copyTime.store(0);
+
+    // // Timer
+    // tbb::spin_rw_mutex fallbackMutex;
+    // std::atomic<uint64_t> kernelTime, copyTime;
+    // std::atomic<uint64_t> aTime, bTime, dTime;
+    // kernelTime.store(0);
+    // copyTime.store(0);
+    // aTime.store(0);
+    // bTime.store(0);
+    // dTime.store(0);
 
     std::vector<int> fallbackPairs;
 
@@ -287,28 +293,43 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
             auto copyStart = std::chrono::high_resolution_clock::now();
             gp->memcpyHost2Device(option, gpuMemLen, alnPairs, numBlocks);
             auto copyEnd = std::chrono::high_resolution_clock::now();
-            std::chrono::nanoseconds cTime = copyEnd - copyStart;
-            int ct = copyTime.fetch_add(cTime.count());
+            // std::chrono::nanoseconds cTime = copyEnd - copyStart;
+            // int ct = copyTime.fetch_add(cTime.count());
             std::string berr = cudaGetErrorString(cudaGetLastError());
             if (berr != "no error") printf("ERROR: Before kernel %s!\n", berr.c_str());
             auto kernelStart = std::chrono::high_resolution_clock::now();
-            device_function::parallelProfileAlignment<<<numBlocks, blockSize>>>(
-                gp->deviceFreqPointers,
-                gp->deviceAlnPointers,
-                gp->deviceLen,
-                gp->deviceNum,
-                gp->deviceAlnLen,
-                gp->deviceSeqInfo,
-                gp->deviceGapOpPointers,
-                gp->deviceGapExPointers,
-                gp->deviceParam
-            );
+            if (memBlock > 1) {
+                device_function::parallelProfileAlignment<<<numBlocks, blockSize>>>(
+                    gp->deviceFreqPointers,
+                    gp->deviceAlnPointers,
+                    gp->deviceLen,
+                    gp->deviceNum,
+                    gp->deviceAlnLen,
+                    gp->deviceSeqInfo,
+                    gp->deviceGapOpPointers,
+                    gp->deviceGapExPointers,
+                    gp->deviceParam
+                );
+            }
+            else {
+                device_function::parallelProfileAlignment_Fast<<<numBlocks, blockSize>>>(
+                    gp->deviceFreq[0],
+                    gp->deviceAln[0],
+                    gp->deviceLen,
+                    gp->deviceNum,
+                    gp->deviceAlnLen,
+                    gp->deviceSeqInfo,
+                    gp->deviceGapOp[0],
+                    gp->deviceGapEx[0],
+                    gp->deviceParam
+                );
+            }
             cudaDeviceSynchronize();
             std::string aerr = cudaGetErrorString(cudaGetLastError());
             if (aerr != "no error") printf("ERROR: After kernel %s!\n", aerr.c_str());
             auto kernelEnd = std::chrono::high_resolution_clock::now();
-            std::chrono::nanoseconds kTime = kernelEnd - kernelStart;
-            int kt = kernelTime.fetch_add(kTime.count());
+            // std::chrono::nanoseconds kTime = kernelEnd - kernelStart;
+            // int kt = kernelTime.fetch_add(kTime.count());
             gp->memcpyDevice2Host(option, gpuMemLen, alnPairs, numBlocks);
             tbb::this_task_arena::isolate([&] { 
             tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
@@ -328,8 +349,8 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                 }
                 else {
                     if ((database->currentTask == 0 && option->alnMode != 2) && 
-                        ((refNum == 1 && database->id_map[nodes[nIdx].first->seqsIncluded[0]]->lowQuality) || 
-                         (qryNum == 1 && database->id_map[nodes[nIdx].second->seqsIncluded[0]]->lowQuality))) {
+                        ((refNum == 1 && database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality) || 
+                         (qryNum == 1 && database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality))) {
                         aln[n].clear();
                         {
                             tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex, true);
@@ -337,6 +358,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                         }
                     }    
                     else {
+                        auto t1 = std::chrono::high_resolution_clock::now();
                         alnPath aln_wo_gc;
                         int alnRef = 0, alnQry = 0;
                         int offset = 2 * gpuMemLen * (n%pairPerMemBlock);
@@ -347,23 +369,24 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                             if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_wo_gc.push_back(2);
                         }
                         // Alignment path without gappy columns
-                        for (auto a: aln_wo_gc) {
-                            if (a == 0) {alnRef += 1; alnQry += 1;}
-                            if (a == 1) {alnQry += 1;}
-                            if (a == 2) {alnRef += 1;}
-                        }
+                        // for (auto a: aln_wo_gc) {
+                        //     if (a == 0) {alnRef += 1; alnQry += 1;}
+                        //     if (a == 1) {alnQry += 1;}
+                        //     if (a == 2) {alnRef += 1;}
+                        // }
                         // if (alnRef != gp->hostLen[2*n])   std::cout << "R: Pre " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
                         // if (alnQry != gp->hostLen[2*n+1]) std::cout << "Q: Pre " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
 
                         // Add gappy columns back
+                        auto t2 = std::chrono::high_resolution_clock::now();
                         IntPair debugIdx = std::make_pair(alnRef,alnQry);
                         msa::alignment_helper::addGappyColumnsBack(aln_wo_gc, aln[n], gappyColumns[n], param, {alnRef,alnQry}, consensus[n]);
                         alnRef = 0, alnQry = 0;
-                        for (auto a: aln[n]) {
-                            if (a == 0) {alnRef += 1; alnQry += 1;}
-                            if (a == 1) {alnQry += 1;}
-                            if (a == 2) {alnRef += 1;}
-                        }
+                        // for (auto a: aln[n]) {
+                        //     if (a == 0) {alnRef += 1; alnQry += 1;}
+                        //     if (a == 1) {alnQry += 1;}
+                        //     if (a == 2) {alnRef += 1;}
+                        // }
                         // if (alnRef != refLen) {
                         //     std::cout << "R: Post " << nodes[nIdx].first->identifier <<  '\t' << refNum << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
                         //     for (auto gp: gappyColumns[n].first) std::cout << '(' << gp.first << ',' << gp.second << ')' << ',';
@@ -374,31 +397,50 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                         //     for (auto gp: gappyColumns[n].second) std::cout << '(' << gp.first << ',' << gp.second << ')' << ',';
                         //     std::cout << '\n';
                         // }
+                        auto t3 = std::chrono::high_resolution_clock::now();
+                        // std::chrono::nanoseconds aT = t2 - t1;
+                        // int aaaa = aTime.fetch_add(aT.count());
+                        // std::chrono::nanoseconds bT = t3 - t2;
+                        // int bbbb = bTime.fetch_add(bT.count());
 
                     }
                 }
-            } 
-            });
-            });
-            tbb::this_task_arena::isolate([&] { 
-            tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
-            for (int n = range.begin(); n < range.end(); ++n) {
                 if (!aln[n].empty()) {
+                    auto t4 = std::chrono::high_resolution_clock::now();
                     int32_t nIdx = n + rn*numBlocks;
                     float refWeight = nodes[nIdx].first->alnWeight, qryWeight = nodes[nIdx].second->alnWeight;
                     alignment_helper::updateAlignment(nodes[nIdx], database, option, aln[n]);
                     alignment_helper::updateFrequency(nodes[nIdx], database, aln[n], {refWeight, qryWeight});
+                    auto t5 = std::chrono::high_resolution_clock::now();
+                    // std::chrono::nanoseconds dT = t5 - t4;
+                    // int cccc = dTime.fetch_add(dT.count());
                 }
             } 
-            }); 
             });
+            });
+            // tbb::this_task_arena::isolate([&] { 
+            // tbb::parallel_for(tbb::blocked_range<int>(0, alnPairs), [&](tbb::blocked_range<int> range) {
+            // for (int n = range.begin(); n < range.end(); ++n) {
+            //     if (!aln[n].empty()) {
+            //         int32_t nIdx = n + rn*numBlocks;
+            //         float refWeight = nodes[nIdx].first->alnWeight, qryWeight = nodes[nIdx].second->alnWeight;
+            //         alignment_helper::updateAlignment(nodes[nIdx], database, option, aln[n]);
+            //         alignment_helper::updateFrequency(nodes[nIdx], database, aln[n], {refWeight, qryWeight});
+            //     }
+            // } 
+            // }); 
+            // });
         }
         gp->freeMemory();
         delete gp;
     }
     });
 
-    // std::cerr << "Kernel Time: " << kernelTime / 1000000 << "ms\n";
+    // std::cerr << "Kernel Time: " << kernelTime / 1000 << " us\n";
+    // std::cerr << "Copy   Time: " << copyTime / 1000 << " us\n";
+    // std::cerr << "A      Time: " << aTime / 1000 << " us\n";
+    // std::cerr << "B      Time: " << bTime / 1000 << " us\n";
+    // std::cerr << "D      Time: " << dTime / 1000 << " us\n";
 
     // free memory
     if (fallbackPairs.empty()) return;
