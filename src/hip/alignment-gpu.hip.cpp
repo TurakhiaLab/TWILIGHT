@@ -350,8 +350,8 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                 }
                 else {
                     if ((database->currentTask == 0 && option->alnMode != 2) && 
-                        ((refNum == 1 && database->id_map[nodes[nIdx].first->seqsIncluded[0]]->lowQuality) || 
-                         (qryNum == 1 && database->id_map[nodes[nIdx].second->seqsIncluded[0]]->lowQuality))) {
+                        ((refNum == 1 && database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality) || 
+                         (qryNum == 1 && database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality))) {
                         aln[n].clear();
                         {
                             tbb::spin_rw_mutex::scoped_lock lock(fallbackMutex, true);
