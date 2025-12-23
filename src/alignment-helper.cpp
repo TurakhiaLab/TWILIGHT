@@ -20,12 +20,12 @@ void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, Se
         }
         else {
             for (auto sIdx : nodes.first->seqsIncluded) {
-                float w = database->id_map[sIdx]->weight / refWeight * refNum;;
-                int storage = database->id_map[sIdx]->storage;
+                float w = database->sequences[sIdx]->weight / refWeight * refNum;;
+                int storage = database->sequences[sIdx]->storage;
                 tbb::this_task_arena::isolate([&] { 
                 tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
                 for (int t = r.begin(); t < r.end(); ++t) {
-                    int letterIndex = letterIdx(option->type, toupper(database->id_map[sIdx]->alnStorage[storage][t]));
+                    int letterIndex = letterIdx(option->type, toupper(database->sequences[sIdx]->alnStorage[storage][t]));
                     profile[profileSize*t+letterIndex] += 1.0 * w;  
                 } 
                 }); 
@@ -48,12 +48,12 @@ void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, Se
         }
         else {
             for (auto sIdx : nodes.second->seqsIncluded) {
-                float w = database->id_map[sIdx]->weight / qryWeight * qryNum;;
-                int storage = database->id_map[sIdx]->storage;
+                float w = database->sequences[sIdx]->weight / qryWeight * qryNum;;
+                int storage = database->sequences[sIdx]->storage;
                 tbb::this_task_arena::isolate([&] { 
                 tbb::parallel_for(tbb::blocked_range<int>(0, qryLen), [&](tbb::blocked_range<int> r) {
                 for (int t = r.begin(); t < r.end(); ++t) {
-                    int letterIndex = letterIdx(option->type, toupper(database->id_map[sIdx]->alnStorage[storage][t]));
+                    int letterIndex = letterIdx(option->type, toupper(database->sequences[sIdx]->alnStorage[storage][t]));
                     profile[profileSize*(memLen+t)+letterIndex] += 1.0 * w;
                 } 
                 }); 
@@ -381,22 +381,22 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.first->seqsIncluded[idx];
         if (database->currentTask != 2 && sIdx >= 0) {
-            database->id_map[sIdx]->memCheck(totalLen);
-            int storeFrom = database->id_map[sIdx]->storage;
+            database->sequences[sIdx]->memCheck(totalLen);
+            int storeFrom = database->sequences[sIdx]->storage;
             int storeTo = 1 - storeFrom;
             int orgIdx = 0;
             for (int k = 0; k < aln.size(); ++k) {
                 int kto = k + startLen;
                 if (aln[k] == 0 || aln[k] == 2) {
-                    database->id_map[sIdx]->alnStorage[storeTo][kto] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    database->sequences[sIdx]->alnStorage[storeTo][kto] = database->sequences[sIdx]->alnStorage[storeFrom][orgIdx];
                     orgIdx++;
                 }
                 else {
-                    database->id_map[sIdx]->alnStorage[storeTo][kto] = '-';
+                    database->sequences[sIdx]->alnStorage[storeTo][kto] = '-';
                 }
             }
-            database->id_map[sIdx]->len = totalLen;
-            database->id_map[sIdx]->changeStorage();
+            database->sequences[sIdx]->len = totalLen;
+            database->sequences[sIdx]->changeStorage();
         }
         else {
             int orgIdx = 0;
@@ -420,22 +420,22 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.second->seqsIncluded[idx];
         if (database->currentTask != 2 && sIdx >= 0) {
-            database->id_map[sIdx]->memCheck(totalLen);
+            database->sequences[sIdx]->memCheck(totalLen);
             int orgIdx = 0;
-            int storeFrom = database->id_map[sIdx]->storage;
+            int storeFrom = database->sequences[sIdx]->storage;
             int storeTo = 1 - storeFrom;
             for (int k = 0; k < aln.size(); ++k) {
                 int kto = k + startLen;
                 if (aln[k] == 0 || aln[k] == 1) {
-                    database->id_map[sIdx]->alnStorage[storeTo][kto] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    database->sequences[sIdx]->alnStorage[storeTo][kto] = database->sequences[sIdx]->alnStorage[storeFrom][orgIdx];
                     orgIdx++;
                 }
                 else {
-                    database->id_map[sIdx]->alnStorage[storeTo][kto] = '-';
+                    database->sequences[sIdx]->alnStorage[storeTo][kto] = '-';
                 }
             }
-            database->id_map[sIdx]->len = totalLen;
-            database->id_map[sIdx]->changeStorage();
+            database->sequences[sIdx]->len = totalLen;
+            database->sequences[sIdx]->changeStorage();
         }
         else {
             int orgIdx = 0;
@@ -472,7 +472,7 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
             std::vector<int> new_seqsIncluded;
             new_seqsIncluded.push_back(firstSeqID);
             for (auto idx: nodes.first->seqsIncluded) {
-                if (idx >= 0) database->id_map[idx]->subtreeIdx = firstSeqID;
+                if (idx >= 0) database->sequences[idx]->subtreeIdx = firstSeqID;
                 else new_seqsIncluded.push_back(idx);
             }
             nodes.first->seqsIncluded = new_seqsIncluded;
@@ -525,13 +525,13 @@ void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodeP
         int nIdx = fallbackPairs[i];
         int32_t refNum = nodes[nIdx].first->seqsIncluded.size();
         int32_t qryNum = nodes[nIdx].second->seqsIncluded.size();
-        bool lowQ_r = (refNum == 1 && database->id_map[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
-        bool lowQ_q = (qryNum == 1 && database->id_map[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
+        bool lowQ_r = (refNum == 1 && database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
+        bool lowQ_q = (qryNum == 1 && database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
         if ((refNum < qryNum) || lowQ_r) {
             bool fallback = (!filtering) || (!lowQ_r);
             if (fallback) {
                 database->fallback_nodes.push_back(nodes[nIdx].second);
-                if (lowQ_r) database->id_map[nodes[nIdx].first->seqsIncluded[0]]->lowQuality = false;
+                if (lowQ_r) database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality = false;
             }
             // swap reference and query
             int32_t refLen = nodes[nIdx].first->alnLen;
@@ -550,7 +550,7 @@ void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodeP
             bool fallback = (!filtering) || (!lowQ_q);
             if (fallback) {
                 database->fallback_nodes.push_back(nodes[nIdx].second);
-                if (lowQ_q) database->id_map[nodes[nIdx].second->seqsIncluded[0]]->lowQuality = false;
+                if (lowQ_q) database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality = false;
             }
             totalSeqs += qryNum;
         }
@@ -569,7 +569,7 @@ void msa::alignment_helper::mergeInsertions(SequenceDB *database, Node* root) {
     int refLen = database->subtreeAln[-1].size();
     tbb::parallel_for(tbb::blocked_range<int>(0, database->subtreeAln.size()), [&](tbb::blocked_range<int> r) {
     for (int s = r.begin(); s < r.end(); ++s) {
-        if (database->subtreeAln.find(s) != database->subtreeAln.end() && !database->id_map[s]->lowQuality) {
+        if (database->subtreeAln.find(s) != database->subtreeAln.end() && !database->sequences[s]->lowQuality) {
             int refIdx = 0,  start = -1, len = 0;
             for (int i = 0; i < database->subtreeAln[s].size(); ++i) {
                 if (database->subtreeAln[s][i] == 1) {
@@ -593,8 +593,8 @@ void msa::alignment_helper::mergeInsertions(SequenceDB *database, Node* root) {
     }
     });
 
-    std::vector<int> longest_insertions (refLen, 0);
-    tbb::parallel_for(tbb::blocked_range<int>(0, refLen), [&](tbb::blocked_range<int> r) {
+    std::vector<int> longest_insertions (refLen+1, 0);
+    tbb::parallel_for(tbb::blocked_range<int>(0, refLen+1), [&](tbb::blocked_range<int> r) {
     for (int i = r.begin(); i < r.end(); ++i) {
         int maxLen = 0;
         for (int s = 0; s < database->subtreeAln.size(); ++s) {
@@ -610,26 +610,27 @@ void msa::alignment_helper::mergeInsertions(SequenceDB *database, Node* root) {
     for (auto l: longest_insertions) totalLen += l;
     alnPath refAln;
     refAln.reserve(totalLen);
-    for (auto l: longest_insertions) {
+    for (int i = 0; i < longest_insertions.size(); ++i) {
+        int l = longest_insertions[i];
         for (int i = 0; i < l; ++i) refAln.push_back(3);
-        refAln.push_back(0);
+        if (i < longest_insertions.size() - 1) refAln.push_back(0);
     }
 
     tbb::parallel_for(tbb::blocked_range<int>(0, database->sequences.size()), [&](tbb::blocked_range<int> range) {
     for (int sIdx = range.begin(); sIdx < range.end(); ++sIdx) {
-        if (database->id_map[sIdx]->lowQuality) continue;
-        database->id_map[sIdx]->memCheck(totalLen);
+        if (database->sequences[sIdx]->lowQuality) continue;
+        database->sequences[sIdx]->memCheck(totalLen);
         int orgIdx = 0, alnIdx = 0;
-        int storeFrom = database->id_map[sIdx]->storage;
+        int storeFrom = database->sequences[sIdx]->storage;
         int storeTo = 1 - storeFrom;
         for (int k = 0; k < totalLen; ++k) {
             if (refAln[k] == 0) {
                 if (database->subtreeAln[sIdx][alnIdx] == 0) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    database->sequences[sIdx]->alnStorage[storeTo][k] = database->sequences[sIdx]->alnStorage[storeFrom][orgIdx];
                     ++alnIdx; ++orgIdx;
                 }
                 else if (database->subtreeAln[sIdx][alnIdx] == 2) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = '-';
+                    database->sequences[sIdx]->alnStorage[storeTo][k] = '-';
                     ++alnIdx;
                 }
                 else {
@@ -637,17 +638,23 @@ void msa::alignment_helper::mergeInsertions(SequenceDB *database, Node* root) {
                 }
             }
             else { // refAln[k] == 3
-                if (database->subtreeAln[sIdx][alnIdx] == 1) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
-                    alnIdx++; ++orgIdx;
+                if (alnIdx >= database->subtreeAln[sIdx].size()) {
+                    database->sequences[sIdx]->alnStorage[storeTo][k] = '.';
                 }
                 else {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = '.';
+                    if (database->subtreeAln[sIdx][alnIdx] == 1) {
+                        database->sequences[sIdx]->alnStorage[storeTo][k] = database->sequences[sIdx]->alnStorage[storeFrom][orgIdx];
+                        alnIdx++; ++orgIdx;
+                    }
+                    else {
+                        database->sequences[sIdx]->alnStorage[storeTo][k] = '.';
+                    }
                 }
+                
             }
             
         }
-        database->id_map[sIdx]->changeStorage();
+        database->sequences[sIdx]->changeStorage();
     }
     });
     database->subtreeAln[-1] = refAln;
@@ -688,10 +695,10 @@ void msa::alignment_helper::alignEnds (NodePair &nodes, SequenceDB *database, ch
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.first->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.first->seqsIncluded[idx];
-        int storage = database->id_map[sIdx]->storage;
-        startingSeqs[idx] = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage], starting.first)};
-        // std::cout << starting.first << ',' << std::string(database->id_map[sIdx]->alnStorage[storage], starting.first) << ',' << std::string(database->id_map[sIdx]->alnStorage[storage], 10) << '\n';
-        endingSeqs[idx]   = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage]+ending.first, refLen-ending.first)};
+        int storage = database->sequences[sIdx]->storage;
+        startingSeqs[idx] = {sIdx, std::string(database->sequences[sIdx]->alnStorage[storage], starting.first)};
+        // std::cout << starting.first << ',' << std::string(database->sequences[sIdx]->alnStorage[storage], starting.first) << ',' << std::string(database->sequences[sIdx]->alnStorage[storage], 10) << '\n';
+        endingSeqs[idx]   = {sIdx, std::string(database->sequences[sIdx]->alnStorage[storage]+ending.first, refLen-ending.first)};
         size_t k = 0;
         for (size_t i = 0; i < startingSeqs[idx].second.size(); ++i) {
             if (startingSeqs[idx].second[i] != '-') startingSeqs[idx].second[k++] = startingSeqs[idx].second[i];
@@ -709,9 +716,9 @@ void msa::alignment_helper::alignEnds (NodePair &nodes, SequenceDB *database, ch
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.second->seqsIncluded.size()), [&](tbb::blocked_range<int> range) {
     for (int idx = range.begin(); idx < range.end(); ++idx) {
         int sIdx = nodes.second->seqsIncluded[idx];
-        int storage = database->id_map[sIdx]->storage;
-        startingSeqs[idx+refNum] = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage], starting.second)};
-        endingSeqs[idx+refNum]   = {sIdx, std::string(database->id_map[sIdx]->alnStorage[storage]+ending.second, qryLen-ending.second)};
+        int storage = database->sequences[sIdx]->storage;
+        startingSeqs[idx+refNum] = {sIdx, std::string(database->sequences[sIdx]->alnStorage[storage], starting.second)};
+        endingSeqs[idx+refNum]   = {sIdx, std::string(database->sequences[sIdx]->alnStorage[storage]+ending.second, qryLen-ending.second)};
         size_t k = 0;
         for (size_t i = 0; i < startingSeqs[idx+refNum].second.size(); ++i) {
             if (startingSeqs[idx+refNum].second[i] != '-') startingSeqs[idx+refNum].second[k++] = startingSeqs[idx+refNum].second[i];

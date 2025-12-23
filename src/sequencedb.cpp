@@ -79,7 +79,7 @@ void msa::SequenceDB::addSequence(int id, const std::string &name, std::string &
 {
     SequenceInfo *newSeq = new SequenceInfo(id, name, seq, subtreeIdx, weight, debug, alnMode);
     sequences.push_back(newSeq);
-    id_map[id] = newSeq;
+    // id_map[id] = newSeq;
     name_map[name] = newSeq;
     return;
 }
@@ -125,11 +125,11 @@ void msa::SequenceDB::storeSubtreeProfile(Tree* subT, char type, int subtreeIdx)
     int profileSize = (type == 'n') ? 6 : 22;
     subT->root->msaFreq = Profile(subT->root->alnLen, std::vector<float>(profileSize, 0.0));
     for (int sIdx: subT->root->seqsIncluded) {
-        int storage = this->id_map[sIdx]->storage;
-        float w = this->id_map[sIdx]->weight;
+        int storage = this->sequences[sIdx]->storage;
+        float w = this->sequences[sIdx]->weight;
         tbb::parallel_for(tbb::blocked_range<int>(0, subT->root->alnLen), [&](tbb::blocked_range<int> r) {
         for (int j = r.begin(); j < r.end(); ++j) {
-            int letterIndex = letterIdx(type, toupper(this->id_map[sIdx]->alnStorage[storage][j]));
+            int letterIndex = letterIdx(type, toupper(this->sequences[sIdx]->alnStorage[storage][j]));
             subT->root->msaFreq[j][letterIndex] += 1.0 * w;
         }
         });
@@ -171,12 +171,12 @@ phylogeny::Tree* msa::SequenceDB::getPlacementTree(Tree* T) {
     // Remove all gap columns
     for (auto node: T->allNodes) {
         if (node.second->placed && !node.second->is_leaf() && !node.second->seqsIncluded.empty()) {
-            int length = this->id_map[node.second->seqsIncluded.front()]->len;
+            int length = this->sequences[node.second->seqsIncluded.front()]->len;
             std::vector<uint8_t> allGaps (length, 1);
             tbb::parallel_for(tbb::blocked_range<size_t>(0, length), [&](const tbb::blocked_range<size_t>& range) {
             for (size_t j = range.begin(); j != range.end(); ++j) {
                 for (auto sIdx: node.second->seqsIncluded) {
-                    if (this->id_map[sIdx]->alnStorage[0][j] != '-') {
+                    if (this->sequences[sIdx]->alnStorage[0][j] != '-') {
                         allGaps[j] = 0;
                         break;
                     }
@@ -190,21 +190,21 @@ phylogeny::Tree* msa::SequenceDB::getPlacementTree(Tree* T) {
                 int newIdx = 0;
                 for (int j = 0; j < length; ++j) {
                     if (allGaps[j] == 0) {
-                        this->id_map[sIdx]->alnStorage[0][newIdx] = this->id_map[sIdx]->alnStorage[0][j];
+                        this->sequences[sIdx]->alnStorage[0][newIdx] = this->sequences[sIdx]->alnStorage[0][j];
                         newIdx++;
                     }
                 }
                 for (int j = newIdx; j < length; ++j) {
-                    this->id_map[sIdx]->alnStorage[0][j] = 0;
+                    this->sequences[sIdx]->alnStorage[0][j] = 0;
                 }    
-                this->id_map[sIdx]->len = newIdx;
+                this->sequences[sIdx]->len = newIdx;
             }
             });
 
-            node.second->alnLen = this->id_map[node.second->seqsIncluded.front()]->len;
+            node.second->alnLen = this->sequences[node.second->seqsIncluded.front()]->len;
             node.second->alnNum = node.second->seqsIncluded.size();
             node.second->alnWeight = 0.0;
-            for (auto sIdx: node.second->seqsIncluded) node.second->alnWeight += this->id_map[sIdx]->weight;
+            for (auto sIdx: node.second->seqsIncluded) node.second->alnWeight += this->sequences[sIdx]->weight;
             // std::cout << node.first << '\t' << node.second->seqsIncluded.size() << '\t' << node.second->alnLen << '/' << length << '\t' << this->id_map[node.second->seqsIncluded.front()]->unalignedSeq.size() << '\t' << node.second->alnNum << '\t' << node.second->alnWeight << '\n';
         }
     }

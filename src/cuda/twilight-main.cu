@@ -258,7 +258,7 @@ int main(int argc, char** argv) {
             if (option->reroot) subT->reroot(true);
             phylogeny::Tree* placementT = database->getPlacementTree(subT);
             // Progressive alignment on each subtree
-            msa::progressive::msaOnSubtree(placementT, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+            msa::progressive::msaOnSubtree(placementT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU);
             subT->extractResult(placementT);
             delete placementT;
             // post-alignment debugging

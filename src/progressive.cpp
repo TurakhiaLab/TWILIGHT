@@ -200,21 +200,21 @@ void msa::progressive::updateAlignment(Node* node, SequenceDB *database) {
         auto sIdx = seq->id;
         if (seq->subtreeIdx < -1) {
             auto aln = database->subtreeAln[seq->subtreeIdx];
-            database->id_map[sIdx]->memCheck(aln.size());
+            database->sequences[sIdx]->memCheck(aln.size());
             int orgIdx = 0;
-            int storeFrom = database->id_map[sIdx]->storage;
+            int storeFrom = database->sequences[sIdx]->storage;
             int storeTo = 1 - storeFrom;
             for (int k = 0; k < aln.size(); ++k) {
                 if (aln[k] == 0) {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = database->id_map[sIdx]->alnStorage[storeFrom][orgIdx];
+                    database->sequences[sIdx]->alnStorage[storeTo][k] = database->sequences[sIdx]->alnStorage[storeFrom][orgIdx];
                     orgIdx++;
                 }
                 else {
-                    database->id_map[sIdx]->alnStorage[storeTo][k] = '-';
+                    database->sequences[sIdx]->alnStorage[storeTo][k] = '-';
                 }
             }
-            database->id_map[sIdx]->len = aln.size();
-            database->id_map[sIdx]->changeStorage();
+            database->sequences[sIdx]->len = aln.size();
+            database->sequences[sIdx]->changeStorage();
         }
     }
     });
