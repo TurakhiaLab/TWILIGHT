@@ -1057,14 +1057,6 @@ __global__ void device_function::parallelProfileAlignment_Fast(
                         int16_t tempI, tempD, tempH;
                         
                         // Use DPX instuctions to calculate Max
-                        unsigned Ext = (delExt << 16) | (insExt & 0xFFFF);
-                        unsigned Op =  (delOp << 16)  | (insOp & 0xFFFF);
-                        unsigned ExtOp = __vibmax_s16x2(Ext, Op, &Dptr, &Iptr);
-                        tempD = (ExtOp >> 16) & 0xFFFF;
-                        tempI = ExtOp & 0xFFFF;
-                        D[(k%2)*fLen+offset] = tempD; 
-                        I[(k%2)*fLen+offset] = tempI;
-                       // Use DPX instuctions to calculate Max
                         /*
                         unsigned Ext = (delExt << 16) | (insExt & 0xFFFF);
                         unsigned Op =  (delOp << 16)  | (insOp & 0xFFFF);
