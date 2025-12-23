@@ -299,17 +299,32 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
             std::string berr = hipGetErrorString(hipGetLastError());
             if (berr != "no error") printf("ERROR: Before kernel %s!\n", berr.c_str());
             auto kernelStart = std::chrono::high_resolution_clock::now();
-            device_function::parallelProfileAlignment<<<numBlocks, blockSize>>>(
-                gp->deviceFreqPointers,
-                gp->deviceAlnPointers,
-                gp->deviceLen,
-                gp->deviceNum,
-                gp->deviceAlnLen,
-                gp->deviceSeqInfo,
-                gp->deviceGapOpPointers,
-                gp->deviceGapExPointers,
-                gp->deviceParam
-            );
+            if (memBlock > 1) {
+                device_function::parallelProfileAlignment<<<numBlocks, blockSize>>>(
+                    gp->deviceFreqPointers,
+                    gp->deviceAlnPointers,
+                    gp->deviceLen,
+                    gp->deviceNum,
+                    gp->deviceAlnLen,
+                    gp->deviceSeqInfo,
+                    gp->deviceGapOpPointers,
+                    gp->deviceGapExPointers,
+                    gp->deviceParam
+                );
+            }
+            else {
+                device_function::parallelProfileAlignment_Fast<<<numBlocks, blockSize>>>(
+                    gp->deviceFreq[0],
+                    gp->deviceAln[0],
+                    gp->deviceLen,
+                    gp->deviceNum,
+                    gp->deviceAlnLen,
+                    gp->deviceSeqInfo,
+                    gp->deviceGapOp[0],
+                    gp->deviceGapEx[0],
+                    gp->deviceParam
+                );
+            }
             hipDeviceSynchronize();
             std::string aerr = hipGetErrorString(hipGetLastError());
             if (aerr != "no error") printf("ERROR: After kernel %s!\n", aerr.c_str());

@@ -1,11 +1,5 @@
 #ifndef MSA_HPP
-
-#include <hip/hip_runtime.h>
 #include "../msa.hpp"
-#endif
-
-#ifndef PHYLO_HPP
-#include "../phylogeny.hpp"
 #endif
 
 #include "../version.hpp"
@@ -13,6 +7,7 @@
 #include <tbb/global_control.h>
 #include <boost/filesystem.hpp>
 #include <chrono>
+#include <hip/hip_runtime.h>
 
 po::options_description mainDesc("TWILIGHT Command Line Arguments", 120);
 
@@ -264,7 +259,7 @@ int main(int argc, char** argv) {
             if (option->reroot) subT->reroot(true);
             phylogeny::Tree* placementT = database->getPlacementTree(subT);
             // Progressive alignment on each subtree
-            msa::progressive::msaOnSubtree(placementT, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+            msa::progressive::msaOnSubtree(placementT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU);
             subT->extractResult(placementT);
             delete placementT;
             // post-alignment debugging
