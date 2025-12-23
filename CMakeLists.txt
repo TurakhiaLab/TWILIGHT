@@ -21,6 +21,11 @@ configure_file(src/version.hpp.in ${CMAKE_SOURCE_DIR}/src/version.hpp)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    message(STATUS "Building TALCO with x86 SIMD")
+    add_compile_definitions(TALCO_SIMD)
+endif()
+
 if(USE_CUDA)
 	message(STATUS "Build with CUDA")
 	check_language(CUDA)

@@ -26,7 +26,9 @@
 #include "TALCO-XDrop.hpp"
 #endif
 
+#if defined(TALCO_SIMD)
 #include <immintrin.h>
+#endif
 
 #define I_BOUNDARY -2
 #define D_BOUNDARY -3
@@ -372,6 +374,7 @@ void Talco_xdrop::Tile (
                     const float* refColumns = reference[reference_idx + j].data();
                     const float* qryColumns = query[query_idx + i].data();
                     if (type == 0) {
+                        #if defined(TALCO_SIMD)
                         __m256i mask = _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0); // first 5 valid
                         for (int l = 0; l < 5; ++l) {
                             __m256 sumvec = _mm256_setzero_ps();
@@ -390,7 +393,7 @@ void Talco_xdrop::Tile (
                         }
                         for (int l = 0; l < 5; ++l) numerator += refColumns[l] * qryColumns[5] * param->gapCharScore;
                         for (int m = 0; m < 5; ++m) numerator += refColumns[5] * qryColumns[m] * param->gapCharScore;
-                        /*
+                        #else
                         for (int l = 0; l < 6; ++l) {
                             for (int m = 0; m < 6; ++m) {
                                 if (m == 5 && l == 5)      numerator += 0;
@@ -398,10 +401,11 @@ void Talco_xdrop::Tile (
                                 else                       numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
                             }
                         }
-                        */
+                        #endif
                         
                     }
                     else {
+                        #if defined(TALCO_SIMD)
                         for (int l = 0; l < 21; ++l) {   // skip 21 for now (gap row)
                             __m256 sumvec = _mm256_setzero_ps();             
                             float ref_l = refColumns[l];
@@ -427,8 +431,7 @@ void Talco_xdrop::Tile (
                         // Handle gap row/column (21)
                         for (int l = 0; l < 21; ++l) numerator += refColumns[l] * qryColumns[21] * param->gapCharScore;
                         for (int m = 0; m < 21; ++m) numerator += refColumns[21] * qryColumns[m] * param->gapCharScore;
-                        
-                        /*
+                        #else
                         for (int l = 0; l < 22; ++l) {
                             for (int m = 0; m < 22; ++m) {
                                 if (m == 21 && l == 21)      numerator += 0;
@@ -436,7 +439,7 @@ void Talco_xdrop::Tile (
                                 else                         numerator += reference[reference_idx+j][l]*query[query_idx+i][m]*param->scoreMatrix[m][l];
                             }
                         }
-                        */
+                        #endif
                     }
                     similarScore = numerator/denominator;
                     if  (tile == 0 && (i == 0 || j == 0 )) {
