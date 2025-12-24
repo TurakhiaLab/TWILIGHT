@@ -88,9 +88,9 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
         if (database->currentTask == 1 || database->currentTask == 2 || refNum > 10000 || qryNum > 10000) talco_params->gapCharScore = 0;
         if (refLen == 0) for (int j = 0; j < qryLen; ++j) aln_wo_gc.push_back(1);
         if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_wo_gc.push_back(2);
-        bool lowQ_r = (option->alnMode == MERGE_MSA) ? false : ((refNum == 1) && database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
-        bool lowQ_q = (option->alnMode == MERGE_MSA) ? false : ((qryNum == 1) && database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
-        if (option->noFilter || (!lowQ_r && !lowQ_q)) {
+        bool lowQ_r = (option->alnMode == MERGE_MSA) ? false : ((refNum > 1) ? false : database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
+        bool lowQ_q = (option->alnMode == MERGE_MSA) ? false : ((qryNum > 1) ? false : database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
+       if (!lowQ_r && !lowQ_q) {
             auto talcoStart = std::chrono::high_resolution_clock::now();
             while (aln_wo_gc.empty()) {
                 int16_t errorType = 0;

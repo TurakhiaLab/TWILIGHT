@@ -523,10 +523,10 @@ void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodeP
     std::sort(fallbackPairs.begin(), fallbackPairs.end());
     for (int i = 0; i < fallbackPairs.size(); ++i) {
         int nIdx = fallbackPairs[i];
-        int32_t refNum = nodes[nIdx].first->seqsIncluded.size();
-        int32_t qryNum = nodes[nIdx].second->seqsIncluded.size();
-        bool lowQ_r = (refNum == 1 && database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
-        bool lowQ_q = (qryNum == 1 && database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
+        int32_t refNum = nodes[nIdx].first->alnNum;
+        int32_t qryNum = nodes[nIdx].second->alnNum;
+        bool lowQ_r = (refNum > 1) ? false : (database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
+        bool lowQ_q = (qryNum > 1) ? false : (database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
         if ((refNum < qryNum) || lowQ_r) {
             bool fallback = (!filtering) || (!lowQ_r);
             if (fallback) {
@@ -536,8 +536,14 @@ void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodeP
             // swap reference and query
             int32_t refLen = nodes[nIdx].first->alnLen;
             int32_t qryLen = nodes[nIdx].second->alnLen;
+            float refWeight = nodes[nIdx].first->alnWeight;
+            float qryWeight = nodes[nIdx].second->alnWeight;
             nodes[nIdx].second->alnLen = refLen;
             nodes[nIdx].first->alnLen = qryLen;
+            nodes[nIdx].second->alnNum = refNum;
+            nodes[nIdx].first->alnNum = qryNum;
+            nodes[nIdx].second->alnWeight = refWeight;
+            nodes[nIdx].first->alnWeight = qryWeight;
             auto temp = nodes[nIdx].second->seqsIncluded;
             nodes[nIdx].second->seqsIncluded = nodes[nIdx].first->seqsIncluded;
             nodes[nIdx].first->seqsIncluded = temp;

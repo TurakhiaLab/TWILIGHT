@@ -347,7 +347,7 @@ void phylogeny::Tree::showTree() {
                   << std::setw(10) << (node->parent ? node->parent->identifier : "ROOT")  // Parent or ROOT
                   << std::setw(8)  << node->level
                   << std::setw(8)  << node->grpID
-                  << std::setw(10) << std::fixed << std::setprecision(3) << node->children.size()
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->weight
                   << '\n';
         for (auto& c : node->children) {
             showTreeImpl(c);
