@@ -18,6 +18,7 @@
 #include <array>
 
 #include <boost/program_options.hpp>
+#include <tbb/spin_rw_mutex.h>
 
 namespace po = boost::program_options;
 
@@ -131,6 +132,7 @@ namespace msa
             SequenceInfo(int id_, const std::string &name_, std::string &seq, int subtreeIdx_, float _weight, bool debug, int alnMode);
             ~SequenceInfo();
         };
+        tbb::spin_rw_mutex mapMutex;
         int currentTask = {0};
         std::vector<SequenceInfo*> sequences;
         std::vector<Node*> fallback_nodes;

@@ -3,6 +3,7 @@
 #endif
 
 #include <tbb/parallel_for.h>
+#include <tbb/spin_rw_mutex.h>
 
 void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, SequenceDB *database, Option *option, int32_t memLen)
 {
@@ -400,17 +401,25 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
         }
         else {
             int orgIdx = 0;
-            alnPath orgAln = database->subtreeAln[sIdx];
-            database->subtreeAln[sIdx].resize(aln.size());
+            alnPath orgAln;
+            {
+                tbb::spin_rw_mutex::scoped_lock lock(database->mapMutex, false);
+                orgAln = database->subtreeAln[sIdx];
+            } 
+            alnPath updatedAln (aln.size());
             for (int k = 0; k < aln.size(); ++k) {
                 if (aln[k] == 0 || aln[k] == 2) {
-                    database->subtreeAln[sIdx][k] = orgAln[orgIdx];
+                    updatedAln[k] = orgAln[orgIdx];
                     orgIdx++;
                 }
                 else {
-                    database->subtreeAln[sIdx][k] = 1; // 1 for Gaps
+                    updatedAln[k] = 1; // 1 for Gaps
                 }
             }
+            {
+                tbb::spin_rw_mutex::scoped_lock lock(database->mapMutex);
+                database->subtreeAln[sIdx] = updatedAln;
+            }   
         }
     } 
     }); 
@@ -439,16 +448,24 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
         }
         else {
             int orgIdx = 0;
-            alnPath orgAln = database->subtreeAln[sIdx];
-            database->subtreeAln[sIdx].resize(aln.size());
+            alnPath orgAln;
+            {
+                tbb::spin_rw_mutex::scoped_lock lock(database->mapMutex, false);
+                orgAln = database->subtreeAln[sIdx];
+            } 
+            alnPath updatedAln (aln.size());
             for (int k = 0; k < aln.size(); ++k) {
                 if (aln[k] == 0 || aln[k] == 1) {
-                    database->subtreeAln[sIdx][k] = orgAln[orgIdx];
+                    updatedAln [k] = orgAln[orgIdx];
                     orgIdx++;
                 }
                 else {
-                    database->subtreeAln[sIdx][k] = 1; // 1 for Gaps
+                    updatedAln [k] = 1; // 1 for Gaps
                 }
+            }
+            {
+                tbb::spin_rw_mutex::scoped_lock lock(database->mapMutex);
+                database->subtreeAln[sIdx] = updatedAln;
             }
         }
     } 
@@ -468,7 +485,10 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
             }
         }
         if (seqCount >= _UPDATE_SEQ_TH) {
-            database->subtreeAln[firstSeqID] = alnPath(totalLen, 0);
+            {
+                tbb::spin_rw_mutex::scoped_lock lock(database->mapMutex);
+                database->subtreeAln[firstSeqID] = alnPath(totalLen, 0);
+            }
             std::vector<int> new_seqsIncluded;
             new_seqsIncluded.push_back(firstSeqID);
             for (auto idx: nodes.first->seqsIncluded) {
@@ -481,6 +501,7 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     
     return;
 }
+
 
 void msa::alignment_helper::updateFrequency(NodePair &nodes, SequenceDB *database, alnPath &aln, FloatPair weights)
 {

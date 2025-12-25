@@ -122,7 +122,7 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                     exit(1);
                 }
                 else if (errorType == 1) {
-                    talco_params->updateXDrop(static_cast<int32_t>(talco_params->xdrop * 1.2));
+                    talco_params->updateXDrop(static_cast<int32_t>(talco_params->xdrop * 2));
                     talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->xdrop * 4) << 1, std::min(lens.first, lens.second)));
                     if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << "\tNew Xdrop: " << talco_params->xdrop << '\n';
 
