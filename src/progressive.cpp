@@ -280,8 +280,8 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
     alnPairsPerLevel.clear();
     for (auto bad: database->fallback_nodes) badSeqBefore += bad->seqsIncluded.size();
     std::sort(database->fallback_nodes.begin(), database->fallback_nodes.end(), [&](Node* &a, Node* &b) {
-        if (a->seqsIncluded.size() == b->seqsIncluded.size()) return a->getAlnLen(database->currentTask) > b->getAlnLen(database->currentTask);
-        return a->seqsIncluded.size() > b->seqsIncluded.size();  // descending
+        if (a->alnNum == b->alnNum) return a->getAlnLen(database->currentTask) > b->getAlnLen(database->currentTask);
+        return a->alnNum > b->alnNum;  // descending
     });
     for (auto bad: database->fallback_nodes) {
         alnPairsPerLevel.push_back(std::vector<NodePair>(1, {T->root, bad}));
