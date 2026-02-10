@@ -186,9 +186,22 @@ else()
 	endif()
 endif()
 
+add_executable (twilight_mga
+				src_mga/twilight_mga-main.cpp
+				src_mga/parser.cpp
+				src_mga/alignment.cpp
+				src_mga/option.cpp
+				src_mga/tree.cpp
+				src_mga/node.cpp
+				src_mga/block.cpp
+				src_mga/io.cpp
+				src_mga/progressive.cpp
+				src_mga/alignment_kernel.cpp)
+
 find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
 include_directories(${ZLIB_INCLUDE_DIR})
 find_package(TBB REQUIRED CONFIG)
-add_executable (twilight ${SRC_FILES})
-target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
+# add_executable (twilight ${SRC_FILES})
+# target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
+target_link_libraries(twilight_mga PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
