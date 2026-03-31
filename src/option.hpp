@@ -31,13 +31,10 @@ struct Option {
     std::vector<int> gpuIdx;
     std::vector<size_t> gpuMem;
     bool cpuOnly;
-    bool verbose;
-    bool quite;
     // File Names
     std::string treeFile;
     std::string seqFile;
     std::string outFile;
-    std::string tempDir;
     // Constructor
     Option(po::variables_map &vm);
     // Only used in GPU version

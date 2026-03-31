@@ -129,27 +129,15 @@ void scheduling(Node* root, std::vector<NodePairVec>& levels, int mode) {
     }
 }
 
-void updateNode(NodePairVec& nodes, BlockManager& blockManager) {
+void updateNode(NodePairVec& nodes, BlockManager* blockManager) {
     for (auto& n : nodes) {
         for (int i = 0; i < 2; ++i) {
             Node* currentNode = (i == 0) ? n.first : n.second;
-            if (currentNode->is_leaf() && currentNode->blockId == 0) {
-                // Assuming the node identifier is the block ID (or can be mapped to it)
-                try {
-                    uint64_t blockId_val = std::stoull(currentNode->identifier);
-                    auto block = blockManager.getBlock(blockId_val);
-                    if (block) {
-                        currentNode->blockId = blockId_val;
-                    }
-                } catch (const std::invalid_argument& e) {
-                    // Handle cases where identifier is not a numeric ID
-                }
-            } else if (currentNode->blockId == 0) {
-                int grpID = currentNode->grpID;
-                 for (const auto& child_ptr : currentNode->children) {
+            if (!blockManager->getBlockSet(currentNode->identifier)) {
+                for (const auto& child_ptr : currentNode->children) {
                     Node* child = child_ptr.get();
-                     if ((child->grpID == -1 || child->grpID == grpID) && (child != ((i == 0) ? n.second : n.first))) {
-                        currentNode->blockId = child->blockId;
+                    if (child != ((i == 0) ? n.second : n.first) && blockManager->getBlockSet(child->identifier)) {
+                        blockManager->changeBlockSetId(child->identifier, currentNode->identifier);
                         break;
                     }
                 }
@@ -159,7 +147,7 @@ void updateNode(NodePairVec& nodes, BlockManager& blockManager) {
 }
 
 
-void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairVec>& alnPairsPerLevel, BlockManager& blockManager) {
+void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairVec>& alnPairsPerLevel, BlockManager* blockManager) {
     int level = 0;
     if (option.verbose) {
         std::cerr << "Total " << alnPairsPerLevel.size() << " levels.\n";
@@ -182,16 +170,15 @@ void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairVec>& aln
 }
 
 
-void msaOnSubtree(Tree& T, Option& option, BlockManager& blockManager, int subtree) {
+void msaOnSubtree(Tree& T, Option& option, BlockManager* blockManager, int subtree) {
 
     auto progressiveStart = std::chrono::high_resolution_clock::now();
     std::cerr << "============================\n";
 
     std::vector<NodePairVec> alnPairsPerLevel;
-    // Mode based on alignment strategy
-    int mode = 0; // Simplified logic, assuming 2 is PLACE_WO_TREE
-    scheduling(T.root.get(), alnPairsPerLevel, mode);
     
+    int mode = 0;
+    scheduling(T.root.get(), alnPairsPerLevel, mode);
     auto scheduleEnd = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double, std::micro> scheduleTime = scheduleEnd - progressiveStart;
     if (option.verbose) {
@@ -200,17 +187,8 @@ void msaOnSubtree(Tree& T, Option& option, BlockManager& blockManager, int subtr
 
     progressiveAlignment(T, option, alnPairsPerLevel, blockManager);
     
-    // Push MSA results to the root of the tree
-    if (!alnPairsPerLevel.empty() && !alnPairsPerLevel.back().empty()) {
-        Node* lastAligned = alnPairsPerLevel.back()[0].first;
-        T.root->blockId = lastAligned->blockId;
-        lastAligned->blockId = 0;
-        // lastAligned->msaFreq.clear();
-    }
-    
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> progressiveTime = progressiveEnd - progressiveStart;
-
     std::cerr << "Alignment completed in " << progressiveTime.count() << " s\n";
 }
 

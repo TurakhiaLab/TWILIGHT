@@ -19,7 +19,7 @@ namespace phylogeny {
     struct Node {
         // Constructors
         Node(std::string id, float len) 
-            : identifier(id), branchLength(len), parent(nullptr), 
+            : identifier(id), parent(nullptr), branchLength(len),
               level(0), numLeaves(0), weight(0),
               grpID(-1), partitionParent(nullptr), blockId(0) {}
 
@@ -38,14 +38,13 @@ namespace phylogeny {
         // Data Members
         std::string identifier;
         Node* parent; // Raw pointer is correct here (Observer, prevents ownership cycles)
-        // THE BIG CHANGE: Owning pointers to children
-        std::vector<std::unique_ptr<Node>> children; 
 
         float branchLength;
         size_t level;
         size_t numLeaves;
         float weight;
 
+        std::vector<std::unique_ptr<Node>> children; 
         /* Partition */
         int grpID;
         Node* partitionParent; // Raw pointer (Observer)

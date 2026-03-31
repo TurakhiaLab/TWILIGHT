@@ -35,5 +35,36 @@ Option::Option(po::variables_map& vm) {
     this->verbose = (vm.count("verbose"));
     this->quite = (vm.count("quiet"));
     this->cpuOnly = (vm.count("cpu-only"));
+
+    // Create Temp-Dir
+    std::string tempDir;
+    if (!vm.count("temp-dir")) {
+        int idx = 1;
+        std::string tempDir_org = "./twilight_temp";
+        tempDir = tempDir_org;
+        while (true) {
+            if (mkdir(tempDir.c_str(), 0777) == -1) {
+                if( errno == EEXIST ) {
+                    tempDir = tempDir_org + '_' + std::to_string(idx);
+                    ++idx;
+                }
+                else { fprintf(stderr, "ERROR: Can't create directory: %s\n", tempDir.c_str()); exit(1); }
+            }
+            else break;
+        }
+    }
+    else {
+        tempDir = vm["temp-dir"].as<std::string>();
+        if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
+        if (fs::exists(tempDir)) {
+            if (!vm.count("overwrite")) {
+                std::cerr << "ERROR: " << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
+                exit(1);
+            }
+        }
+        fs::create_directories(tempDir);
+    }
+    std::cout << tempDir << " created for storing temporary alignments\n";
+    this->tempDir = tempDir;
     
 }

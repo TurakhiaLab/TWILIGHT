@@ -24,10 +24,8 @@ void parseArguments(int argc, char** argv)
     po::options_description inputDesc("Inputs\n [1] Build MSA From Unaligned Sequences\n [2] Merge Multiple MSAs\n [3] Add New Sequences to Existing MSA");
     inputDesc.add_options()
         ("tree,t", po::value<std::string>(), "Guide tree (Newick format): required for [1]; optional for [3].")
-        ("sequences,i", po::value<std::string>(), "Unaligned sequences file (FASTA format): required for [1] and [3].")
-        ("alignment,a", po::value<std::string>(), "Backbone alignments (FASTA format): required for [3].")
-        ("files,f", po::value<std::string>(), "Directory containing all MSA files. MSA files (FASTA format): required for [2].");
-   
+        ("sequences,i", po::value<std::string>(), "Unaligned sequences file (FASTA format): required for [1] and [3].");
+        
     po::options_description outputDesc("Output/File Options");
     outputDesc.add_options()
         ("output,o", po::value<std::string>(), "Output file name (required).")
@@ -57,8 +55,6 @@ void parseArguments(int argc, char** argv)
 
     po::options_description seqFilterDesc("Sequence Filtering Options");
     seqFilterDesc.add_options()
-        // ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
-        // ("psgop", po::value<std::string>()->default_value("y"), "y: Enable, n: Disable position-specific gap open penalty.")
         ("length-deviation", po::value<float>(), "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.")
         ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
         ("max-len", po::value<int>(), "Sequences longer than max-len will be deferred or excluded.")
@@ -110,11 +106,11 @@ int main(int argc, char** argv) {
     phylogeny::Tree subT(T.root.get(), true);
 
     // Read Sequences
-    BlockManager& manager = mga::io::readSequences(option.seqFile, option, subT);
-    
-    manager.printStatus();
+    auto manager = mga::io::readSequences(option.seqFile, option, subT);
+    // auto ptr = manager.get();
+    // ptr->print();
 
-    mga::progressive::msaOnSubtree(subT, option, manager, 0);
+    mga::progressive::msaOnSubtree(subT, option, manager.get(), 0);
 
     
     
