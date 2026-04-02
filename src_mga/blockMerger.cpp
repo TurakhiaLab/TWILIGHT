@@ -194,6 +194,7 @@ std::pair<SequenceInfo, SequenceInfo> SequenceInfo::split(int cut_point) {
 */
 
 // Return {LeftBlock, RightBlock}
+/*
 std::pair<int, int> BlockSet::splitSingleBlock(int parentID, int localCut) {
     auto parent = this->getBlock(parentID);
     
@@ -269,7 +270,7 @@ std::map<int, int> BlockSet::splitBlocksByCuts(std::set<int>& cuts, bool isRef)
     }
     return blocksMap;
 }
-
+*/
 #include <numeric> // for std::iota
 
 // 輔助結構：Disjoint Set Union (用於 Grouping)
@@ -287,6 +288,7 @@ struct UnionFind {
     }
 };
 
+/*
 BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mga::Alignment>& alignments) {
     std::cout << "[Merger] 1. Concatenating Involved Blocks into Super-Blocks...\n";
 
@@ -632,8 +634,8 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
     // ...
 
     return resultSet;
-    */
+    
     return nullptr;
 }
-
+*/
 

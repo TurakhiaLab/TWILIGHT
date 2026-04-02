@@ -21,7 +21,6 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
         auto BlockSet1 = blockManager->getBlockSet(node1->identifier);
         auto BlockSet2 = blockManager->getBlockSet(node2->identifier);
 
-
         if (!BlockSet1 || !BlockSet2 ) {
             std::cerr << "Warning: Skipping alignment pair due to missing blockId." << std::endl;
             continue;
@@ -30,9 +29,16 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
         stringPairVec consensus1, consensus2;
         stringPairVec remaining1, remaining2;
 
+        if (BlockSet1->getSequenceCount() == 1) BlockSet1->selfMapping(option);
+        BlockSet1->getRepresentativeAndRemaining(consensus1, remaining1);
+        if (BlockSet2->getSequenceCount() == 1) BlockSet2->selfMapping(option);
+        BlockSet2->getRepresentativeAndRemaining(consensus2, remaining2);
+
+
+
         
-        BlockSet1->generateRepresentativeConsensus(consensus1, remaining1);
-        BlockSet2->generateRepresentativeConsensus(consensus2, remaining2);
+        exit(1);
+        
 
         // 1. Prepare temporary files for minimap2
         std::string temp_dir = option.tempDir;
@@ -88,7 +94,6 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
             
             BlockSet* mergeBlockSet = blockManager->merge(BlockSet1, BlockSet2, mainAlignments);
 
-            exit(1);
             std::cout << "Number of merged blocks: " << mergeBlockSet->getAllBlocks().size() << std::endl;
             // for (auto& b: mergeBlockSet->getAllBlocks()) b->print();
             

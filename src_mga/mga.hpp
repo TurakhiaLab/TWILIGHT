@@ -29,6 +29,12 @@ int letterIdx(char type, char inChar);
 class Block;
 class BlockSet;
 class BlockManager;
+class SequenceInfo;
+class Segment;
+class Variation;
+
+using variationList = std::vector<Variation>;
+
 
 // Helper to check if a CIGAR op consumes Reference
 bool consumesRef(char op);
@@ -185,91 +191,87 @@ namespace mga {
 class SequenceInfo {
 
     using ID = std::string;
-    class Segment;
-    class Variation;
-    using variationList = std::vector<Variation>;
-
 
     private:
         ID sequence_id;
-        std::unordered_map<int, Segment> info;
+        std::map<int, Segment> info;
         
     public:
         ID getID() const;
         Segment& getSegment(int start_coordinate);
-        std::unordered_map<int, SequenceInfo::Segment>& SequenceInfo::getSegments();
+        std::map<int, Segment>& getSegments();
 
         SequenceInfo(ID id): sequence_id(id) {};
         SequenceInfo() = default;
         ~SequenceInfo() = default;
         bool addSegments(int start, int end, variationList& var);
-
-        class Segment {
-            private:
-                int start_coordinate;
-                int end_coordinate;
-                bool is_reverse = false;
-                std::vector<Variation> variations;
-                std::weak_ptr<Block> prev_blocks_;
-                std::weak_ptr<Block> next_blocks_;
-            public:
-                Segment(int start, int end): start_coordinate(start), end_coordinate(end) {};
-                Segment(int start, int end, variationList& var): start_coordinate(start), end_coordinate(end), variations(var) {};
-                Segment() = default;
-                ~Segment() = default;
-                std::vector<Variation>& getVariations() { return variations; }
-                int getStart() { return start_coordinate; }
-                int getEnd() { return end_coordinate; }
-                bool isReverse() { return is_reverse; }
-                std::pair<int,int> getRange() { return {start_coordinate, end_coordinate}; }
-                void reverseComplement(int consLen);
-                void setPrevBlock(std::shared_ptr<Block> block) { prev_blocks_ = block; }
-                void setNextBlock(std::shared_ptr<Block> block) { next_blocks_ = block; }
-                std::weak_ptr<Block> getPrevBlock() { return prev_blocks_; }
-                std::weak_ptr<Block> getNextBlock() { return next_blocks_; }
-        };
-
-        class Variation {
-            public:
-                enum Type { SNV = 1, GAP = 2 };
-            private:
-                Type type;
-                int start;
-                int end;
-                char alt; 
-
-            public:
-    
-                Variation(int pos, char alt): type(SNV), start(pos), end(pos+1), alt(alt) {};
-                Variation(int start, int end): type(GAP), start(start), end(end), alt('-') {};
-                ~Variation() = default;
-                
-                Type getType() { return type; }
-                int getStart() { return start; }
-                int getEnd() { return end; }
-                char getAlt() { return alt; }
-                std::pair<int,int> getRange() { return {start, end}; }
-                
-
-                static Variation createGap(int start, int end) {
-                    Variation v(start, end);
-                    return v;
-                }
-
-                void reverseComplement(int consLen) {
-                    int oldStart = start;
-                    start = consLen - end;
-                    end = consLen - oldStart;
-                    if (type == SNV) alt = complement(alt);
-                }
-
-                void shift(int offset) {
-                    start += offset;
-                    end += offset;
-                }
-        };
+        bool addSegments(int start, int end);
+        bool addSegments(Segment& seg);
 };
 
+class Segment {
+    private:
+        int start_coordinate;
+        int end_coordinate;
+        bool is_reverse;
+        std::vector<Variation> variations;
+        std::weak_ptr<Block> prev_blocks_;
+        std::weak_ptr<Block> next_blocks_;
+    public:
+        Segment(int start, int end): start_coordinate(start), end_coordinate(end), is_reverse(false), variations(){};
+        Segment(int start, int end, variationList& var): start_coordinate(start), end_coordinate(end), is_reverse(false), variations(var) {};
+        Segment() = default;
+        ~Segment() = default;
+        Segment(const Segment&) = default;
+        Segment& operator=(const Segment&) = default;
+        std::pair<Segment, Segment> split(int localCut);
+        std::vector<Variation>& getVariations() { return variations; }
+        int getStart() { return start_coordinate; }
+        int getEnd() { return end_coordinate; }
+        bool isReverse() { return is_reverse; }
+        std::pair<int,int> getRange() { return {start_coordinate, end_coordinate}; }
+        void resetReverse() { is_reverse = false; }
+        void reverseComplement(int consLen);
+        void setPrevBlock(std::shared_ptr<Block> block) { prev_blocks_ = block; }
+        void setNextBlock(std::shared_ptr<Block> block) { next_blocks_ = block; }
+        std::weak_ptr<Block> getPrevBlock() { return prev_blocks_; }
+        std::weak_ptr<Block> getNextBlock() { return next_blocks_; }
+};
+
+class Variation {
+    public:
+        enum Type { SNV = 1, GAP = 2 };
+    private:
+        Type type;
+        int start;
+        int end;
+        char alt; 
+    public:
+        Variation(int pos, char alt): type(SNV), start(pos), end(pos+1), alt(alt) {};
+        Variation(int start, int end): type(GAP), start(start), end(end), alt('-') {};
+        ~Variation() = default;
+        
+        Type getType() { return type; }
+        int getStart() { return start; }
+        int getEnd() { return end; }
+        char getAlt() { return alt; }
+        std::pair<int,int> getRange() { return {start, end}; }
+        
+        static Variation createGap(int start, int end) {
+            Variation v(start, end);
+            return v;
+        }
+        void reverseComplement(int consLen) {
+            int oldStart = start;
+            start = consLen - end;
+            end = consLen - oldStart;
+            if (type == SNV) alt = complement(alt);
+        }
+        void shift(int offset) {
+            start += offset;
+            end += offset;
+        }
+};
 
 class Block: public std::enable_shared_from_this<Block> {
     public:
@@ -346,6 +348,12 @@ class Block: public std::enable_shared_from_this<Block> {
 class BlockSet {
     public:
         using SetId = std::string;
+        // 【新增結構】：字典的節點，記錄原始座標區間與對應的 Block
+        struct SegNode {
+            int start;
+            int end;
+            Block::ID blkId;
+        };
     
         BlockSet(SetId id);
         ~BlockSet() = default;
@@ -358,27 +366,34 @@ class BlockSet {
         void selfMapping(Option& option);
     
         std::shared_ptr<Block> createBlock(const std::string& consensus);
-        std::shared_ptr<Block> getBlock(Block::ID id) const;
-        std::vector<std::shared_ptr<Block>> getAllBlocks() const;
-        std::vector<Block::ID> getConsensusBlocks() const;
-        std::vector<std::shared_ptr<Block>> getRemainingBlocks() const;
+        std::shared_ptr<Block> getBlock(Block::ID id);
+        std::vector<std::shared_ptr<Block>> getAllBlocks();
+        std::vector<Block::ID> getRepresentativeBlocks();
+        std::vector<std::shared_ptr<Block>> getRemainingBlocks();
         bool deleteBlock(Block::ID id);
+        size_t getSequenceCount() {return seqs.size(); }
     
-        void generateRepresentativeConsensus(std::vector<std::pair<std::string, std::string>>& consensus, std::vector<std::pair<std::string, std::string>>& remaining);
+        void getRepresentativeAndRemaining(std::vector<std::pair<std::string, std::string>>& representative, std::vector<std::pair<std::string, std::string>>& remaining);
         
         void print(std::ostream& os = std::cout) const;
-        std::map<int, int>  splitBlocksByCuts(std::set<int>& cuts, bool isRef);
-        std::pair<int, int> splitSingleBlock(int parentID, int localCut);
+        std::map<int, uint64_t> splitBlocksByCuts(const std::set<int>& cuts);
+        std::pair<uint64_t, uint64_t> splitSingleBlock(int parentID, int localCut);
         std::shared_ptr<Block> mergeTwoBlocks(std::shared_ptr<Block> refBlock, std::shared_ptr<Block> qryBlock, const mga::Cigar& cigar, bool inverse); 
+        void updateSegmentLinks(std::shared_ptr<Block> oldBlk, std::shared_ptr<Block> newBlk);
+        void addSequence(std::string seqName) {seqs.push_back(seqName); }
+        void updateLongestSequence(std::unordered_map<std::string, int>& sequence_lengths);
+        
     private:
         friend class BlockManager; // Allow BlockManager to modify id_
     
         SetId id_; // No longer const
         std::string longest_sequence_ = "";
-        int seqs_count_ = 0;
+        std::vector<std::string> seqs;
         std::atomic<Block::ID> next_block_id_{1};
         std::unordered_map<Block::ID, std::shared_ptr<Block>> blocks_;
-        std::vector<Block::ID> consensus_path_;
+        void rebuildDictionary(std::map<int, SegNode>& dict, const std::string& targetSeqName);
+
+        // std::vector<Block::ID> consensus_path_;
 };
 
 class BlockManager {
@@ -401,9 +416,14 @@ class BlockManager {
         // BlockSet* merge(BlockSet* refSet, BlockSet* qrySet, const std::vector<mga::Alignment>& alignments);
         BlockSet* merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mga::Alignment>& alignments);
         void integrateRemainingBlocks(BlockSet* refSet,  BlockSet* qrySet,  BlockSet* mergedSet,  const std::vector<mga::Alignment>& remainingAlns, int mergedConsensusLen);
+        void updateLongestSequences();
+        void addSequenceLength(std::string seqName, int seqLen) {
+            sequence_lengths[seqName] = seqLen;
+        }
 
     private:
         std::unordered_map<BlockSet::SetId, std::unique_ptr<BlockSet>> block_sets_;
+        std::unordered_map<std::string, int> sequence_lengths;
 
         void applySplits(std::list<std::shared_ptr<Block>>& list, const std::set<int>& cuts);
 
@@ -457,6 +477,7 @@ class BlockManager {
         }
 };
 
-std::pair<std::shared_ptr<Block>, std::shared_ptr<Block>> splitSingleBlock(std::shared_ptr<Block> parent, int cutConsensusPos);
+mga::Cigar adjustCigarWithVariations(mga::Cigar& origCigar, Segment& refSeg, Segment& qrySeg, bool qryInverse, int qryConsLen);
+mga::Cigar extractSubCigar(const mga::Cigar& origCigar, int refOffset, int refLen);
 
 #endif

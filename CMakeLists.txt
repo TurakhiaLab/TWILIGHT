@@ -199,7 +199,8 @@ add_executable (twilight_mga
 				src_mga/alignment_kernel.cpp
 				src_mga/blockManager.cpp
 				src_mga/blockSet.cpp
-				src_mga/blockMerger.cpp)
+				src_mga/blockMerger.cpp
+				src_mga/SequenceInfo.cpp)
 
 find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
 find_package(ZLIB REQUIRED)

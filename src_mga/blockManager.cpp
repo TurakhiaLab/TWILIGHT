@@ -60,6 +60,14 @@ bool BlockManager::changeBlockSetId(BlockSet::SetId old_id, BlockSet::SetId new_
     return true;
 }
 
+void BlockManager::updateLongestSequences() {
+    for (const auto& pair : block_sets_) {
+        if (pair.second) {
+            pair.second->updateLongestSequence(this->sequence_lengths);
+        }
+    }
+}
+
 void BlockManager::print(std::ostream& os) const {
     os << "\n";
     os << "############################################################\n";
@@ -75,6 +83,7 @@ void BlockManager::print(std::ostream& os) const {
     os << "############################################################\n";
 }
 
+/*
 void mergeAdjacentBlocks(std::list<std::shared_ptr<Block>>& list, const std::set<int>& cuts) {
     std::list<std::shared_ptr<Block>> stitchedList;
     std::vector<std::shared_ptr<Block>> buffer;
@@ -186,7 +195,7 @@ std::shared_ptr<Block> stitchBlocks(const std::vector<std::shared_ptr<Block>>& b
 }
 
 
-
+/*
 void BlockManager::applySplits(std::list<std::shared_ptr<Block>>& list, const std::set<int>& cuts) {
     size_t currentGlobalPos = 0; 
     int max_id = -1;
@@ -282,7 +291,7 @@ std::list<std::shared_ptr<Block>> BlockManager::prepareBlocks(BlockSet* set, con
     return list;
 }
 
-/*
+
 BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, const std::vector<mga::Alignment>& alignments) {
         
     std::cout << "[Merger] 1. Preparing Blocks (Clone -> Split -> Stitch)...\n";
@@ -504,7 +513,7 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, const std::vec
 }
 
 */
-
+/*
 std::shared_ptr<Block> BlockManager::mergeBlockPair(BlockSet* resultSet, std::shared_ptr<Block> rBlk, std::shared_ptr<Block> qBlk, const mga::Alignment& subAln) {
         
 
@@ -759,3 +768,4 @@ void BlockManager::integrateRemainingBlocks(
         }
     }
 }
+*/

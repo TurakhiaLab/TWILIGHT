@@ -96,15 +96,19 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
                 totalLen += seqLen;
                 
                 BlockSet* blockSet = blockManager->createBlockSet(seqNode->identifier);
+                blockSet->addSequence(seqName);
                 
                 std::shared_ptr<Block> newBlock = blockSet->createBlock(seqContent);
 
-                SequenceInfo info(seqName, 0, seqLen);
+                SequenceInfo info(seqName);
+                info.addSegments(0, seqLen);
 
                 // Add sequence to block. CIGAR is empty, so no variations will be generated.
                 newBlock->addSequence(info);
 
                 loadedNames.insert(seqName);
+
+                blockManager->addSequenceLength(seqName, seqLen);
                 seqNum++;
             }
         }
@@ -121,6 +125,8 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
 
     uint32_t avgLen = (seqNum > 0) ? totalLen / seqNum : 0;
+
+    blockManager->updateLongestSequences();
 
     std::cerr << "===== Sequence Summary =====\n";
     std::cerr << "Number of sequences read and found in tree: " << seqNum << '\n';

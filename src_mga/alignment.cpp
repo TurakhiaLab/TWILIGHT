@@ -842,15 +842,16 @@ bool mga::validateCoverage(const alnVec& alignments, int refTotalLen, int qryTot
 }
 
 // Helper to check if a variation overlaps with the first split part
-bool isVarInPart1(const Variation& v, int offset) {
-    return v.start < offset;
+bool isVarInPart1(Variation& v, int offset) {
+    return v.getStart() < offset;
 }
 
 // Helper to check if a variation overlaps with the second split part
-bool isVarInPart2(const Variation& v, int offset) {
-    return v.end > offset;
+bool isVarInPart2(Variation& v, int offset) {
+    return v.getEnd() > offset;
 }
 
+/*
 std::pair<std::shared_ptr<Block>, std::shared_ptr<Block>> Block::split(int offset, ID new_id_1, ID new_id_2) {
     // 0. Boundary Check
     if (offset <= 0 || offset >= consensus_sequence_.length()) {
@@ -974,6 +975,7 @@ std::pair<std::shared_ptr<Block>, std::shared_ptr<Block>> Block::split(int offse
 
     return {b1, b2};
 }
+*/
 
 void mga::collectCutPoints(const std::vector<mga::Alignment>& alignments, std::set<int>& refCuts, std::set<int>& qryCuts) {
     for (const auto& aln : alignments) {
