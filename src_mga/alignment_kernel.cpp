@@ -34,12 +34,6 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
         if (BlockSet2->getSequenceCount() == 1) BlockSet2->selfMapping(option);
         BlockSet2->getRepresentativeAndRemaining(consensus2, remaining2);
 
-
-
-        
-        exit(1);
-        
-
         // 1. Prepare temporary files for minimap2
         std::string temp_dir = option.tempDir;
         std::string consensus1_path = temp_dir + "/" + BlockSet1->getId() + ".fa";
@@ -87,17 +81,25 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
             // 4. Process alignments
             chainVec chains = getAlignmentChains(mainAlignments);
             identifyPrimaryAlignments(mainAlignments, chains);
-            // detectDuplications(mainAlignments);
-            fillUnalignedRegions(mainAlignments, consensus1.begin()->second.size(), consensus2.begin()->second.size());
-            validateCoverage(mainAlignments, consensus1.begin()->second.size(), consensus2.begin()->second.size());
             
+            // detectDuplications(mainAlignments);
+            // fillUnalignedRegions(mainAlignments, consensus1.begin()->second.size(), consensus2.begin()->second.size());
+            // validateCoverage(mainAlignments, consensus1.begin()->second.size(), consensus2.begin()->second.size());
+            
+            std::cout << "Number of Alignments: " << mainAlignments.size() << '\n';
             
             BlockSet* mergeBlockSet = blockManager->merge(BlockSet1, BlockSet2, mainAlignments);
+
+            mergeBlockSet->debugValidateSegments(true);
+            mergeBlockSet->debugValidateLinkages(false);
+            mergeBlockSet->refine();
+            mergeBlockSet->debugValidateSegments(true);
+            mergeBlockSet->debugValidateLinkages(false);
+            exit(1);
 
             std::cout << "Number of merged blocks: " << mergeBlockSet->getAllBlocks().size() << std::endl;
             // for (auto& b: mergeBlockSet->getAllBlocks()) b->print();
             
-        
 
             // Align remaining blocks to the main blocksets
 
@@ -127,7 +129,7 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
             std::cout << "Modify ID of " << mergeBlockSet->getId() << " to " << pair.first->identifier << std::endl;
             blockManager->changeBlockSetId(mergeBlockSet->getId(), pair.first->identifier);
 
-
+            
             
             // 5. Merge blocks
             // bool merged = blockManager.mergeBlocks(block1_id, block2_id);

@@ -177,6 +177,44 @@ void BlockSet::getRepresentativeAndRemaining(std::vector<std::pair<std::string, 
     return;
 }
 
+// ==========================================
+// 清空所有 Blocks 並安全釋放記憶體
+// ==========================================
+void BlockSet::clearBlocks() {
+    blocks_.clear();
+    next_block_id_ = 1; 
+}
+
+// ==========================================
+// 將外部的 Block 加入此 BlockSet 並賦予新 ID
+// ==========================================
+std::shared_ptr<Block> BlockSet::addBlock(std::shared_ptr<Block> oldBlock) {
+    if (!oldBlock) return 0; // 防呆機制
+
+    // 1. 取得專屬於這個 BlockSet 的新 ID
+    Block::ID newId = next_block_id_++;
+
+    // 2. 利用舊 Block 的 Consensus 建立全新的 Block
+    auto newBlock = std::make_shared<Block>(newId, oldBlock->getConsensus());
+
+    // 3. 深拷貝：將所有的 SequenceInfo 複製過去
+    for (const auto& seqPair : oldBlock->getSequences()) {
+        newBlock->addSequence(seqPair.second);
+    }
+
+    // 4. 拷貝屬性狀態 (例如是否來自 Primary)
+    newBlock->setFromPrimary(oldBlock->isFromPrimary());
+
+    // 註：如果你的老 Block 裡面有 duplications_ 或 paralogs_ 需要拷貝，
+    // 需要在 Block class 補上 getter 才能在這裡一起 copy 過去。
+    // 否則新 Block 預設這兩個 set 是空的，通常在重新 merge 的情境下空的是合理的。
+
+    // 5. 註冊進這個 BlockSet 的 Dictionary 中
+    blocks_[newId] = newBlock;
+
+    return blocks_[newId]; // 回傳被賦予的全新 ID
+}
+
 
 void BlockSet::print(std::ostream& os) const {
     os << "\n";
@@ -1227,7 +1265,480 @@ void BlockSet::rebuildDictionary(std::map<int, SegNode>& dict, const std::string
     }
 }
 
+void BlockSet::debugValidateSegments(bool verbose) {
+    std::cout << "\n============================================================\n"
+              << "=== BlockSet Debug Validation: " << id_ << " ===\n"
+              << "============================================================\n";
 
+    int totalBlocks = 0;
+    int totalSegments = 0;
+    int errorCount = 0;
+
+    for (const auto& blockPair : blocks_) {
+        std::shared_ptr<Block> blk = blockPair.second;
+        int consLen = blk->getConsensus().length();
+        totalBlocks++;
+
+        // 計算這個 Block 內共有多少個 Segment
+        int segmentsInBlock = 0;
+        for (auto& seqPair : blk->getSequences()) {
+            segmentsInBlock += seqPair.second.getSegments().size();
+        }
+
+        if (verbose && consLen  < 100) std::cout << "[Block ID: " << blk->getId() << "] "
+                               << "Consensus Len: " << consLen 
+                               << " | Sequences: " << blk->getSequences().size() 
+                               << " | Segments: " << segmentsInBlock << "\n";
+
+        for (auto& seqPair : blk->getSequences()) {
+            std::string seqName = seqPair.first;
+            auto& segments = seqPair.second.getSegments();
+            
+            for (auto& segPairInner : segments) {
+                Segment& seg = segPairInner.second;
+                totalSegments++;
+
+                int start = seg.getStart();
+                int end = seg.getEnd();
+                int coordDiff = std::abs(end - start);
+                
+                int gapLen = 0;
+                for (auto& var : seg.getVariations()) {
+                    if (var.getType() == Variation::GAP) {
+                        gapLen += (var.getEnd() - var.getStart());
+                    }
+                }
+
+                int calculatedLen = coordDiff + gapLen;
+
+                if (calculatedLen != consLen) {
+                    std::cerr << "  ❌ [ERROR] Seq: " << seqName 
+                              << " | Seg: [" << start << ", " << end << "] "
+                              << (seg.isReverse() ? "(-)" : "(+)")
+                              << "\n      => CoordDiff (" << coordDiff << ") + Gaps (" << gapLen 
+                              << ") = " << calculatedLen << " != Consensus (" << consLen << ")\n";
+                    errorCount++;
+                }
+            }
+        }
+    }
+    
+    std::cout << "------------------------------------------------------------\n";
+    std::cout << "Validation Complete. Checked " << totalBlocks << " blocks and " << totalSegments << " segments.\n";
+    if (errorCount == 0) {
+        std::cout << "🎉 PERFECT! All segment lengths match their block consensus length perfectly.\n";
+    } else {
+        std::cout << "🚨 CRITICAL: FOUND " << errorCount << " LENGTH MISMATCH ERROR(S)!\n";
+    }
+    std::cout << "============================================================\n\n";
+}
+
+void BlockSet::debugValidateLinkages(bool verbose) {
+    std::cout << "\n============================================================\n"
+              << "=== Topology & Linkage Debug Validation: " << id_ << " ===\n"
+              << "============================================================\n";
+
+    struct SegRef { Segment* seg; std::shared_ptr<Block> blk; };
+    std::map<std::string, std::vector<SegRef>> seqTracks;
+    
+    // 1. 收集所有 Segment
+    for (const auto& blockPair : blocks_) {
+        for (auto& seqPair : blockPair.second->getSequences()) {
+            for (auto& segPairInner : seqPair.second.getSegments()) {
+                seqTracks[seqPair.first].push_back({ &segPairInner.second, blockPair.second });
+            }
+        }
+    }
+
+    int pointerErrorCount = 0;
+    int coordinateGapCount = 0;
+
+    // 2. 針對每一條 Sequence 進行排序與檢查
+    for (auto& trackPair : seqTracks) {
+        auto& track = trackPair.second;
+        
+        // 依照基因體座標嚴格排序
+        std::sort(track.begin(), track.end(), [](const SegRef& a, const SegRef& b) {
+            return std::min(a.seg->getStart(), a.seg->getEnd()) < std::min(b.seg->getStart(), b.seg->getEnd());
+        });
+
+        if (verbose) std::cout << "Checking Sequence Track: " << trackPair.first << " (" << track.size() << " segments)\n";
+
+        for (size_t i = 0; i < track.size(); ++i) {
+            auto& currRef = track[i];
+
+            if (i > 0) {
+                auto& prevRef = track[i-1];
+
+                // --- A. 檢查座標是否連續 ---
+                int prevEnd = std::max(prevRef.seg->getStart(), prevRef.seg->getEnd());
+                int currStart = std::min(currRef.seg->getStart(), currRef.seg->getEnd());
+                
+                if (prevEnd != currStart) {
+                    std::cerr << "  ⚠️ [WARNING] Coordinate Gap: Block " << prevRef.blk->getId() 
+                              << " end(" << prevEnd << ") != Block " << currRef.blk->getId() 
+                              << " start(" << currStart << ")\n";
+                    coordinateGapCount++;
+                }
+
+                // --- B. 檢查拓撲指標 (考慮正反股的邏輯) ---
+                std::shared_ptr<Block> expectedNextForPrev = currRef.blk;
+                std::shared_ptr<Block> expectedPrevForCurr = prevRef.blk;
+
+                // 根據正反股，找出實際儲存的指標方向
+                std::shared_ptr<Block> actualNextForPrev = (!prevRef.seg->isReverse()) ? prevRef.seg->getNextBlock().lock() : prevRef.seg->getPrevBlock().lock();
+                std::shared_ptr<Block> actualPrevForCurr = (!currRef.seg->isReverse()) ? currRef.seg->getPrevBlock().lock() : currRef.seg->getNextBlock().lock();
+
+                if (actualNextForPrev != expectedNextForPrev) {
+                    std::cerr << "  ❌ [ERROR] Broken Pointer (Forward): Block " << prevRef.blk->getId() 
+                              << " does NOT point to Block " << currRef.blk->getId() << "\n";
+                    pointerErrorCount++;
+                }
+
+                if (actualPrevForCurr != expectedPrevForCurr) {
+                    std::cerr << "  ❌ [ERROR] Broken Pointer (Backward): Block " << currRef.blk->getId() 
+                              << " does NOT point back to Block " << prevRef.blk->getId() << "\n";
+                    pointerErrorCount++;
+                }
+            }
+        }
+    }
+
+    std::cout << "------------------------------------------------------------\n";
+    if (pointerErrorCount == 0 && coordinateGapCount == 0) {
+        std::cout << "🎉 PERFECT! All Graph linkages and coordinates are contiguous and sound.\n";
+    } else {
+        std::cout << "🚨 SUMMARY: Found " << pointerErrorCount << " Pointer Error(s) and " 
+                  << coordinateGapCount << " Coordinate Gap(s)!\n";
+    }
+    std::cout << "============================================================\n\n";
+}
+
+
+void BlockSet::refine() {
+    bool DEBUG_MODE = true;
+    if (DEBUG_MODE) std::cout << "\n============================================================\n"
+                              << "=== BlockSet Refine: Optimizing Graph Topology ===\n"
+                              << "============================================================\n";
+
+    // 內部神器：基於真實基因體座標的全局指標重建！
+    auto rebuildAllPointers = [&]() {
+        for (auto blk : this->getAllBlocks()) {
+            blk->clearLinkages();
+            for (auto& seqPair : blk->getSequences()) {
+                for (auto& segPair : seqPair.second.getSegments()) {
+                    segPair.second.setPrevBlock(std::shared_ptr<Block>(nullptr));
+                    segPair.second.setNextBlock(std::shared_ptr<Block>(nullptr));
+                }
+            }
+        }
+        struct SegRef { Segment* seg; std::shared_ptr<Block> blk; };
+        std::map<std::string, std::vector<SegRef>> seqTracks;
+        for (auto blk : this->getAllBlocks()) {
+            for (auto& seqPair : blk->getSequences()) {
+                for (auto& segPairInner : seqPair.second.getSegments()) {
+                    seqTracks[seqPair.first].push_back({ &segPairInner.second, blk });
+                }
+            }
+        }
+        for (auto& trackPair : seqTracks) {
+            auto& track = trackPair.second;
+            std::sort(track.begin(), track.end(), [](const SegRef& a, const SegRef& b) {
+                return std::min(a.seg->getStart(), a.seg->getEnd()) < std::min(b.seg->getStart(), b.seg->getEnd());
+            });
+            for (size_t i = 0; i < track.size(); ++i) {
+                if (i > 0) {
+                    auto& prevRef = track[i-1];
+                    auto& currRef = track[i];
+                    if (!prevRef.seg->isReverse()) prevRef.seg->setNextBlock(currRef.blk);
+                    else prevRef.seg->setPrevBlock(currRef.blk); 
+                    if (!currRef.seg->isReverse()) currRef.seg->setPrevBlock(prevRef.blk);
+                    else currRef.seg->setNextBlock(prevRef.blk); 
+                }
+            }
+        }
+    };
+
+    // ==========================================
+    // 階段 1: 找出長 Gap (>100) 並獨立出來
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "[Refine Phase 1] Isolating long gaps (>100bp)...\n";
+    bool splitOccurred = true;
+    while (splitOccurred) {
+        splitOccurred = false;
+        auto currentBlocks = this->getAllBlocks(); 
+        for (auto blk : currentBlocks) {
+            int cutPos = -1;
+            int consLen = blk->getConsensus().length();
+            for (auto& seqPair : blk->getSequences()) {
+                for (auto& segPair : seqPair.second.getSegments()) {
+                    for (auto& v : segPair.second.getVariations()) {
+                        if (v.getType() == Variation::GAP && (v.getEnd() - v.getStart() > 100)) {
+                            if (v.getStart() > 0 && v.getStart() < consLen) { cutPos = v.getStart(); break; }
+                            if (v.getEnd() > 0 && v.getEnd() < consLen) { cutPos = v.getEnd(); break; }
+                        }
+                    }
+                    if (cutPos != -1) break;
+                }
+                if (cutPos != -1) break;
+            }
+            if (cutPos != -1) {
+                this->splitSingleBlock(blk->getId(), cutPos);
+                splitOccurred = true; 
+                break; 
+            }
+        }
+    }
+
+    // ==========================================
+    // 階段 2: 移除 Pure Gap Segments
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "\n[Refine Phase 2] Removing pure gap segments...\n";
+    for (auto blk : this->getAllBlocks()) {
+        std::vector<std::string> seqsToRemove;
+        for (auto& seqPair : blk->getSequences()) {
+            std::string seqID = seqPair.first;
+            std::vector<int> segsToRemove;
+            for (auto& segPairInner : seqPair.second.getSegments()) {
+                if (segPairInner.second.getStart() == segPairInner.second.getEnd()) {
+                    segsToRemove.push_back(segPairInner.first);
+                }
+            }
+            for (int sCoord : segsToRemove) seqPair.second.getSegments().erase(sCoord);
+            if (seqPair.second.getSegments().empty()) seqsToRemove.push_back(seqID);
+        }
+        for (const auto& s : seqsToRemove) blk->getSequences().erase(s);
+    }
+    rebuildAllPointers();
+
+    // ==========================================
+    // 太極迴圈：Phase 3 (Unzip) 與 Phase 4 (Concat) 互相制衡，直到圖形結晶穩定
+    // ==========================================
+    auto concatBlocks = [&](std::shared_ptr<Block> left, std::shared_ptr<Block> right) {
+        int leftLen = left->getConsensus().length();
+        int rightLen = right->getConsensus().length();
+        auto newBlock = this->createBlock(left->getConsensus() + right->getConsensus());
+        
+        std::set<std::string> allSeqs;
+        for (auto& kv : left->getSequences()) allSeqs.insert(kv.first);
+        for (auto& kv : right->getSequences()) allSeqs.insert(kv.first);
+        
+        for (const auto& seqID : allSeqs) {
+            SequenceInfo newSeqInfo(seqID);
+            std::vector<Segment> leftSegs, rightSegs;
+            if (left->getSequences().count(seqID)) {
+                for (auto& kv : left->getSequences().at(seqID).getSegments()) leftSegs.push_back(kv.second);
+            }
+            if (right->getSequences().count(seqID)) {
+                for (auto& kv : right->getSequences().at(seqID).getSegments()) rightSegs.push_back(kv.second);
+            }
+            
+            std::vector<bool> rUsed(rightSegs.size(), false);
+            
+            for (auto& lSeg : leftSegs) {
+                bool matched = false;
+                for (size_t i = 0; i < rightSegs.size(); ++i) {
+                    if (rUsed[i]) continue;
+                    auto& rSeg = rightSegs[i];
+                    
+                    bool isContiguousFwd = (!lSeg.isReverse() && !rSeg.isReverse() && lSeg.getEnd() == rSeg.getStart());
+                    bool isContiguousRev = (lSeg.isReverse() && rSeg.isReverse() && lSeg.getStart() == rSeg.getEnd());
+                    
+                    if (isContiguousFwd || isContiguousRev) {
+                        Segment newSeg = lSeg;
+                        newSeg.setEnd(rSeg.getEnd()); 
+                        for (auto v : rSeg.getVariations()) { 
+                            v.shift(leftLen); 
+                            newSeg.getVariations().push_back(v); 
+                        }
+                        if (!lSeg.isReverse()) newSeg.setNextBlock(rSeg.getNextBlock().lock());
+                        else newSeg.setPrevBlock(rSeg.getPrevBlock().lock());
+                        
+                        newSeqInfo.getSegments()[newSeg.getStart()] = newSeg;
+                        rUsed[i] = true;
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) {
+                    Segment newSeg = lSeg;
+                    newSeg.getVariations().push_back(Variation::createGap(leftLen, leftLen + rightLen));
+                    newSeqInfo.getSegments()[newSeg.getStart()] = newSeg;
+                }
+            }
+            for (size_t i = 0; i < rightSegs.size(); ++i) {
+                if (!rUsed[i]) {
+                    Segment newSeg = rightSegs[i];
+                    newSeg.getVariations().clear(); 
+                    newSeg.getVariations().push_back(Variation::createGap(0, leftLen));
+                    for (auto v : rightSegs[i].getVariations()) {
+                        v.shift(leftLen);
+                        newSeg.getVariations().push_back(v);
+                    }
+                    newSeqInfo.getSegments()[newSeg.getStart()] = newSeg;
+                }
+            }
+            if (!newSeqInfo.getSegments().empty()) newBlock->addSequence(newSeqInfo);
+        }
+        
+        for (auto& blockPair : this->blocks_) {
+            auto currentBlock = blockPair.second;
+            if (currentBlock == left || currentBlock == right) continue;
+            for (auto& seqPair : currentBlock->getSequences()) {
+                for (auto& segPair : seqPair.second.getSegments()) {
+                    Segment& seg = segPair.second;
+                    if (seg.getPrevBlock().lock() == left || seg.getPrevBlock().lock() == right) seg.setPrevBlock(newBlock);
+                    if (seg.getNextBlock().lock() == left || seg.getNextBlock().lock() == right) seg.setNextBlock(newBlock);
+                }
+            }
+        }
+        
+        this->deleteBlock(left->getId());
+        this->deleteBlock(right->getId());
+        return newBlock;
+    };
+
+    bool topologyChanged = true;
+    while (topologyChanged) {
+        topologyChanged = false;
+
+        // ------------------------------------------
+        // Phase 3: 解壓縮 (Unzip) - 門檻提高至 <100bp
+        // ------------------------------------------
+        if (DEBUG_MODE) std::cout << "\n[Refine Phase 3] Unzipping highly-branched small blocks (<100bp)...\n";
+        bool unzippedOccurred = true;
+        while (unzippedOccurred) {
+            unzippedOccurred = false;
+            auto currentBlocks = this->getAllBlocks();
+            
+            for (auto blk : currentBlocks) {
+                if (!this->getBlock(blk->getId())) continue;
+                // 【核心修改】：門檻提高到 100bp，確保 Phase 4 製造的碎塊無所遁形
+                if (blk->getConsensus().length() >= 100 || blk->getSequences().empty()) continue;
+
+                struct Bucket {
+                    Block* pBlk;
+                    Block* nBlk;
+                    std::map<std::string, Segment> segs;
+                };
+                std::vector<Bucket> buckets;
+
+                for (auto& seqPair : blk->getSequences()) {
+                    std::string seqID = seqPair.first;
+                    for (auto& segPairInner : seqPair.second.getSegments()) {
+                        Segment& seg = segPairInner.second;
+                        
+                        Block* pBlk = (!seg.isReverse()) ? seg.getPrevBlock().lock().get() : seg.getNextBlock().lock().get();
+                        Block* nBlk = (!seg.isReverse()) ? seg.getNextBlock().lock().get() : seg.getPrevBlock().lock().get();
+
+                        bool placed = false;
+                        for (auto& bucket : buckets) {
+                            if (bucket.pBlk == pBlk && bucket.nBlk == nBlk && bucket.segs.count(seqID) == 0) {
+                                bucket.segs[seqID] = seg;
+                                placed = true;
+                                break;
+                            }
+                        }
+                        if (!placed) {
+                            Bucket newB;
+                            newB.pBlk = pBlk;
+                            newB.nBlk = nBlk;
+                            newB.segs[seqID] = seg;
+                            buckets.push_back(newB);
+                        }
+                    }
+                }
+
+                if (buckets.size() > 1) {
+                    if (DEBUG_MODE) std::cout << "  -> Unzipping entangled Block " << blk->getId() << " into " << buckets.size() << " independent paths.\n";
+                    for (auto& bucket : buckets) {
+                        auto newBlock = this->createBlock(blk->getConsensus());
+                        for (auto& kv : bucket.segs) {
+                            SequenceInfo newSeqInfo(kv.first);
+                            Segment cleanSeg = kv.second;
+                            cleanSeg.setPrevBlock(std::shared_ptr<Block>(nullptr));
+                            cleanSeg.setNextBlock(std::shared_ptr<Block>(nullptr));
+                            newSeqInfo.getSegments()[cleanSeg.getStart()] = cleanSeg;
+                            newBlock->addSequence(newSeqInfo);
+                        }
+                    }
+                    this->deleteBlock(blk->getId());
+                    unzippedOccurred = true;
+                    topologyChanged = true; // 記錄全圖有變化
+                    break;
+                }
+            }
+            if (unzippedOccurred) rebuildAllPointers();
+        }
+
+        // ------------------------------------------
+        // Phase 4: 合併 (Concat) - <100bp
+        // ------------------------------------------
+        if (DEBUG_MODE) std::cout << "\n[Refine Phase 4] Concatenating small blocks (<100bp)...\n";
+        bool mergedOccurred = true;
+        while (mergedOccurred) {
+            mergedOccurred = false;
+            auto currentBlocks = this->getAllBlocks();
+            
+            for (auto blk : currentBlocks) {
+                if (!this->getBlock(blk->getId())) continue; 
+                if (blk->getConsensus().length() >= 100 || blk->getSequences().empty()) continue;
+
+                std::shared_ptr<Block> sharedPrev = nullptr;
+                bool allSamePrev = true;
+                for (auto& seqPair : blk->getSequences()) {
+                    for (auto& segPair : seqPair.second.getSegments()) {
+                        auto pBlk = (!segPair.second.isReverse()) ? segPair.second.getPrevBlock().lock() : segPair.second.getNextBlock().lock();
+                        if (!pBlk) { allSamePrev = false; break; }
+                        if (!sharedPrev) sharedPrev = pBlk;
+                        else if (sharedPrev != pBlk) { allSamePrev = false; break; }
+                    }
+                    if (!allSamePrev) break;
+                }
+
+                if (allSamePrev && sharedPrev && sharedPrev != blk) {
+                    if (DEBUG_MODE) std::cout << "  -> Merging small Block " << blk->getId() << " into Prev Block " << sharedPrev->getId() << "\n";
+                    concatBlocks(sharedPrev, blk);
+                    mergedOccurred = true;
+                    topologyChanged = true; // 記錄全圖有變化
+                    break;
+                }
+
+                std::shared_ptr<Block> sharedNext = nullptr;
+                bool allSameNext = true;
+                for (auto& seqPair : blk->getSequences()) {
+                    for (auto& segPair : seqPair.second.getSegments()) {
+                        auto nBlk = (!segPair.second.isReverse()) ? segPair.second.getNextBlock().lock() : segPair.second.getPrevBlock().lock();
+                        if (!nBlk) { allSameNext = false; break; }
+                        if (!sharedNext) sharedNext = nBlk;
+                        else if (sharedNext != nBlk) { allSameNext = false; break; }
+                    }
+                    if (!allSameNext) break;
+                }
+
+                if (allSameNext && sharedNext && sharedNext != blk) {
+                    if (DEBUG_MODE) std::cout << "  -> Merging small Block " << blk->getId() << " into Next Block " << sharedNext->getId() << "\n";
+                    concatBlocks(blk, sharedNext);
+                    mergedOccurred = true;
+                    topologyChanged = true; // 記錄全圖有變化
+                    break;
+                }
+            }
+        }
+    } // End of Outer While Loop
+
+    std::vector<Block::ID> emptyBlocks;
+    for (auto blk : this->getAllBlocks()) {
+        if (blk->getSequences().empty()) emptyBlocks.push_back(blk->getId());
+    }
+    for (auto id : emptyBlocks) this->deleteBlock(id);
+
+    rebuildAllPointers();
+
+    if (DEBUG_MODE) std::cout << "\n============================================================\n"
+                              << "=== Refine Complete! ===\n"
+                              << "============================================================\n\n";
+}
 /*
 void BlockSet::generateRepresentativeConsensus(std::vector<std::pair<std::string, std::string>>& consensus, std::vector<std::pair<std::string, std::string>>& remaining) {
 

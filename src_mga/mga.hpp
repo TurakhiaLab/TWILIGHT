@@ -114,6 +114,8 @@ namespace mga {
 
         // Constructor
         Alignment(): used(false), chainScore(0), type(INIT), valid(true) {};
+        void setValid2False() { valid = false; }
+
 
         std::vector<int> duplications;
         std::vector<int> paralogs;
@@ -228,6 +230,8 @@ class Segment {
         std::vector<Variation>& getVariations() { return variations; }
         int getStart() { return start_coordinate; }
         int getEnd() { return end_coordinate; }
+        void setStart(int st) { start_coordinate = st; }
+        void setEnd(int en) { end_coordinate = en; }
         bool isReverse() { return is_reverse; }
         std::pair<int,int> getRange() { return {start_coordinate, end_coordinate}; }
         void resetReverse() { is_reverse = false; }
@@ -370,6 +374,8 @@ class BlockSet {
         std::vector<std::shared_ptr<Block>> getAllBlocks();
         std::vector<Block::ID> getRepresentativeBlocks();
         std::vector<std::shared_ptr<Block>> getRemainingBlocks();
+        void clearBlocks();
+        std::shared_ptr<Block> addBlock(std::shared_ptr<Block> block);
         bool deleteBlock(Block::ID id);
         size_t getSequenceCount() {return seqs.size(); }
     
@@ -382,7 +388,9 @@ class BlockSet {
         void updateSegmentLinks(std::shared_ptr<Block> oldBlk, std::shared_ptr<Block> newBlk);
         void addSequence(std::string seqName) {seqs.push_back(seqName); }
         void updateLongestSequence(std::unordered_map<std::string, int>& sequence_lengths);
-        
+        void debugValidateSegments(bool verbose);
+        void debugValidateLinkages(bool verbose);
+        void refine();
     private:
         friend class BlockManager; // Allow BlockManager to modify id_
     

@@ -994,7 +994,10 @@ void mga::collectCutPoints(const std::vector<mga::Alignment>& alignments, std::s
               << "Qry: " << qryCuts.size() << "\n";
 }
 
+
 void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
+    bool DEBUG_MODE = false; 
+    
     PrimaryTracker refMask, qryMask;
     std::vector<Alignment> validAlns;
     std::vector<Alignment> remainingAlns;
@@ -1003,16 +1006,13 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
     for (const auto& chain : chains) {
         for (int oldAlnId : chain.chainedAln) {
             auto& aln = alignments[oldAlnId];
-            if (aln.valid) {
-                // 檢查是否兩端都是 main sequence (透過你在 consensus 產生的 "_main" 後綴)
-                // 註：請確保 aln.refName 和 aln.qryName 符合你 struct 裡的變數名稱
+            if (aln.valid && aln.alnScore > 0) {
                 bool isRefMain = (aln.refName.find("_main") != std::string::npos);
                 bool isQryMain = (aln.qryName.find("_main") != std::string::npos);
 
                 if (isRefMain && isQryMain) {
                     validAlns.push_back(aln);
                 } else {
-                    // 如果牽涉到 remaining block，賦予新 Type 並暫存，先不參與 Greedy 切割
                     aln.type = mga::REMAINING_ALN;
                     remainingAlns.push_back(aln);
                 }
@@ -1020,23 +1020,30 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         }
     }
 
-    // 2. 依照 Alignment Score 由大到小排序 (Greedy 核心)
+    // 2. 依照 Alignment Score 由大到小排序
     std::sort(validAlns.begin(), validAlns.end(), [](const Alignment& a, const Alignment& b) {
         return a.alnScore > b.alnScore;
     });
 
     std::vector<Alignment> primaryList;
     std::vector<Alignment> secondaryList;
+    
+    std::unordered_map<int, Alignment> debugPrimaryMap; 
+    
     const int MIN_ALN_LEN = 100; 
+    const int TOLERANCE = 50;  // 用於吸收邊界誤差 (Trim/Add Gap)
     int nextGlobalId = 1;
 
+    if (DEBUG_MODE) std::cout << "\n============================================\n"
+                              << "=== PHASE 1: GREEDY PRIMARY ASSIGNMENT ===\n"
+                              << "============================================\n";
+
     // ==========================================
-    // Phase 1: Greedy 填滿 Ref 與 Qry 軸
+    // Phase 1: Greedy 初步分類
     // ==========================================
     for (const auto& aln : validAlns) {
         std::set<int> rCuts, qCuts;
 
-        // 1-1. 找出與「已經存在的 Primary」重疊的切點
         int rMin = std::min(aln.refIdx.first, aln.refIdx.second);
         int rMax = std::max(aln.refIdx.first, aln.refIdx.second);
         refMask.getCuts(rMin, rMax, rCuts);
@@ -1045,7 +1052,6 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         int qMax = std::max(aln.qryIdx.first, aln.qryIdx.second);
         qryMask.getCuts(qMin, qMax, qCuts);
 
-        // 1-2 & 1-3. 依據投影點切碎 Alignment
         std::vector<Alignment> fragments;
         if (!rCuts.empty() || !qCuts.empty()) {
             fragments = splitSingleAlignment(aln, rCuts, qCuts);
@@ -1053,7 +1059,6 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
             fragments.push_back(aln);
         }
 
-        // 檢驗每一個碎片，決定是 Primary 還是 Secondary
         for (auto& frag : fragments) {
             int fRMin = std::min(frag.refIdx.first, frag.refIdx.second);
             int fRMax = std::max(frag.refIdx.first, frag.refIdx.second);
@@ -1071,135 +1076,213 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
             frag.paralogs.clear();
 
             if (!refCov && !qryCov) {
-                // 完全沒有 Overlap -> 檢查長度
-                // if ((fRMax - fRMin) >= MIN_ALN_LEN) {
+                if (std::abs(fRMax - fRMin) >= MIN_ALN_LEN && std::abs(fQMax - fQMin) >= MIN_ALN_LEN) {
                     frag.type = mga::PRIMARY;
                     refMask.add(fRMin, fRMax, frag.identifier);
                     qryMask.add(fQMin, fQMax, frag.identifier);
                     primaryList.push_back(frag);
-                // }
+                    debugPrimaryMap[frag.identifier] = frag;
+                } else {
+                    frag.type = mga::REMAINING_ALN;
+                    remainingAlns.push_back(frag);
+                }
             } else {
-                // 有 Overlap -> 設為 Secondary
-                frag.type = mga::SECONDARY;
-                secondaryList.push_back(frag);
+                if (std::abs(fRMax - fRMin) < MIN_ALN_LEN || std::abs(fQMax - fQMin) < MIN_ALN_LEN) {
+                    frag.type = mga::REMAINING_ALN;
+                    remainingAlns.push_back(frag);
+                } else {
+                    frag.type = mga::SECONDARY;
+                    secondaryList.push_back(frag);
+                }
             }
         }
     }
 
-    // ==========================================
-    // Phase 2: 動態切割 (Boundary Tolerance > 50)
-    // ==========================================
+    if (DEBUG_MODE) std::cout << "\n============================================\n"
+                              << "=== PHASE 2: GLOBAL ATOMIC SYNCHRONIZATION ===\n"
+                              << "============================================\n";
 
-    std::cerr << "Primary: " << primaryList.size() << "\t"
-              << "Secondary (Raw): " << secondaryList.size() << "\n";
-    
-    // 【修改點】：在收集切點之前，先做 Redundant 與長度過濾！
+    // ==========================================
+    // Phase 2: 全局斷點收集與原子切割 
+    // ==========================================
     std::vector<Alignment> validSecondaries;
     for (auto& sec : secondaryList) {
-        if (std::abs(sec.refIdx.second - sec.refIdx.first) < MIN_ALN_LEN) continue;
-
-        int sRMin = std::min(sec.refIdx.first, sec.refIdx.second);
-        int sRMax = std::max(sec.refIdx.first, sec.refIdx.second);
-        int sQMin = std::min(sec.qryIdx.first, sec.qryIdx.second);
-        int sQMax = std::max(sec.qryIdx.first, sec.qryIdx.second);
-
-        // 透過原本 Phase 1 建立的 Mask 來查表
-        std::set<int> rIds = refMask.getOverlappingIds(sRMin, sRMax);
-        std::set<int> qIds = qryMask.getOverlappingIds(sQMin, sQMax);
-
-        bool isRedundant = false;
-        if (!rIds.empty() && !qIds.empty()) {
-            isRedundant = true;
-            for (int id : rIds) {
-                if (qIds.count(id) == 0) { isRedundant = false; break; }
-            }
-            for (int id : qIds) {
-                if (rIds.count(id) == 0) { isRedundant = false; break; }
-            }
-        }
-
-        // 只有非冗餘的 Paralog / Duplication 才有資格留下來參與切割
-        if (!isRedundant) {
+        if (std::abs(sec.refIdx.second - sec.refIdx.first) >= MIN_ALN_LEN) {
             validSecondaries.push_back(sec);
         }
     }
     secondaryList = std::move(validSecondaries);
 
-    std::cerr << "Secondary (Filtered): " << secondaryList.size() << "\n";
-
-    // 將留下來的 Secondary 依長度由大到小排序
-    std::sort(secondaryList.begin(), secondaryList.end(), [](const Alignment& a, const Alignment& b) {
-        return std::abs(a.refIdx.second - a.refIdx.first) > std::abs(b.refIdx.second - b.refIdx.first);
-    });
-
-    const int TOLERANCE = 50;
-    std::set<int> dynamicRefCuts;
-    std::set<int> dynamicQryCuts;
-
-    // [Pass 2-A]: 蒐集所有需要切開的座標 (此時 secondaryList 已經是完全乾淨的了)
-    for (const auto& sec : secondaryList) {
-        int sRMin = std::min(sec.refIdx.first, sec.refIdx.second);
-        int sRMax = std::max(sec.refIdx.first, sec.refIdx.second);
-        int sQMin = std::min(sec.qryIdx.first, sec.qryIdx.second);
-        int sQMax = std::max(sec.qryIdx.first, sec.qryIdx.second);
-
-        std::set<int> rIds = refMask.getOverlappingIds(sRMin, sRMax);
-        for (int pId : rIds) {
-            auto it = std::find_if(primaryList.begin(), primaryList.end(), [pId](const Alignment& a){ return a.identifier == pId; });
-            if (it != primaryList.end()) {
-                int pRMin = std::min(it->refIdx.first, it->refIdx.second);
-                int pRMax = std::max(it->refIdx.first, it->refIdx.second);
-                if (sRMin - pRMin > TOLERANCE) dynamicRefCuts.insert(sRMin);
-                if (pRMax - sRMax > TOLERANCE) dynamicRefCuts.insert(sRMax);
-            }
-        }
-
-        std::set<int> qIds = qryMask.getOverlappingIds(sQMin, sQMax);
-        for (int pId : qIds) {
-            auto it = std::find_if(primaryList.begin(), primaryList.end(), [pId](const Alignment& a){ return a.identifier == pId; });
-            if (it != primaryList.end()) {
-                int pQMin = std::min(it->qryIdx.first, it->qryIdx.second);
-                int pQMax = std::max(it->qryIdx.first, it->qryIdx.second);
-                if (sQMin - pQMin > TOLERANCE) dynamicQryCuts.insert(sQMin);
-                if (pQMax - sQMax > TOLERANCE) dynamicQryCuts.insert(sQMax);
-            }
-        }
-    }
-
-    // [Pass 2-B]: 執行全局切割，並用新的 Tracker 註冊
-    std::vector<Alignment> finalPrimaries;
-    std::vector<Alignment> finalSecondaries;
-    PrimaryTracker finalRefMask, finalQryMask; // 建立全新的地圖，因為 ID 會重洗
+    std::set<int> globalRefCuts;
+    std::set<int> globalQryCuts;
 
     for (const auto& p : primaryList) {
-        auto frags = splitSingleAlignment(p, dynamicRefCuts, dynamicQryCuts);
+        globalRefCuts.insert(std::min(p.refIdx.first, p.refIdx.second));
+        globalRefCuts.insert(std::max(p.refIdx.first, p.refIdx.second));
+        globalQryCuts.insert(std::min(p.qryIdx.first, p.qryIdx.second));
+        globalQryCuts.insert(std::max(p.qryIdx.first, p.qryIdx.second));
+    }
+    for (const auto& sec : secondaryList) {
+        globalRefCuts.insert(std::min(sec.refIdx.first, sec.refIdx.second));
+        globalRefCuts.insert(std::max(sec.refIdx.first, sec.refIdx.second));
+        globalQryCuts.insert(std::min(sec.qryIdx.first, sec.qryIdx.second));
+        globalQryCuts.insert(std::max(sec.qryIdx.first, sec.qryIdx.second));
+    }
+
+    auto deduplicateCuts = [](std::set<int>& cuts, int tol) {
+        if (cuts.empty()) return;
+        std::set<int> cleanCuts;
+        int lastCut = -1e9; 
+        for (int c : cuts) {
+            if (c - lastCut >= tol) { 
+                cleanCuts.insert(c);
+                lastCut = c;
+            }
+        }
+        cuts = cleanCuts;
+    };
+    
+    deduplicateCuts(globalRefCuts, TOLERANCE);
+    deduplicateCuts(globalQryCuts, TOLERANCE);
+
+    std::vector<Alignment> finalPrimaries;
+    std::vector<Alignment> finalSecondaries;
+    PrimaryTracker finalRefMask, finalQryMask;
+    std::unordered_map<int, Alignment> finalPrimaryMap;
+
+    for (const auto& p : primaryList) {
+        auto frags = splitSingleAlignment(p, globalRefCuts, globalQryCuts);
         for (auto& frag : frags) {
-            frag.identifier = nextGlobalId++; // 賦予新生 Primary 全新 ID
             int fRMin = std::min(frag.refIdx.first, frag.refIdx.second);
             int fRMax = std::max(frag.refIdx.first, frag.refIdx.second);
             int fQMin = std::min(frag.qryIdx.first, frag.qryIdx.second);
             int fQMax = std::max(frag.qryIdx.first, frag.qryIdx.second);
             
+            if (std::abs(fRMax - fRMin) < MIN_ALN_LEN || std::abs(fQMax - fQMin) < MIN_ALN_LEN) {
+                frag.type = mga::REMAINING_ALN;
+                remainingAlns.push_back(frag);
+                continue;
+            }
+
+            frag.identifier = nextGlobalId++;
             finalRefMask.add(fRMin, fRMax, frag.identifier);
             finalQryMask.add(fQMin, fQMax, frag.identifier);
             finalPrimaries.push_back(frag);
+            finalPrimaryMap[frag.identifier] = frag; 
         }
     }
 
     for (const auto& sec : secondaryList) {
-        if (sec.refIdx.second - sec.refIdx.first < TOLERANCE) continue;
-        if (std::abs(sec.qryIdx.second - sec.qryIdx.first) < TOLERANCE) continue;
-        // 同樣用這些切點切 Secondary，保證邊界完美對齊！
-        auto frags = splitSingleAlignment(sec, dynamicRefCuts, dynamicQryCuts);
+        auto frags = splitSingleAlignment(sec, globalRefCuts, globalQryCuts);
         for (auto& frag : frags) {
+            int fRMin = std::min(frag.refIdx.first, frag.refIdx.second);
+            int fRMax = std::max(frag.refIdx.first, frag.refIdx.second);
+            int fQMin = std::min(frag.qryIdx.first, frag.qryIdx.second);
+            int fQMax = std::max(frag.qryIdx.first, frag.qryIdx.second);
+
+            if (std::abs(fRMax - fRMin) < MIN_ALN_LEN || std::abs(fQMax - fQMin) < MIN_ALN_LEN) {
+                continue; 
+            }
+            
             frag.identifier = nextGlobalId++;
-            finalSecondaries.push_back(frag);
+            std::set<int> rIds = finalRefMask.getOverlappingIds(fRMin, fRMax);
+            std::set<int> qIds = finalQryMask.getOverlappingIds(fQMin, fQMax);
+
+            if (rIds.empty() && qIds.empty()) {
+                frag.type = mga::PRIMARY;
+                finalRefMask.add(fRMin, fRMax, frag.identifier);
+                finalQryMask.add(fQMin, fQMax, frag.identifier);
+                finalPrimaries.push_back(frag);
+                finalPrimaryMap[frag.identifier] = frag;
+            } else {
+                finalSecondaries.push_back(frag);
+            }
         }
     }
 
-    // [Pass 2-C]: 根據全新的 ID 與邊界，互相綁定關係
+    // ==========================================
+    // Phase 2-C: 完美一對一關係綁定 & 邊界強制對齊 (Boundary Snapping)
+    // ==========================================
     std::map<int, std::vector<int>> primaryToDuplications;
     std::map<int, std::vector<int>> primaryToParalogs;
+
+    auto getStrictOverlaps = [&](int sMin, int sMax, const std::set<int>& rawIds, bool isRef) {
+        std::set<int> strictIds;
+        for (int pId : rawIds) {
+            auto it = finalPrimaryMap.find(pId);
+            if (it != finalPrimaryMap.end()) {
+                int pMin = isRef ? std::min(it->second.refIdx.first, it->second.refIdx.second)
+                                 : std::min(it->second.qryIdx.first, it->second.qryIdx.second);
+                int pMax = isRef ? std::max(it->second.refIdx.first, it->second.refIdx.second)
+                                 : std::max(it->second.qryIdx.first, it->second.qryIdx.second);
+                
+                int oMin = std::max(sMin, pMin);
+                int oMax = std::min(sMax, pMax);
+                int overlapLen = oMax - oMin;
+
+                if (overlapLen >= MIN_ALN_LEN / 2) strictIds.insert(pId);
+            }
+        }
+        return strictIds;
+    };
+
+    // 【新增】：CIGAR 補償與對齊工具
+    auto padAlignmentToBoundary = [](Alignment& aln, int tgtRMin, int tgtRMax, int tgtQMin, int tgtQMax) {
+        int rMin = std::min(aln.refIdx.first, aln.refIdx.second);
+        int rMax = std::max(aln.refIdx.first, aln.refIdx.second);
+        int qMin = std::min(aln.qryIdx.first, aln.qryIdx.second);
+        int qMax = std::max(aln.qryIdx.first, aln.qryIdx.second);
+
+        int padRefFront = std::max(0, rMin - tgtRMin);
+        int padRefBack  = std::max(0, tgtRMax - rMax);
+        int padQryFront = std::max(0, qMin - tgtQMin);
+        int padQryBack  = std::max(0, tgtQMax - qMax);
+
+        // 只有真的需要補償時才動作
+        if (padRefFront == 0 && padRefBack == 0 && padQryFront == 0 && padQryBack == 0) return;
+
+        // 1. 更新座標
+        if (aln.refIdx.first < aln.refIdx.second) {
+            aln.refIdx.first = tgtRMin; aln.refIdx.second = tgtRMax;
+        } else {
+            aln.refIdx.first = tgtRMax; aln.refIdx.second = tgtRMin;
+        }
+
+        if (aln.qryIdx.first < aln.qryIdx.second) {
+            aln.qryIdx.first = tgtQMin; aln.qryIdx.second = tgtQMax;
+        } else {
+            aln.qryIdx.first = tgtQMax; aln.qryIdx.second = tgtQMin;
+        }
+
+        // 2. 補償 CIGAR 
+        mga::Cigar newCigar;
+        
+        // 考慮反股，補在 CIGAR 頭部的操作
+        int frontD = padRefFront;
+        int frontI = aln.inverse ? padQryBack : padQryFront;
+        if (frontD > 0) newCigar.push_back({frontD, 'D'});
+        if (frontI > 0) newCigar.push_back({frontI, 'I'});
+
+        // 放入原本的 CIGAR
+        for (auto op : aln.CIGAR) newCigar.push_back(op);
+
+        // 補在 CIGAR 尾部的操作
+        int backD = padRefBack;
+        int backI = aln.inverse ? padQryFront : padQryBack;
+        if (backD > 0) newCigar.push_back({backD, 'D'});
+        if (backI > 0) newCigar.push_back({backI, 'I'});
+
+        // 3. 清理 CIGAR 碎片
+        mga::Cigar cleanCigar;
+        for (auto op : newCigar) {
+            if (!cleanCigar.empty() && cleanCigar.back().second == op.second) {
+                cleanCigar.back().first += op.first;
+            } else {
+                cleanCigar.push_back(op);
+            }
+        }
+        aln.CIGAR = cleanCigar;
+    };
 
     for (auto& sec : finalSecondaries) {
         int fRMin = std::min(sec.refIdx.first, sec.refIdx.second);
@@ -1207,43 +1290,66 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         int fQMin = std::min(sec.qryIdx.first, sec.qryIdx.second);
         int fQMax = std::max(sec.qryIdx.first, sec.qryIdx.second);
 
-        std::set<int> refOverlapIds = finalRefMask.getOverlappingIds(fRMin, fRMax);
-        std::set<int> qryOverlapIds = finalQryMask.getOverlappingIds(fQMin, fQMax);
+        std::set<int> rRawIds = finalRefMask.getOverlappingIds(fRMin, fRMax);
+        std::set<int> qRawIds = finalQryMask.getOverlappingIds(fQMin, fQMax);
 
-        bool refCov = !refOverlapIds.empty();
-        bool qryCov = !qryOverlapIds.empty();
+        std::set<int> rIds = getStrictOverlaps(fRMin, fRMax, rRawIds, true);
+        std::set<int> qIds = getStrictOverlaps(fQMin, fQMax, qRawIds, false);
+
+        // 【新增】：尋找最適合對齊的 Primary 邊界並強制吸附
+        int targetRMin = fRMin, targetRMax = fRMax;
+        int targetQMin = fQMin, targetQMax = fQMax;
+
+        for (int pId : rIds) {
+            auto& pAln = finalPrimaryMap[pId];
+            int pRMin = std::min(pAln.refIdx.first, pAln.refIdx.second);
+            int pRMax = std::max(pAln.refIdx.first, pAln.refIdx.second);
+            if (std::abs(fRMin - pRMin) <= TOLERANCE) targetRMin = pRMin;
+            if (std::abs(fRMax - pRMax) <= TOLERANCE) targetRMax = pRMax;
+        }
+
+        for (int pId : qIds) {
+            auto& pAln = finalPrimaryMap[pId];
+            int pQMin = std::min(pAln.qryIdx.first, pAln.qryIdx.second);
+            int pQMax = std::max(pAln.qryIdx.first, pAln.qryIdx.second);
+            if (std::abs(fQMin - pQMin) <= TOLERANCE) targetQMin = pQMin;
+            if (std::abs(fQMax - pQMax) <= TOLERANCE) targetQMax = pQMax;
+        }
+
+        // 執行補償
+        padAlignmentToBoundary(sec, targetRMin, targetRMax, targetQMin, targetQMax);
+
+        bool refCov = !rIds.empty();
+        bool qryCov = !qIds.empty();
 
         if (refCov && qryCov) {
-            // 2-2: 兩端都 Overlap -> Paralog
-            // 核心邏輯修改：讓對應到的兩塊 Primary "互設為 Paralog"
-            for (int rPId : refOverlapIds) {
-                for (int qPId : qryOverlapIds) {
-                    if (rPId != qPId) { // 避免自己設自己為 Paralog
+            for (int rPId : rIds) {
+                for (int qPId : qIds) {
+                    if (rPId != qPId) { 
                         primaryToParalogs[rPId].push_back(qPId);
                         primaryToParalogs[qPId].push_back(rPId);
                     }
+                    sec.paralogs.push_back(rPId);
+                    sec.paralogs.push_back(qPId);
                 }
             }
-            // 依然可以把 Secondary ID 存入 Primary 的 duplication 以利後續追蹤
-            for (int pId : refOverlapIds) primaryToDuplications[pId].push_back(sec.identifier);
-            for (int pId : qryOverlapIds) primaryToDuplications[pId].push_back(sec.identifier);
+            for (int pId : rIds) primaryToDuplications[pId].push_back(sec.identifier);
+            for (int pId : qIds) primaryToDuplications[pId].push_back(sec.identifier);
             
         } else if (refCov && !qryCov) {
-            // 2-1: 單邊 Overlap -> Duplication (Ref端)
-            for (int pId : refOverlapIds) {
-                sec.duplications.push_back(pId); // Secondary 記住自己攀附誰
-                primaryToDuplications[pId].push_back(sec.identifier); // Primary 記住自己身上有誰
+            for (int pId : rIds) {
+                sec.duplications.push_back(pId); 
+                primaryToDuplications[pId].push_back(sec.identifier);
             }
         } else if (!refCov && qryCov) {
-            // 2-1: 單邊 Overlap -> Duplication (Qry端)
-            for (int pId : qryOverlapIds) {
+            for (int pId : qIds) {
                 sec.duplications.push_back(pId);
                 primaryToDuplications[pId].push_back(sec.identifier);
             }
         }
     }
 
-    // [Pass 2-D]: 將收集好的關係寫回最終的 Primary 物件中
+    // [Pass 2-D]: 關係寫回 Primary
     for (auto& p : finalPrimaries) {
         int pId = p.identifier;
         if (primaryToDuplications.count(pId)) {
@@ -1256,71 +1362,124 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         }
     }
 
-    // 3. 收尾：覆寫回原來的陣列
     alignments.clear();
     alignments.insert(alignments.end(), finalPrimaries.begin(), finalPrimaries.end());
     alignments.insert(alignments.end(), finalSecondaries.begin(), finalSecondaries.end());
-
     alignments.insert(alignments.end(), remainingAlns.begin(), remainingAlns.end());
 
     // ==========================================
-    // Phase 3: Debugging Message (依照 X 軸座標排序並印出詳細資訊)
+    // Phase 3: Coverage Calculation
     // ==========================================
-    std::vector<const Alignment*> primaryAlns;
-    std::map<int, const Alignment*> idToAln; 
-    int pCount = 0, sCount = 0;
-    
-    for (const auto& aln : alignments) {
-        idToAln[aln.identifier] = &aln;
-        if (aln.type == mga::PRIMARY) {
-            primaryAlns.push_back(&aln);
-            pCount++;
-        } else {
-            sCount++;
-        }
+    std::vector<std::pair<int, int>> refPrimInts, qryPrimInts;
+    std::vector<std::pair<int, int>> refTotalInts, qryTotalInts;
+    int maxRefCoord = 0, maxQryCoord = 0;
+
+    for (const auto& aln : finalPrimaries) {
+        auto rPair = std::make_pair(std::min(aln.refIdx.first, aln.refIdx.second), std::max(aln.refIdx.first, aln.refIdx.second));
+        auto qPair = std::make_pair(std::min(aln.qryIdx.first, aln.qryIdx.second), std::max(aln.qryIdx.first, aln.qryIdx.second));
+        refPrimInts.push_back(rPair);
+        qryPrimInts.push_back(qPair);
+        refTotalInts.push_back(rPair);
+        qryTotalInts.push_back(qPair);
+    }
+    for (const auto& aln : finalSecondaries) {
+        refTotalInts.push_back({std::min(aln.refIdx.first, aln.refIdx.second), std::max(aln.refIdx.first, aln.refIdx.second)});
+        qryTotalInts.push_back({std::min(aln.qryIdx.first, aln.qryIdx.second), std::max(aln.qryIdx.first, aln.qryIdx.second)});
     }
 
-    std::sort(primaryAlns.begin(), primaryAlns.end(), [](const Alignment* a, const Alignment* b) {
-        return std::min(a->refIdx.first, a->refIdx.second) < std::min(b->refIdx.first, b->refIdx.second);
-    });
+    auto calculateMergedCoverage = [](std::vector<std::pair<int, int>>& intervals, int& maxCoord) -> int {
+        if (intervals.empty()) return 0;
+        std::sort(intervals.begin(), intervals.end());
+        int totalCovered = 0;
+        int currentStart = intervals[0].first;
+        int currentEnd = intervals[0].second;
+        maxCoord = std::max(maxCoord, currentEnd);
 
-    std::cout << "\n[Merger] --- Primary Alignment Tracking (Sorted by Ref X-axis) ---\n";
-    for (const auto* pAln : primaryAlns) {
-        int pId = pAln->identifier;
-        std::cout << "Primary ID: " << pId 
-                  << " | Ref: [" << pAln->refIdx.first << ", " << pAln->refIdx.second << "]"
-                  << " | Qry: [" << pAln->qryIdx.first << ", " << pAln->qryIdx.second << "]\t" << "Strand: " << pAln->inverse << '\n';
+        for (size_t i = 1; i < intervals.size(); ++i) {
+            maxCoord = std::max(maxCoord, intervals[i].second);
+            if (intervals[i].first <= currentEnd) {
+                currentEnd = std::max(currentEnd, intervals[i].second); 
+            } else {
+                totalCovered += (currentEnd - currentStart);            
+                currentStart = intervals[i].first;
+                currentEnd = intervals[i].second;
+            }
+        }
+        totalCovered += (currentEnd - currentStart);
+        return totalCovered;
+    };
+
+    int dummyMax = 0;
+    int primRefCov = calculateMergedCoverage(refPrimInts, dummyMax);
+    int primQryCov = calculateMergedCoverage(qryPrimInts, dummyMax);
+    int totalRefCov = calculateMergedCoverage(refTotalInts, maxRefCoord);
+    int totalQryCov = calculateMergedCoverage(qryTotalInts, maxQryCoord);
+    
+    double primRefRatio = (maxRefCoord > 0) ? (primRefCov * 100.0 / maxRefCoord) : 0.0;
+    double primQryRatio = (maxQryCoord > 0) ? (primQryCov * 100.0 / maxQryCoord) : 0.0;
+    double totalRefRatio = (maxRefCoord > 0) ? (totalRefCov * 100.0 / maxRefCoord) : 0.0;
+    double totalQryRatio = (maxQryCoord > 0) ? (totalQryCov * 100.0 / maxQryCoord) : 0.0;
+
+    // ==========================================
+    // Phase 4: Debugging Message 
+    // ==========================================
+    if (DEBUG_MODE) {
+        std::vector<const Alignment*> primaryAlns;
+        std::vector<const Alignment*> secondaryAlns;
         
-        // 印出所有攀附在這個 Primary 身上的 Secondary 碎塊
-        std::cout << "  ├─ Duplications / Attached Fragments (Secondary):\n";
-        if (!pAln->duplications.empty()) {
-            for (int sId : pAln->duplications) {
-                const auto* sAln = idToAln[sId]; 
-                std::cout << "  │    - ID: " << sId 
-                          << " | Ref: [" << sAln->refIdx.first << ", " << sAln->refIdx.second << "]"
-                          << " | Qry: [" << sAln->qryIdx.first << ", " << sAln->qryIdx.second << "]\t" << "Strand: " << sAln->inverse << '\n';
-            }
-        } else {
-            std::cout << "  │    None\n";
+        for (const auto& aln : alignments) {
+            if (aln.type == mga::PRIMARY) primaryAlns.push_back(&aln);
+            else if (aln.type == mga::SECONDARY) secondaryAlns.push_back(&aln);
         }
 
-        // 直接印出它 Paralog 連接到的其他 Primary ID
-        std::cout << "  └─ Paralogs (Linked Primaries):\n";
-        if (!pAln->paralogs.empty()) {
-            std::cout << "       - Linked directly to Primary ID: ";
-            for (size_t i = 0; i < pAln->paralogs.size(); ++i) {
-                std::cout << pAln->paralogs[i] << (i + 1 == pAln->paralogs.size() ? "" : ", ");
-            }
-            std::cout << "\n";
-        } else {
-            std::cout << "       None\n";
+        auto sortByRef = [](const Alignment* a, const Alignment* b) {
+            return std::min(a->refIdx.first, a->refIdx.second) < std::min(b->refIdx.first, b->refIdx.second);
+        };
+        std::sort(primaryAlns.begin(), primaryAlns.end(), sortByRef);
+        std::sort(secondaryAlns.begin(), secondaryAlns.end(), sortByRef);
+
+        std::cout << "\n[Merger] --- Final Alignment Tracking ---\n";
+        std::cout << "\n>>> PRIMARY ALIGNMENTS <<<\n";
+        for (const auto* pAln : primaryAlns) {
+            int pId = pAln->identifier;
+            int refLen = std::abs(pAln->refIdx.second - pAln->refIdx.first);
+            std::cout << "Primary ID: " << pId 
+                      << " | Ref: [" << pAln->refIdx.first << ", " << pAln->refIdx.second << "] (Len: " << refLen << " bp)"
+                      << " | Qry: [" << pAln->qryIdx.first << ", " << pAln->qryIdx.second << "]\tStrand: " << pAln->inverse << '\n';
         }
-        std::cout << "\n";
+
+        std::cout << "\n>>> SECONDARY ALIGNMENTS <<<\n";
+        for (const auto* sAln : secondaryAlns) {
+            int sId = sAln->identifier;
+            int refLen = std::abs(sAln->refIdx.second - sAln->refIdx.first);
+            std::cout << "Secondary ID: " << sId 
+                      << " | Ref: [" << sAln->refIdx.first << ", " << sAln->refIdx.second << "] (Len: " << refLen << " bp)"
+                      << " | Qry: [" << sAln->qryIdx.first << ", " << sAln->qryIdx.second << "]\tStrand: " << sAln->inverse << '\n';
+
+            if (!sAln->paralogs.empty()) {
+                std::set<int> uniqueLinks(sAln->paralogs.begin(), sAln->paralogs.end());
+                std::cout << "    └─ Type: Paralog (Links Primary IDs: ";
+                for (auto it = uniqueLinks.begin(); it != uniqueLinks.end(); ++it) std::cout << *it << (std::next(it) == uniqueLinks.end() ? "" : ", ");
+                std::cout << ")\n";
+            } else if (!sAln->duplications.empty()) {
+                std::set<int> uniqueDups(sAln->duplications.begin(), sAln->duplications.end());
+                std::cout << "    └─ Type: Duplication (Attached to Primary IDs: ";
+                for (auto it = uniqueDups.begin(); it != uniqueDups.end(); ++it) std::cout << *it << (std::next(it) == uniqueDups.end() ? "" : ", ");
+                std::cout << ")\n";
+            } else {
+                std::cout << "    └─ Type: Unknown / Orphaned\n";
+            }
+        }
+
+        std::cout << "\n[Merger] Identified " << primaryAlns.size() << " Primary and " 
+                  << secondaryAlns.size() << " Secondary alignments.\n";
+
+        std::cout << "\n[Coverage Info]\n"
+                  << "--- Primary Coverage (Only Primary Regions) ---\n"
+                  << "  - Ref: " << primRefCov << " bp (Est. Ratio: " << primRefRatio << "%)\n"
+                  << "  - Qry: " << primQryCov << " bp (Est. Ratio: " << primQryRatio << "%)\n"
+                  << "--- Total Coverage (Primary + Uncovered Secondary) ---\n"
+                  << "  - Ref: " << totalRefCov << " bp (Est. Ratio: " << totalRefRatio << "%)\n"
+                  << "  - Qry: " << totalQryCov << " bp (Est. Ratio: " << totalQryRatio << "%)\n";
     }
-    
-    std::cout << "[Merger] Identified " << pCount << " Primary alignments and " 
-              << sCount << " Secondary exact-fragments.\n";
-
-    std::cout << "[Greedy Merger] Output " << finalPrimaries.size() << " Primary and " 
-              << finalSecondaries.size() << " Secondary alignments after dynamic cutting.\n";
 }
