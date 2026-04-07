@@ -378,6 +378,8 @@ class BlockSet {
         std::shared_ptr<Block> addBlock(std::shared_ptr<Block> block);
         bool deleteBlock(Block::ID id);
         size_t getSequenceCount() {return seqs.size(); }
+        std::vector<std::string> getSequences() {return seqs; }
+        std::string getLongestSeq() { return longest_sequence_; }
     
         void getRepresentativeAndRemaining(std::vector<std::pair<std::string, std::string>>& representative, std::vector<std::pair<std::string, std::string>>& remaining);
         
@@ -390,10 +392,17 @@ class BlockSet {
         void updateLongestSequence(std::unordered_map<std::string, int>& sequence_lengths);
         void debugValidateSegments(bool verbose);
         void debugValidateLinkages(bool verbose);
+        void debugValidateQuality(bool verbose);
         void refine();
+
+        void invalidateRepCache() { is_rep_cached_ = false; }
+
     private:
         friend class BlockManager; // Allow BlockManager to modify id_
     
+        std::vector<Block::ID> representative_cache_;
+        bool is_rep_cached_ = false;
+        
         SetId id_; // No longer const
         std::string longest_sequence_ = "";
         std::vector<std::string> seqs;
@@ -416,6 +425,7 @@ class BlockManager {
         BlockSet* getBlockSet(BlockSet::SetId id) const;
         std::vector<BlockSet*> getAllBlockSets() const;
         bool changeBlockSetId(BlockSet::SetId old_id, BlockSet::SetId new_id);
+        bool removeBlockSet(BlockSet::SetId id);
 
         void print(std::ostream& os = std::cout) const;
 
@@ -425,9 +435,8 @@ class BlockManager {
         BlockSet* merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mga::Alignment>& alignments);
         void integrateRemainingBlocks(BlockSet* refSet,  BlockSet* qrySet,  BlockSet* mergedSet,  const std::vector<mga::Alignment>& remainingAlns, int mergedConsensusLen);
         void updateLongestSequences();
-        void addSequenceLength(std::string seqName, int seqLen) {
-            sequence_lengths[seqName] = seqLen;
-        }
+        void addSequenceLength(std::string seqName, int seqLen) { sequence_lengths[seqName] = seqLen;}
+        int getSequenceLength(std::string seqName) { return sequence_lengths[seqName];}
 
     private:
         std::unordered_map<BlockSet::SetId, std::unique_ptr<BlockSet>> block_sets_;

@@ -1027,11 +1027,10 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
 
     std::vector<Alignment> primaryList;
     std::vector<Alignment> secondaryList;
-    
     std::unordered_map<int, Alignment> debugPrimaryMap; 
     
     const int MIN_ALN_LEN = 100; 
-    const int TOLERANCE = 50;  // 用於吸收邊界誤差 (Trim/Add Gap)
+    const int TOLERANCE = 50;  
     int nextGlobalId = 1;
 
     if (DEBUG_MODE) std::cout << "\n============================================\n"
@@ -1226,22 +1225,89 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         return strictIds;
     };
 
-    // 【新增】：CIGAR 補償與對齊工具
+    // 【核心升級】：1-bp Stepping Engine，支援同時 Trimming (超出裁切) 與 Padding (不足補齊)
     auto padAlignmentToBoundary = [](Alignment& aln, int tgtRMin, int tgtRMax, int tgtQMin, int tgtQMax) {
         int rMin = std::min(aln.refIdx.first, aln.refIdx.second);
         int rMax = std::max(aln.refIdx.first, aln.refIdx.second);
         int qMin = std::min(aln.qryIdx.first, aln.qryIdx.second);
         int qMax = std::max(aln.qryIdx.first, aln.qryIdx.second);
 
-        int padRefFront = std::max(0, rMin - tgtRMin);
-        int padRefBack  = std::max(0, tgtRMax - rMax);
-        int padQryFront = std::max(0, qMin - tgtQMin);
-        int padQryBack  = std::max(0, tgtQMax - qMax);
+        if (rMin == tgtRMin && rMax == tgtRMax && qMin == tgtQMin && qMax == tgtQMax) return;
 
-        // 只有真的需要補償時才動作
-        if (padRefFront == 0 && padRefBack == 0 && padQryFront == 0 && padQryBack == 0) return;
+        // 計算要從 CIGAR 頭部砍掉 (Skip) 的量：當 Secondary 超出 Primary 的時候
+        int skipR = std::max(0, tgtRMin - rMin);
+        int skipQ = aln.inverse ? std::max(0, qMax - tgtQMax) : std::max(0, tgtQMin - qMin);
 
-        // 1. 更新座標
+        // 目標的精準長度
+        int targetR = tgtRMax - tgtRMin;
+        int targetQ = tgtQMax - tgtQMin;
+
+        mga::Cigar finalCigar;
+
+        // 1. 如果 Secondary 不足，要在前面補 Gap
+        int padRFront = std::max(0, rMin - tgtRMin);
+        int padQFront = aln.inverse ? std::max(0, tgtQMax - qMax) : std::max(0, qMin - tgtQMin);
+        
+        if (padRFront > 0) finalCigar.push_back({padRFront, 'D'});
+        if (padQFront > 0) finalCigar.push_back({padQFront, 'I'});
+
+        // 2. 利用 1-bp 微步進，精準截取中間符合 Target 範圍的 CIGAR
+        int curR = 0, curQ = 0; 
+        int totalR = padRFront, totalQ = padQFront; 
+
+        auto addOp = [&](char t) {
+            if (!finalCigar.empty() && finalCigar.back().second == t) finalCigar.back().first++;
+            else finalCigar.push_back({1, t});
+        };
+
+        for (auto op : aln.CIGAR) {
+            int l = op.first; char t = op.second;
+            if (t == 'S' || t == 'H') t = 'I';
+
+            bool rCons = (t == 'M' || t == '=' || t == 'X' || t == 'D');
+            bool qCons = (t == 'M' || t == '=' || t == 'X' || t == 'I');
+
+            for (int i = 0; i < l; ++i) {
+                bool useR = false, useQ = false;
+                
+                // 走訪 Ref
+                if (rCons) {
+                    if (curR < skipR) curR++; // Skip 掉超出的部分
+                    else if (totalR < targetR) { useR = true; totalR++; } // 進入保留區
+                }
+                // 走訪 Qry
+                if (qCons) {
+                    if (curQ < skipQ) curQ++; // Skip 掉超出的部分
+                    else if (totalQ < targetQ) { useQ = true; totalQ++; } // 進入保留區
+                }
+
+                // 根據雙方的走訪狀況組合 CIGAR
+                if (useR && useQ) addOp((t == 'M' || t == '=' || t == 'X') ? t : 'M'); 
+                else if (useR) addOp('D'); 
+                else if (useQ) addOp('I'); 
+            }
+        }
+
+        // 3. 如果到了尾巴 Secondary 還是不足，補齊 Gap
+        if (totalR < targetR) {
+            addOp('D'); finalCigar.back().first += (targetR - totalR - 1);
+        }
+        if (totalQ < targetQ) {
+            addOp('I'); finalCigar.back().first += (targetQ - totalQ - 1);
+        }
+
+        // 4. 清理與合併相鄰同類的 CIGAR 碎片
+        mga::Cigar cleanCigar;
+        for (auto op : finalCigar) {
+            if (!cleanCigar.empty() && cleanCigar.back().second == op.second) {
+                cleanCigar.back().first += op.first;
+            } else {
+                cleanCigar.push_back(op);
+            }
+        }
+        aln.CIGAR = cleanCigar;
+
+        // 5. 套用精準的新座標
         if (aln.refIdx.first < aln.refIdx.second) {
             aln.refIdx.first = tgtRMin; aln.refIdx.second = tgtRMax;
         } else {
@@ -1253,35 +1319,6 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         } else {
             aln.qryIdx.first = tgtQMax; aln.qryIdx.second = tgtQMin;
         }
-
-        // 2. 補償 CIGAR 
-        mga::Cigar newCigar;
-        
-        // 考慮反股，補在 CIGAR 頭部的操作
-        int frontD = padRefFront;
-        int frontI = aln.inverse ? padQryBack : padQryFront;
-        if (frontD > 0) newCigar.push_back({frontD, 'D'});
-        if (frontI > 0) newCigar.push_back({frontI, 'I'});
-
-        // 放入原本的 CIGAR
-        for (auto op : aln.CIGAR) newCigar.push_back(op);
-
-        // 補在 CIGAR 尾部的操作
-        int backD = padRefBack;
-        int backI = aln.inverse ? padQryFront : padQryBack;
-        if (backD > 0) newCigar.push_back({backD, 'D'});
-        if (backI > 0) newCigar.push_back({backI, 'I'});
-
-        // 3. 清理 CIGAR 碎片
-        mga::Cigar cleanCigar;
-        for (auto op : newCigar) {
-            if (!cleanCigar.empty() && cleanCigar.back().second == op.second) {
-                cleanCigar.back().first += op.first;
-            } else {
-                cleanCigar.push_back(op);
-            }
-        }
-        aln.CIGAR = cleanCigar;
     };
 
     for (auto& sec : finalSecondaries) {
@@ -1296,7 +1333,6 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         std::set<int> rIds = getStrictOverlaps(fRMin, fRMax, rRawIds, true);
         std::set<int> qIds = getStrictOverlaps(fQMin, fQMax, qRawIds, false);
 
-        // 【新增】：尋找最適合對齊的 Primary 邊界並強制吸附
         int targetRMin = fRMin, targetRMax = fRMax;
         int targetQMin = fQMin, targetQMax = fQMax;
 
@@ -1316,7 +1352,7 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
             if (std::abs(fQMax - pQMax) <= TOLERANCE) targetQMax = pQMax;
         }
 
-        // 執行補償
+        // 執行完美補償與裁切
         padAlignmentToBoundary(sec, targetRMin, targetRMax, targetQMin, targetQMax);
 
         bool refCov = !rIds.empty();
@@ -1368,7 +1404,7 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
     alignments.insert(alignments.end(), remainingAlns.begin(), remainingAlns.end());
 
     // ==========================================
-    // Phase 3: Coverage Calculation
+    // Phase 3 & 4: Coverage Calculation & Debugging
     // ==========================================
     std::vector<std::pair<int, int>> refPrimInts, qryPrimInts;
     std::vector<std::pair<int, int>> refTotalInts, qryTotalInts;
@@ -1420,10 +1456,8 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
     double totalRefRatio = (maxRefCoord > 0) ? (totalRefCov * 100.0 / maxRefCoord) : 0.0;
     double totalQryRatio = (maxQryCoord > 0) ? (totalQryCov * 100.0 / maxQryCoord) : 0.0;
 
-    // ==========================================
-    // Phase 4: Debugging Message 
-    // ==========================================
-    if (DEBUG_MODE) {
+    // if (DEBUG_MODE) {
+    if (true) {
         std::vector<const Alignment*> primaryAlns;
         std::vector<const Alignment*> secondaryAlns;
         
@@ -1437,7 +1471,7 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
         };
         std::sort(primaryAlns.begin(), primaryAlns.end(), sortByRef);
         std::sort(secondaryAlns.begin(), secondaryAlns.end(), sortByRef);
-
+    if (DEBUG_MODE) {
         std::cout << "\n[Merger] --- Final Alignment Tracking ---\n";
         std::cout << "\n>>> PRIMARY ALIGNMENTS <<<\n";
         for (const auto* pAln : primaryAlns) {
@@ -1471,6 +1505,7 @@ void mga::identifyPrimaryAlignments(alnVec& alignments, chainVec& chains) {
             }
         }
 
+    }
         std::cout << "\n[Merger] Identified " << primaryAlns.size() << " Primary and " 
                   << secondaryAlns.size() << " Secondary alignments.\n";
 

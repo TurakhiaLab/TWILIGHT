@@ -13,13 +13,27 @@
 
 
 void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* blockManager, Option& option) {
+    std::cout << "Total Pairs: " << alnPairs.size() << '\n'; 
     for (auto& pair : alnPairs) {
-
+        
         Node* node1 = pair.first;
         Node* node2 = pair.second;
 
         auto BlockSet1 = blockManager->getBlockSet(node1->identifier);
         auto BlockSet2 = blockManager->getBlockSet(node2->identifier);
+
+        // // Test Progressive
+        // std::cout << "BlockSet 1 [" << BlockSet1->getId() << "] Longest: " << BlockSet1->getLongestSeq() << "\n";
+        // for (auto& seq: BlockSet1->getSequences()) std::cout << seq << ':' << blockManager->getSequenceLength(seq) << '\n';
+        // std::cout << "BlockSet 2 [" << BlockSet2->getId() << "] Longest: " << BlockSet2->getLongestSeq() << "\n";
+        // for (auto& seq: BlockSet2->getSequences()) std::cout << seq << ':' << blockManager->getSequenceLength(seq) << '\n';
+        // BlockSet* resultSet = blockManager->createBlockSet("temp"); 
+        // for (auto& seq: BlockSet1->getSequences()) resultSet->addSequence(seq);
+        // for (auto& seq: BlockSet2->getSequences()) resultSet->addSequence(seq);
+        // blockManager->removeBlockSet(node1->identifier);
+        // blockManager->removeBlockSet(node2->identifier);
+        // blockManager->changeBlockSetId(resultSet->getId(), node1->identifier); 
+        // continue;
 
         if (!BlockSet1 || !BlockSet2 ) {
             std::cerr << "Warning: Skipping alignment pair due to missing blockId." << std::endl;
@@ -62,7 +76,7 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
 
         // minimap2 -cx asm5 -g 500 -r 500 -n 5 -m 50 -N 20 -p 0.8 asm1.fa asm2.fa > aln.paf
         // whole-genome alignment between 1 and 2
-        command = minimap2_path + " -cx asm5 -g 500 -r 500,500 -N 20 " + consensus1_path + " " + consensus2_path + " > " + c1c2_path;
+        command = minimap2_path + " -cx asm10 -g 500 -r 500,500 -N 20 " + consensus1_path + " " + consensus2_path + " > " + c1c2_path;
         system_ret = system(command.c_str());
         if (system_ret != 0) {
             std::cerr << "Error: minimap2 execution failed for command: " << command << std::endl;
@@ -77,7 +91,8 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
         alnVec mainAlignments = parser::parseMinimap2PAF(c1c2_path);
         if (mainAlignments.empty()) {
             std::cerr << "Warning: No alignments produced by minimap2." << std::endl;
-        } else {
+        } 
+        else {
             // 4. Process alignments
             chainVec chains = getAlignmentChains(mainAlignments);
             identifyPrimaryAlignments(mainAlignments, chains);
@@ -90,59 +105,46 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
             
             BlockSet* mergeBlockSet = blockManager->merge(BlockSet1, BlockSet2, mainAlignments);
 
-            mergeBlockSet->debugValidateSegments(true);
+            mergeBlockSet->debugValidateSegments(false);
             mergeBlockSet->debugValidateLinkages(false);
             mergeBlockSet->refine();
-            mergeBlockSet->debugValidateSegments(true);
+            mergeBlockSet->debugValidateSegments(false);
             mergeBlockSet->debugValidateLinkages(false);
-            exit(1);
+            mergeBlockSet->debugValidateQuality(false);
 
-            std::cout << "Number of merged blocks: " << mergeBlockSet->getAllBlocks().size() << std::endl;
-            // for (auto& b: mergeBlockSet->getAllBlocks()) b->print();
-            
+            blockManager->removeBlockSet(node1->identifier);
+            blockManager->removeBlockSet(node2->identifier);
+            blockManager->changeBlockSetId(mergeBlockSet->getId(), node1->identifier); 
 
-            // Align remaining blocks to the main blocksets
+            // // Align remaining blocks to the main blocksets
 
-            stringPairVec remaining = std::move(remaining1);
-            remaining.insert(remaining.end(), remaining2.begin(), remaining2.end());
-            stringPairVec mergedBlocks;
-            std::cout << remaining.size() << std::endl;
-            std::string main_path = temp_dir + "/" + mergeBlockSet->getId() + ".fa";
-            std::string remaining_path = temp_dir + "/" + mergeBlockSet->getId() + "_remaining.fa";
-            std::string addremaining_path = temp_dir + "/output_" + mergeBlockSet->getId() + "_addremaining.paf";
+            // stringPairVec remaining = std::move(remaining1);
+            // remaining.insert(remaining.end(), remaining2.begin(), remaining2.end());
+            // stringPairVec mergedBlocks;
+            // std::cout << remaining.size() << std::endl;
+            // std::string main_path = temp_dir + "/" + mergeBlockSet->getId() + ".fa";
+            // std::string remaining_path = temp_dir + "/" + mergeBlockSet->getId() + "_remaining.fa";
+            // std::string addremaining_path = temp_dir + "/output_" + mergeBlockSet->getId() + "_addremaining.paf";
 
-            for (auto& block: mergeBlockSet->getAllBlocks()) {
-                mergedBlocks.push_back({mergeBlockSet->getId()+"_"+std::to_string(block->getId()), block->getConsensus()});
-            }
-            io::writeAlignment(main_path, mergedBlocks, false, false);
-            io::writeAlignment(remaining_path, remaining, false, false);
-        
-            if (!remaining.empty()) {
-                command = minimap2_path + " -cx asm5 " + main_path + " " + remaining_path + " > " + addremaining_path;
-                system_ret = system(command.c_str());
-                if (system_ret != 0) {
-                    std::cerr << "Error: minimap2 execution failed for command: " << command << std::endl;
-                }
-                alnVec addAlignments = parser::parseMinimap2PAF(addremaining_path);
-            }
-
-            std::cout << "Modify ID of " << mergeBlockSet->getId() << " to " << pair.first->identifier << std::endl;
-            blockManager->changeBlockSetId(mergeBlockSet->getId(), pair.first->identifier);
-
-            
-            
-            // 5. Merge blocks
-            // bool merged = blockManager.mergeBlocks(block1_id, block2_id);
-            // if (!merged) {
-            //     std::cerr << "Error: Failed to merge blocks " << block1_id << " and " << block2_id << std::endl;
-            // } else {
-            //     // 6. Update parent node (node1)
-            //     node1->blockId = block1_id; // It now represents the merged block
-
-            //     // Update other properties of node1 if necessary
-            //     auto mergedBlock = blockManager.getBlock(block1_id);
+            // for (auto& block: mergeBlockSet->getAllBlocks()) {
+            //     mergedBlocks.push_back({mergeBlockSet->getId()+"_"+std::to_string(block->getId()), block->getConsensus()});
             // }
+            // io::writeAlignment(main_path, mergedBlocks, false, false);
+            // io::writeAlignment(remaining_path, remaining, false, false);
+        
+            // if (!remaining.empty()) {
+            //     command = minimap2_path + " -cx asm5 " + main_path + " " + remaining_path + " > " + addremaining_path;
+            //     system_ret = system(command.c_str());
+            //     if (system_ret != 0) {
+            //         std::cerr << "Error: minimap2 execution failed for command: " << command << std::endl;
+            //     }
+            //     alnVec addAlignments = parser::parseMinimap2PAF(addremaining_path);
+            // }
+
+            // std::cout << "Modify ID of " << mergeBlockSet->getId() << " to " << pair.first->identifier << std::endl;
+            // blockManager->changeBlockSetId(mergeBlockSet->getId(), pair.first->identifier);
         }
     }
+    blockManager->updateLongestSequences();
     
 }

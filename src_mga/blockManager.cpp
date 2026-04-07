@@ -60,6 +60,23 @@ bool BlockManager::changeBlockSetId(BlockSet::SetId old_id, BlockSet::SetId new_
     return true;
 }
 
+bool BlockManager::removeBlockSet(BlockSet::SetId id) {
+    // 1. Safe Check: 尋找該 BlockSet 是否存在
+    auto it = block_sets_.find(id);
+    
+    if (it != block_sets_.end()) {
+        // 2. Erase: 
+        // 由於使用 std::unique_ptr 管理 BlockSet，且 BlockSet 內部使用 std::shared_ptr 
+        // 管理 Block，Block 之間的拓撲又正確使用 std::weak_ptr 避免了循環參照。
+        // 因此，只要 erase 這筆紀錄，C++ 就會自動呼叫解構子，將該 Set 與底下所有的 Block 記憶體完美釋放。
+        block_sets_.erase(it);
+        return true; // 成功刪除
+    }
+    
+    // 如果找不到，就不做事並回傳 false
+    return false;
+}
+
 void BlockManager::updateLongestSequences() {
     for (const auto& pair : block_sets_) {
         if (pair.second) {

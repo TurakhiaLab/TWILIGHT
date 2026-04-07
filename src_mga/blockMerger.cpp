@@ -250,9 +250,11 @@ std::tuple<bool, mga::Cigar, bool> extractSubCigar(
 
     int tgtRStart = baseFromRef ? blockConsensusCoords.at(baseId).first  : blockConsensusCoords.at(memId).first;
     int tgtREnd   = baseFromRef ? blockConsensusCoords.at(baseId).second : blockConsensusCoords.at(memId).second;
-    
     int tgtQStart = !baseFromRef ? blockConsensusCoords.at(baseId).first  : blockConsensusCoords.at(memId).first;
     int tgtQEnd   = !baseFromRef ? blockConsensusCoords.at(baseId).second : blockConsensusCoords.at(memId).second;
+
+    int targetBaseLen = blockConsensusCoords.at(baseId).second - blockConsensusCoords.at(baseId).first;
+    int targetMemLen  = blockConsensusCoords.at(memId).second - blockConsensusCoords.at(memId).first;
 
     for (const auto& aln : alignments) {
         if (!aln.valid || (aln.type != mga::PRIMARY && aln.type != mga::SECONDARY)) continue;
@@ -271,7 +273,6 @@ std::tuple<bool, mga::Cigar, bool> extractSubCigar(
         for (auto op : aln.CIGAR) {
             int len = op.first; char type = op.second;
             bool consumesRef = (type == 'M' || type == '=' || type == 'X' || type == 'D');
-            
             if (!consumesRef) {
                 if (currR >= tgtRStart && currR <= tgtREnd) subCigar.push_back(op);
                 continue;
@@ -286,6 +287,7 @@ std::tuple<bool, mga::Cigar, bool> extractSubCigar(
             currR += len;
         }
 
+        // 翻轉方向
         if (!baseFromRef) {
             for (auto& op : subCigar) {
                 if (op.second == 'I') op.second = 'D';
@@ -293,43 +295,44 @@ std::tuple<bool, mga::Cigar, bool> extractSubCigar(
             }
         }
 
-        // 強制 Padding & Trimming 確保長度精確等於碎塊長度
-        int targetRefLen = tgtREnd - tgtRStart;
-        int targetQryLen = tgtQEnd - tgtQStart;
+        // 【核心修復】：1-bp 微步進對齊引擎，強制讓 CIGAR 貼合真實長度！
+        mga::Cigar finalCigar;
+        int curBase = 0, curMem = 0;
 
-        int cRef = 0, cQry = 0;
-        for (auto& op : subCigar) {
-            if (op.second == 'M' || op.second == '=' || op.second == 'X' || op.second == 'D') cRef += op.first;
-            if (op.second == 'M' || op.second == '=' || op.second == 'X' || op.second == 'I') cQry += op.first;
-        }
+        auto addOp = [&](char t) {
+            if (!finalCigar.empty() && finalCigar.back().second == t) finalCigar.back().first++;
+            else finalCigar.push_back({1, t});
+        };
 
-        if (cRef < targetRefLen) subCigar.push_back({targetRefLen - cRef, 'D'});
-        if (cQry < targetQryLen) subCigar.push_back({targetQryLen - cQry, 'I'});
-
-        mga::Cigar trimmedCigar;
-        int curR = 0, curQ = 0;
         for (auto op : subCigar) {
             int l = op.first; char t = op.second;
             if (t == 'S' || t == 'H') t = 'I';
 
-            int stepR = (t == 'M' || t == '=' || t == 'X' || t == 'D') ? l : 0;
-            int stepQ = (t == 'M' || t == '=' || t == 'X' || t == 'I') ? l : 0;
+            bool bCons = (t == 'M' || t == '=' || t == 'X' || t == 'D');
+            bool mCons = (t == 'M' || t == '=' || t == 'X' || t == 'I');
 
-            if (curR + stepR > targetRefLen) {
-                stepR = targetRefLen - curR;
-                if (t != 'I') l = stepR; 
+            for (int i = 0; i < l; ++i) {
+                bool useB = false, useM = false;
+                
+                // 走訪並控制不超出上限
+                if (bCons && curBase < targetBaseLen) { useB = true; curBase++; }
+                if (mCons && curMem < targetMemLen) { useM = true; curMem++; }
+
+                if (useB && useM) addOp((t == 'M' || t == '=' || t == 'X') ? t : 'M');
+                else if (useB) addOp('D');
+                else if (useM) addOp('I');
             }
-            if (curQ + stepQ > targetQryLen) {
-                stepQ = targetQryLen - curQ;
-                if (t != 'D') l = stepQ; 
-            }
-            
-            if (l > 0) trimmedCigar.push_back({l, t});
-            curR += stepR; curQ += stepQ;
-            if (curR >= targetRefLen && curQ >= targetQryLen) break;
         }
 
-        return {true, trimmedCigar, aln.inverse};
+        // 如果不足，強制補尾刀 Gap
+        if (curBase < targetBaseLen) {
+            addOp('D'); finalCigar.back().first += (targetBaseLen - curBase - 1);
+        }
+        if (curMem < targetMemLen) {
+            addOp('I'); finalCigar.back().first += (targetMemLen - curMem - 1);
+        }
+
+        return {true, finalCigar, aln.inverse};
     }
     
     return {false, {}, false};
@@ -339,7 +342,7 @@ std::tuple<bool, mga::Cigar, bool> extractSubCigar(
 // 主函數：Graph Merge
 // ==========================================
 BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mga::Alignment>& alignments) {
-    bool DEBUG_MODE = false;
+    bool DEBUG_MODE = true;
 
     if (DEBUG_MODE) std::cout << "\n========================================================\n"
                               << "=== GRAPH MERGE START: " << refSet->getId() << " + " << qrySet->getId() << " ===\n"
@@ -483,12 +486,14 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         return super_block;
     };
 
+    DEBUG_MODE = false;
     auto refSuperBlock = concatenateBlocks(refSet, 9999991); 
     auto qrySuperBlock = concatenateBlocks(qrySet, 9999992);
     BlockSet refSuperSet ("ref_super");
     BlockSet qrySuperSet ("qry_super");
     refSuperBlock = refSuperSet.addBlock(refSuperBlock);
     qrySuperBlock = qrySuperSet.addBlock(qrySuperBlock);
+    DEBUG_MODE = true;
 
     // ==========================================
     // Phase 1: 使用 Dictionary + splitSingleBlock 切割
@@ -515,12 +520,12 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         validAlignments.push_back(aln); // 保留合格的 Alignment
     }
 
-    if (DEBUG_MODE) {
-        std::cout << "Reference Cut Points: \n";
-        for (auto cut: refCuts) std::cout << cut << " "; std::cout << "\n";
-        std::cout << "Query Cut Points: \n";
-        for (auto cut: qryCuts) std::cout << cut << " "; std::cout << "\n";
-    }
+    // if (DEBUG_MODE) {
+    //     std::cout << "Reference Cut Points: \n";
+    //     for (auto cut: refCuts) std::cout << cut << " "; std::cout << "\n";
+    //     std::cout << "Query Cut Points: \n";
+    //     for (auto cut: qryCuts) std::cout << cut << " "; std::cout << "\n";
+    // }
     
     
     std::map<int, BlockSet::SegNode> refDict;
@@ -576,10 +581,11 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         dict[cutPos] = {cutPos, end, parts.second};
     };
 
-
+    DEBUG_MODE = false;
     for (int cut : refCuts) splitDictBlock(refDict, &refSuperSet, cut);
     for (int cut : qryCuts) splitDictBlock(qryDict, &qrySuperSet, cut);
-    
+    DEBUG_MODE = true;
+
     if (DEBUG_MODE) {
         std::cout << "  -> Ref SuperBlock split into " << refDict.size() << " atomic blocks.\n";
         std::cout << "  -> Qry SuperBlock split into " << qryDict.size() << " atomic blocks.\n";
@@ -628,7 +634,7 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
     // Phase 2: Grouping Homologous Blocks
     // ==========================================
     if (DEBUG_MODE) std::cout << "\n[Phase 2] Grouping Homologous Blocks (Primary & Secondary)...\n";
-    
+    DEBUG_MODE = false;
     UnionFind uf; 
     for (const auto& kv : globalBlockPool) uf.find(kv.first); 
 
@@ -647,29 +653,32 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
             std::cout << "  [DEBUG-GROUP] Aln #" << alnCounter << " (Type " << aln.type << ") | Ref: [" << rMin << ", " << rMax << "] | Qry: [" << qMin << ", " << qMax << "]\n";
         }
 
-        auto rIt = refDict.upper_bound(rMin); if (rIt != refDict.begin()) rIt--;
-        auto qIt = qryDict.upper_bound(qMin); if (qIt != qryDict.begin()) qIt--;
-
-        // 橫跨多個 Atomic Block 時，依序將每一個對應的子碎塊綁定
-        while (rIt != refDict.end() && qIt != qryDict.end() && rIt->first < rMax && qIt->first < qMax) {
-            if (DEBUG_MODE) {
-                int rLen = rIt->second.end - rIt->second.start;
-                int qLen = qIt->second.end - qIt->second.start;
-                std::cout << "    ├─ Uniting Ref Block " << rIt->second.blkId << " [" << rIt->second.start << ", " << rIt->second.end << "] (Len: " << rLen << ") "
-                          << "<---> Qry Block " << qIt->second.blkId << " [" << qIt->second.start << ", " << qIt->second.end << "] (Len: " << qLen << ")\n";
-                
-                // 檢查如果綁定的這兩個碎片長度差太多，印出警告
-                if (std::abs(rLen - qLen) > 5) {
-                    std::cout << "    │  [WARNING] High length mismatch between united blocks!\n";
-                }
-            }
-
-            uf.unite(rIt->second.blkId, qIt->second.blkId);
+        // 【修復核心】：抓取此 Alignment 範圍內涵蓋到的 所有 Ref 與 Qry 積木
+        std::vector<Block::ID> rBlocks;
+        auto rIt = refDict.upper_bound(rMin); 
+        if (rIt != refDict.begin()) rIt--;
+        while (rIt != refDict.end() && rIt->second.start < rMax) {
+            rBlocks.push_back(rIt->second.blkId);
             rIt++;
+        }
+
+        std::vector<Block::ID> qBlocks;
+        auto qIt = qryDict.upper_bound(qMin); 
+        if (qIt != qryDict.begin()) qIt--;
+        while (qIt != qryDict.end() && qIt->second.start < qMax) {
+            qBlocks.push_back(qIt->second.blkId);
             qIt++;
-            matchCount++;
+        }
+
+        // 把這個範圍內的所有 Ref 積木與 Qry 積木，全部拉進同一個 UnionFind 群組！
+        for (Block::ID rId : rBlocks) {
+            for (Block::ID qId : qBlocks) {
+                uf.unite(rId, qId);
+                matchCount++;
+            }
         }
     }
+    
     if (DEBUG_MODE) std::cout << "  -> Grouped " << matchCount << " homologous pairs.\n";
 
 
@@ -689,6 +698,7 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         isRefBlockMap[kv.second.blkId] = false; 
     }
 
+    DEBUG_MODE = true;
     // ==========================================
     // Phase 4: Iterative Spanning-Tree Merging per Group
     // ==========================================
@@ -697,6 +707,7 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
     std::string newID = "Merged_" + refSet->getId() + "_" + qrySet->getId();
     BlockSet* resultSet = createBlockSet(newID); 
 
+    DEBUG_MODE = false;
     std::map<Block::ID, std::vector<Block::ID>> groupedBlocks;
     for (auto& kv : uf.parent) {
         groupedBlocks[uf.find(kv.first)].push_back(kv.first);
@@ -848,6 +859,7 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         }
     }
 
+    DEBUG_MODE = true;
     // ==========================================
     // Phase 5: 拓撲重建 (Topology Reconstruction)
     // ==========================================
@@ -900,6 +912,10 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
             }
         }
     }
+
+    for (auto& seq: refSet->getSequences()) resultSet->addSequence(seq);
+    for (auto& seq: qrySet->getSequences()) resultSet->addSequence(seq);
+
 
     if (DEBUG_MODE) std::cout << "========================================================\n"
                               << "=== GRAPH MERGE COMPLETED SUCCESSFULLY ===\n"

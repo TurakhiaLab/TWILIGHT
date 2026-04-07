@@ -12,6 +12,7 @@ std::shared_ptr<Block> BlockSet::createBlock(const std::string& consensus) {
     Block::ID new_id = next_block_id_++;
     auto new_block = std::make_shared<Block>(new_id, consensus);
     blocks_[new_id] = new_block;
+    invalidateRepCache();
     return new_block;
 }
 
@@ -41,6 +42,7 @@ void BlockSet::updateLongestSequence(std::unordered_map<std::string, int>& seque
     }
 }
 
+/*
 std::vector<Block::ID> BlockSet::getRepresentativeBlocks() {
     std::vector<Block::ID> representative_blocks;
     std::unordered_set<Block::ID> visited;
@@ -130,6 +132,70 @@ std::vector<Block::ID> BlockSet::getRepresentativeBlocks() {
 
     return representative_blocks;
 }
+*/
+
+std::vector<Block::ID> BlockSet::getRepresentativeBlocks() {
+    // 1. 如果已經計算過，直接一秒回傳快取結果！
+    if (is_rep_cached_) {
+        return representative_cache_;
+    }
+
+    bool debug = true;
+    if (debug) std::cout << "\n[DEBUG-REP] === Extracting Representative Blocks (Fast Sort) ===\n";
+
+    std::vector<std::pair<int, Block::ID>> backbone_candidates;
+    std::vector<Block::ID> remaining_blocks;
+
+    // 2. 走訪全圖 (線性掃描，不走複雜指標)
+    for (auto& pair : blocks_) {
+        Block::ID id = pair.first;
+        auto blk = pair.second;
+        
+        auto seq_it = blk->getSequences().find(longest_sequence_);
+        if (seq_it != blk->getSequences().end()) {
+            // 如果是 Backbone，找出它在這條序列上最左邊的座標
+            int min_coord = std::numeric_limits<int>::max();
+            for (auto& seg_pair : seq_it->second.getSegments()) {
+                int start = std::min(seg_pair.second.getStart(), seg_pair.second.getEnd());
+                if (start < min_coord) min_coord = start;
+            }
+            backbone_candidates.push_back({min_coord, id});
+        } else {
+            // 如果沒有包含最長序列，歸類為 Remaining
+            remaining_blocks.push_back(id);
+        }
+    }
+
+    // 3. 極速排序
+    // Backbone 依照基因體座標排序 (還原真實物理順序)
+    std::sort(backbone_candidates.begin(), backbone_candidates.end());
+    // Remaining 依照 ID 排序 (確保每次執行結果固定不變)
+    std::sort(remaining_blocks.begin(), remaining_blocks.end());
+
+    // 4. 寫入快取
+    representative_cache_.clear();
+    representative_cache_.reserve(backbone_candidates.size() + remaining_blocks.size());
+
+    for (const auto& item : backbone_candidates) {
+        representative_cache_.push_back(item.second);
+    }
+    for (Block::ID id : remaining_blocks) {
+        representative_cache_.push_back(id);
+    }
+
+    // 標記快取為有效
+    is_rep_cached_ = true;
+
+    if (debug) {
+        std::cout << "[DEBUG-REP] === Fast Traversal Summary ===\n";
+        std::cout << "  - Backbone Blocks: " << backbone_candidates.size() << "\n";
+        std::cout << "  - Appended Remaining Blocks: " << remaining_blocks.size() << "\n";
+        std::cout << "  - Total Blocks: " << representative_cache_.size() << "\n";
+        std::cout << "------------------------------------------------------------\n";
+    }
+
+    return representative_cache_;
+}
 
 std::vector<std::shared_ptr<Block>> BlockSet::getRemainingBlocks() {
     std::vector<std::shared_ptr<Block>> remaining_blocks;
@@ -147,6 +213,7 @@ std::vector<std::shared_ptr<Block>> BlockSet::getRemainingBlocks() {
 }
 
 bool BlockSet::deleteBlock(Block::ID id) {
+    invalidateRepCache();
     return blocks_.erase(id) > 0;
 }
 
@@ -182,6 +249,7 @@ void BlockSet::getRepresentativeAndRemaining(std::vector<std::pair<std::string, 
 // ==========================================
 void BlockSet::clearBlocks() {
     blocks_.clear();
+    invalidateRepCache();
     next_block_id_ = 1; 
 }
 
@@ -211,7 +279,7 @@ std::shared_ptr<Block> BlockSet::addBlock(std::shared_ptr<Block> oldBlock) {
 
     // 5. 註冊進這個 BlockSet 的 Dictionary 中
     blocks_[newId] = newBlock;
-
+    invalidateRepCache();
     return blocks_[newId]; // 回傳被賦予的全新 ID
 }
 
@@ -846,6 +914,8 @@ std::map<int, Block::ID> BlockSet::splitBlocksByCuts(const std::set<int>& cuts) 
     return blocksMap;
 }
 
+
+/* Older Version (slower)
 std::shared_ptr<Block> BlockSet::mergeTwoBlocks(std::shared_ptr<Block> refBlock, std::shared_ptr<Block> qryBlock, const mga::Cigar& cigar, bool inverse) 
 {
 
@@ -1238,6 +1308,342 @@ std::shared_ptr<Block> BlockSet::mergeTwoBlocks(std::shared_ptr<Block> refBlock,
 
     return mergedBlock;
 }
+*/
+
+// Newer and Faster Version (functionality hasn'y been tested)
+std::shared_ptr<Block> BlockSet::mergeTwoBlocks(std::shared_ptr<Block> refBlock, std::shared_ptr<Block> qryBlock, const mga::Cigar& cigar, bool inverse) 
+{
+    bool debug = false;
+    // 1. 取得舊 Consensus 與 SequenceInfo Map
+    std::string refSeq = refBlock->getConsensus();
+    std::string qrySeq = qryBlock->getConsensus();
+
+    if (debug) std::cout << "\n[DEBUG-PRE-VALIDATION] Validating \n";
+              
+    for (auto& seqPair : refBlock->getSequences()) {
+        for (auto& segPair : seqPair.second.getSegments()) {
+            Segment& seg = segPair.second;
+            int origLen = std::abs(seg.getEnd() - seg.getStart());
+            int totalGapLen = 0;
+            std::vector<std::string> gapDetails;
+            
+            for (auto& var : seg.getVariations()) {
+                if (var.getType() == Variation::GAP) {
+                    int gapLen = var.getEnd() - var.getStart();
+                    totalGapLen += gapLen;
+                    // 【優化】：只在 debug 模式下才配發並組裝字串
+                    if (debug) {
+                        gapDetails.push_back("[" + std::to_string(var.getStart()) + "->" + std::to_string(var.getEnd()) + ", L:" + std::to_string(gapLen) + "]");
+                    }
+                }
+            }
+            
+            if (debug) {
+                int calculatedConsensusLen = origLen + totalGapLen;
+                std::cerr << "  [REF] Sequence: " << seqPair.first 
+                          << " | Seg [" << seg.getStart() << ", " << seg.getEnd() << "]\n";
+                if (!gapDetails.empty()) {
+                    std::cout << "      -> Contains " << gapDetails.size() << " GAPs: ";
+                    for (const auto& detail : gapDetails) { std::cout << detail << " "; }
+                    std::cout << "\n";
+                } else {
+                    std::cout << "      -> No GAPs.\n";
+                }
+            }
+        }
+    }
+    
+    for (auto& seqPair : qryBlock->getSequences()) {
+        for (auto& segPair : seqPair.second.getSegments()) {
+            Segment& seg = segPair.second;
+            int origLen = std::abs(seg.getEnd() - seg.getStart());
+            int totalGapLen = 0;
+            std::vector<std::string> gapDetails;
+            
+            for (auto& var : seg.getVariations()) {
+                if (var.getType() == Variation::GAP) {
+                    int gapLen = var.getEnd() - var.getStart();
+                    totalGapLen += gapLen;
+                    if (debug) {
+                        gapDetails.push_back("[" + std::to_string(var.getStart()) + "->" + std::to_string(var.getEnd()) + ", L:" + std::to_string(gapLen) + "]");
+                    }
+                }
+            }
+            
+            if (debug) {
+                int calculatedConsensusLen = origLen + totalGapLen;
+                std::cerr << "  [QRY] Sequence: " << seqPair.first 
+                          << " | Seg [" << seg.getStart() << ", " << seg.getEnd() << "]\n";
+                if (!gapDetails.empty()) {
+                    std::cout << "      -> Contains " << gapDetails.size() << " GAPs: ";
+                    for (const auto& detail : gapDetails) { std::cout << detail << " "; }
+                    std::cout << "\n";
+                } else {
+                    std::cout << "      -> No GAPs.\n";
+                }
+            }
+        }
+    }
+    if (debug) std::cout << "------------------------------------------------------------\n";
+    
+    // 取出拷貝，避免改動原始 Block 的資料
+    auto refSeqs = refBlock->getSequences();
+    auto qrySeqs = qryBlock->getSequences();
+
+    // 2. 處理反股 (Reverse Complement) - 只反轉 Consensus 字串
+    if (inverse) {
+        auto rcString = [](const std::string& s) {
+            std::string rc = s;
+            std::reverse(rc.begin(), rc.end());
+            for (char& c : rc) {
+                switch (c) {
+                    case 'A': c = 'T'; break; case 'T': c = 'A'; break;
+                    case 'C': c = 'G'; break; case 'G': c = 'C'; break;
+                    case 'a': c = 't'; break; case 't': c = 'a'; break;
+                    case 'c': c = 'g'; break; case 'g': c = 'c'; break;
+                }
+            }
+            return rc;
+        };
+        qrySeq = rcString(qrySeq);
+    }
+
+    // 3. CIGAR 長度嚴格校驗
+    int cRefLen = 0, cQryLen = 0;
+    for (const auto& op : cigar) {
+        if (op.second == 'M' || op.second == '=' || op.second == 'X' || op.second == 'D') cRefLen += op.first;
+        if (op.second == 'M' || op.second == '=' || op.second == 'X' || op.second == 'I') cQryLen += op.first;
+    }
+
+    if (cRefLen != refSeq.length() || cQryLen != qrySeq.length()) {
+        std::cerr << "\n[CRITICAL ERROR] CIGAR length mismatch!\n"
+                  << "  Ref Block Len: " << refSeq.length() << " vs CIGAR Ref: " << cRefLen << "\n"
+                  << "  Qry Block Len: " << qrySeq.length() << " vs CIGAR Qry: " << cQryLen << "\n";
+        return refBlock; 
+    }
+
+    // 4. 走訪 CIGAR，建構新的 Consensus 與座標對應表
+    std::string mergedConsensus = "";
+    mergedConsensus.reserve(refSeq.length() + qrySeq.length()); 
+
+    std::vector<int> refOldToNew(refSeq.length() + 1, 0);
+    std::vector<int> qryOldToNew(qrySeq.length() + 1, 0);
+
+    std::vector<Variation> newRefGaps;
+    std::vector<Variation> newQryGaps;
+
+    int rPos = 0, qPos = 0, mPos = 0; 
+
+    // 【核心優化】：Pass-by-reference 且使用虛擬座標映射，不配發任何記憶體！
+    auto getBaseFromSeg = [](Segment& seg, int pos, char defaultBase, bool needRc, int consLen) -> char {
+        int lookupPos = pos;
+        if (needRc) {
+            lookupPos = consLen - 1 - pos; // 虛擬翻轉，不改變陣列本身
+        }
+        
+        auto& vars = seg.getVariations();
+        auto it = std::lower_bound(vars.begin(), vars.end(), lookupPos, 
+            [](Variation& v, int p) { return v.getStart() < p; });
+        
+        if (it != vars.end() && it->getStart() == lookupPos && it->getType() == Variation::SNV) {
+            char alt = it->getAlt();
+            if (needRc) {
+                switch (alt) {
+                    case 'A': return 'T'; case 'T': return 'A';
+                    case 'C': return 'G'; case 'G': return 'C';
+                    case 'a': return 't'; case 't': return 'a';
+                    case 'c': return 'g'; case 'g': return 'c';
+                }
+            }
+            return alt;
+        }
+        return defaultBase;
+    };
+
+    for (const auto& op : cigar) {
+        int len = op.first;
+        char type = op.second;
+
+        if (type == 'M' || type == '=' || type == 'X') {
+            for (int i = 0; i < len; ++i) {
+                char rBase = refSeq[rPos];
+                char qBase = qrySeq[qPos];
+            
+                if (rBase == qBase) {
+                    mergedConsensus += rBase;
+                } else {
+                    // 【優化】：使用原生 C-Array 取代 std::map，完全零動態配置
+                    int baseFreq[256] = {0}; 
+                    
+                    for (auto& seqPair : refSeqs) {
+                        for (auto& segPair : seqPair.second.getSegments()) {
+                            char b = getBaseFromSeg(segPair.second, rPos, rBase, false, refBlock->getConsensus().length());
+                            baseFreq[(unsigned char)b]++;
+                        }
+                    }
+                    for (auto& seqPair : qrySeqs) {
+                        for (auto& segPair : seqPair.second.getSegments()) {
+                            char b = getBaseFromSeg(segPair.second, qPos, qBase, inverse, qryBlock->getConsensus().length());
+                            baseFreq[(unsigned char)b]++;
+                        }
+                    }
+                
+                    char bestBase = rBase; 
+                    int maxFreq = -1; 
+                    for (int k = 0; k < 256; ++k) {
+                        if (baseFreq[k] > maxFreq) {
+                            maxFreq = baseFreq[k];
+                            bestBase = (char)k;
+                        }
+                    }
+                    mergedConsensus += bestBase;
+                }
+                
+                // 【優化】：利用 [] 取代 .at() 省去邊界檢查
+                refOldToNew[rPos] = mPos;
+                qryOldToNew[qPos] = mPos;
+                rPos++; qPos++; mPos++;
+            }
+        }
+        else if (type == 'I') { 
+            mergedConsensus += qrySeq.substr(qPos, len);
+            for(int i = 0; i < len; ++i) qryOldToNew[qPos + i] = mPos + i; 
+            newRefGaps.push_back(Variation::createGap(mPos, mPos + len));
+            qPos += len; mPos += len;
+        } 
+        else if (type == 'D') { 
+            mergedConsensus += refSeq.substr(rPos, len);
+            for(int i = 0; i < len; ++i) refOldToNew[rPos + i] = mPos + i; 
+            newQryGaps.push_back(Variation::createGap(mPos, mPos + len));
+            rPos += len; mPos += len;
+        }
+    }
+    refOldToNew[rPos] = mPos;
+    qryOldToNew[qPos] = mPos;
+
+    // 5. 建立新的 Merged Block
+    auto mergedBlock = this->createBlock(mergedConsensus);
+    if (debug) std::cout << "[DEBUG] Merged: " << refBlock->getId() << " & " << qryBlock->getId() << " -> " << mergedBlock->getId() << '\n';
+
+    // 6. 更新 SequenceInfo/Segment 並寫入新 Block
+    auto updateAndAddSeqs = [&](std::unordered_map<std::string, SequenceInfo>& seqs, 
+                                const std::vector<int>& oldToNew, 
+                                const std::vector<Variation>& inducedGaps,
+                                bool isQrySide, int originalConsLen) {
+        
+        auto& mergedSeqs = mergedBlock->getSequences();
+
+        for (auto& seqPair : seqs) {
+            std::string seqID = seqPair.first;
+            
+            if (mergedSeqs.find(seqID) == mergedSeqs.end()) {
+                mergedSeqs[seqID] = SequenceInfo(seqID);
+            }
+            
+            auto& targetSeq = mergedSeqs[seqID];
+            
+            for (auto& segPair : seqPair.second.getSegments()) {
+                Segment seg = segPair.second; 
+                
+                if (debug) {
+                    std::cout << "\n[DEBUG-VAR] Processing Sequence: " << seqID 
+                              << " | Original Seg [" << seg.getStart() << " -> " << seg.getEnd() << "]"
+                              << " | Source: " << (isQrySide ? "Qry Block" : "Ref Block") << "\n";
+                }
+
+                if (isQrySide && inverse) {
+                    seg.reverseComplement(originalConsLen);
+                }
+                
+                std::vector<Variation> newVars;
+                // 【優化】：提前配發足夠的容量，避免多次 reallocation
+                newVars.reserve(seg.getVariations().size() + inducedGaps.size());
+                
+                for (auto& var : seg.getVariations()) {
+                    // 利用 [] 取代 .at() 提速
+                    if (var.getStart() >= oldToNew.size()) continue; // 安全防呆
+                    int newStart = oldToNew[var.getStart()];
+                    
+                    if (var.getType() == Variation::SNV) {
+                        newVars.push_back(Variation(newStart, var.getAlt()));
+                    } else {
+                        if (var.getEnd() >= oldToNew.size()) continue; // 安全防呆
+                        int newEnd = oldToNew[var.getEnd()];
+                        newVars.push_back(Variation::createGap(newStart, newEnd));
+                    }
+                }
+                
+                newVars.insert(newVars.end(), inducedGaps.begin(), inducedGaps.end());
+
+                std::sort(newVars.begin(), newVars.end(), [](Variation& a, Variation& b) {
+                    if (a.getStart() != b.getStart()) return a.getStart() < b.getStart();
+                    return a.getType() > b.getType(); // GAP 優先
+                });
+                
+                std::vector<Variation> cleanedVars;
+                cleanedVars.reserve(newVars.size());
+                
+                for (auto& var : newVars) {
+                    if (cleanedVars.empty()) {
+                        cleanedVars.push_back(var);
+                    } else {
+                        auto& last = cleanedVars.back();
+                        if (last.getType() == Variation::GAP && var.getType() == Variation::GAP && last.getEnd() >= var.getStart()) {
+                            int mStart = last.getStart();
+                            int mEnd = std::max(last.getEnd(), var.getEnd());
+                            cleanedVars.pop_back();
+                            cleanedVars.push_back(Variation::createGap(mStart, mEnd));
+                        } else {
+                            cleanedVars.push_back(var);
+                        }
+                    }
+                }
+
+                seg.getVariations() = std::move(cleanedVars);
+                targetSeq.getSegments()[seg.getStart()] = seg;
+            }
+        }
+    };
+
+    updateAndAddSeqs(refSeqs, refOldToNew, newRefGaps, false, refBlock->getConsensus().length());
+    updateAndAddSeqs(qrySeqs, qryOldToNew, newQryGaps, true, qryBlock->getConsensus().length());
+
+    // 7. Validation 驗證合併後的 Segment 長度
+    int expectedConsensusLen = mergedBlock->getConsensus().length();
+    if (debug) std::cout << "\n[DEBUG-VALIDATION] Validating Merged Block ID: " << mergedBlock->getId() 
+                         << " | Expected Consensus Length: " << expectedConsensusLen << "\n";
+              
+    for (auto& seqPair : mergedBlock->getSequences()) {
+        for (auto& segPair : seqPair.second.getSegments()) {
+            Segment& seg = segPair.second;
+            int origLen = std::abs(seg.getEnd() - seg.getStart());
+            int totalGapLen = 0;
+            std::vector<std::string> gapDetails;
+            
+            for (auto& var : seg.getVariations()) {
+                if (var.getType() == Variation::GAP) {
+                    int gapLen = var.getEnd() - var.getStart();
+                    totalGapLen += gapLen;
+                    if (debug) {
+                        gapDetails.push_back("[" + std::to_string(var.getStart()) + "->" + std::to_string(var.getEnd()) + ", L:" + std::to_string(gapLen) + "]");
+                    }
+                }
+            }
+            
+            int calculatedConsensusLen = origLen + totalGapLen;
+            if (calculatedConsensusLen != expectedConsensusLen) {
+                std::cerr << "  [WARNING] Sequence: " << seqPair.first 
+                          << " | Seg [" << seg.getStart() << ", " << seg.getEnd() << "]"
+                          << " | OrigLen: " << origLen << " + Gaps: " << totalGapLen 
+                          << " = " << calculatedConsensusLen 
+                          << " (Mismatch with " << expectedConsensusLen << ")\n";
+            }
+        }
+    }
+    if (debug) std::cout << "------------------------------------------------------------\n";
+
+    return mergedBlock;
+}
 
 void BlockSet::rebuildDictionary(std::map<int, SegNode>& dict, const std::string& targetSeqName) {
     dict.clear(); // 清空舊字典
@@ -1285,7 +1691,7 @@ void BlockSet::debugValidateSegments(bool verbose) {
             segmentsInBlock += seqPair.second.getSegments().size();
         }
 
-        if (verbose && consLen  < 100) std::cout << "[Block ID: " << blk->getId() << "] "
+        if (verbose) std::cout << "[Block ID: " << blk->getId() << "] "
                                << "Consensus Len: " << consLen 
                                << " | Sequences: " << blk->getSequences().size() 
                                << " | Segments: " << segmentsInBlock << "\n";
@@ -1414,14 +1820,203 @@ void BlockSet::debugValidateLinkages(bool verbose) {
     std::cout << "============================================================\n\n";
 }
 
+void BlockSet::debugValidateQuality(bool verbose) {
+    std::cout << "\n============================================================\n"
+              << "=== Pangenome Graph Quality Report: " << id_ << " ===\n"
+              << "============================================================\n";
+
+    if (blocks_.empty()) {
+        std::cout << "  [Warning] Graph is empty. No metrics to calculate.\n";
+        return;
+    }
+
+    // ---------------------------------------------------------
+    // 1. 動態計算每條 Sequence 的真實基因體長度 (找出最長者)
+    // ---------------------------------------------------------
+    std::map<std::string, int> seqRealLengths;
+    int totalSequenceCount = 0;
+    
+    for (auto& blkPair : blocks_) {
+        for (auto& seqPair : blkPair.second->getSequences()) {
+            for (auto& segPair : seqPair.second.getSegments()) {
+                seqRealLengths[seqPair.first] += std::abs(segPair.second.getEnd() - segPair.second.getStart());
+            }
+        }
+    }
+    totalSequenceCount = seqRealLengths.size();
+    
+    int maxSeqLen = 0;
+    std::string longestSeqName = "";
+    for (const auto& kv : seqRealLengths) {
+        if (kv.second > maxSeqLen) {
+            maxSeqLen = kv.second;
+            longestSeqName = kv.first;
+        }
+    }
+
+    // 計算閾值
+    int threshold95 = std::ceil(totalSequenceCount * 0.95);
+    int threshold90 = std::ceil(totalSequenceCount * 0.90);
+
+    // ---------------------------------------------------------
+    // 2. 核心數據收集迴圈
+    // ---------------------------------------------------------
+    uint64_t totalConsensusLen = 0;
+    uint64_t singletonLenSum = 0;
+    int singletonCount = 0;
+    
+    // 用於計算 Global Identity (排除 Singleton)
+    uint64_t globalVarLen = 0;
+    uint64_t globalDenominator = 0;
+
+    // 用於計算 N50
+    std::vector<int> allBlockLengths;
+    
+    // 用於計算 Core vs Accessory
+    int coreBlocksCount = 0;
+    int softCore95BlocksCount = 0;
+    int softCore90BlocksCount = 0;
+    int accessoryBlocksCount = 0;
+    
+    uint64_t coreLenSum = 0;
+    uint64_t softCore95LenSum = 0;
+    uint64_t softCore90LenSum = 0;
+    uint64_t accessoryLenSum = 0;
+
+    if (verbose) std::cout << "[Block-level Identity Info]\n";
+
+    for (const auto& blkPair : blocks_) {
+        std::shared_ptr<Block> blk = blkPair.second;
+        int consLen = blk->getConsensus().length();
+        totalConsensusLen += consLen;
+        allBlockLengths.push_back(consLen);
+
+        int blockSegCount = 0;
+        uint64_t blockVarLen = 0;
+        std::set<std::string> uniqueSeqsInBlock;
+
+        for (auto& seqPair : blk->getSequences()) {
+            uniqueSeqsInBlock.insert(seqPair.first);
+            for (auto& segPair : seqPair.second.getSegments()) {
+                blockSegCount++;
+                for (auto& var : segPair.second.getVariations()) {
+                    if (var.getType() == Variation::SNV) {
+                        blockVarLen += 1;
+                    } else if (var.getType() == Variation::GAP) {
+                        blockVarLen += (var.getEnd() - var.getStart());
+                    }
+                }
+            }
+        }
+
+        // 統計 Core, Soft-core (95%, 90%), Accessory
+        int uniqueSeqCount = uniqueSeqsInBlock.size();
+        
+        if (uniqueSeqCount == totalSequenceCount && totalSequenceCount > 1) {
+            coreBlocksCount++;
+            coreLenSum += consLen;
+        } 
+        
+        if (uniqueSeqCount >= threshold95 && totalSequenceCount > 1) {
+            softCore95BlocksCount++;
+            softCore95LenSum += consLen;
+        }
+        
+        if (uniqueSeqCount >= threshold90 && totalSequenceCount > 1) {
+            softCore90BlocksCount++;
+            softCore90LenSum += consLen;
+        }
+        
+        if (uniqueSeqCount < totalSequenceCount || totalSequenceCount <= 1) {
+             accessoryBlocksCount++;
+             accessoryLenSum += consLen;
+        }
+
+
+        // 判斷 Singleton
+        if (blockSegCount == 1) {
+            singletonLenSum += consLen;
+            singletonCount++;
+            // Singleton 不印出 Identity，也不列入 Global 計算
+        } else if (blockSegCount > 1 && consLen > 0) {
+            // 計算並印出非 Singleton 的 Identity
+            uint64_t blockDenominator = (uint64_t)blockSegCount * consLen;
+            double blockIdentity = 1.0 - ((double)blockVarLen / blockDenominator);
+            
+            if (verbose) {
+                std::cout << "  ├─ Block ID: " << std::setw(6) << std::left << blk->getId() 
+                          << " | Len: " << std::setw(7) << consLen 
+                          << " | Segs: " << std::setw(3) << blockSegCount
+                          << " | Identity: " << std::fixed << std::setprecision(4) << blockIdentity << "\n";
+            }    
+            // 累積至全局計算
+            globalVarLen += blockVarLen;
+            globalDenominator += blockDenominator;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 3. 計算 N50
+    // ---------------------------------------------------------
+    std::sort(allBlockLengths.rbegin(), allBlockLengths.rend()); // 降序排列
+    uint64_t runningSum = 0;
+    int n50 = 0;
+    for (int len : allBlockLengths) {
+        runningSum += len;
+        if (runningSum >= totalConsensusLen / 2) {
+            n50 = len;
+            break;
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 4. 計算衍生指標與輸出
+    // ---------------------------------------------------------
+    double lenIncreaseRatio = (maxSeqLen > 0) ? ((double)totalConsensusLen / maxSeqLen - 1.0) * 100.0 : 0.0;
+    double singletonRatio = (totalConsensusLen > 0) ? ((double)singletonLenSum / totalConsensusLen) * 100.0 : 0.0;
+    double globalIdentity = (globalDenominator > 0) ? (1.0 - ((double)globalVarLen / globalDenominator)) : 0.0;
+
+    std::cout << "\n------------------------------------------------------------\n";
+    std::cout << ">>> GRAPH METRICS SUMMARY <<<\n\n";
+
+    std::cout << "[1. Sequence & Graph Size]\n";
+    std::cout << "  - Total Sequences        : " << totalSequenceCount << "\n";
+    std::cout << "  - Total Blocks           : " << blocks_.size() << "\n";
+    std::cout << "  - Longest Input Sequence : " << maxSeqLen << " bp (" << longestSeqName << ")\n";
+    std::cout << "  - Total Graph Length     : " << totalConsensusLen << " bp\n";
+    std::cout << "  - Graph Size Inflation   : +" << std::fixed << std::setprecision(2) << lenIncreaseRatio << " %\n";
+    
+    std::cout << "\n[2. Fragmentation & Contiguity]\n";
+    std::cout << "  - Block N50              : " << n50 << " bp\n";
+    std::cout << "  - Singleton Blocks       : " << singletonCount << " blocks\n";
+    std::cout << "  - Singleton Length Ratio : " << std::fixed << std::setprecision(2) << singletonRatio << " %\n";
+
+    std::cout << "\n[3. Evolution & Conservation]\n";
+    std::cout << "  - Strict Core (100%)     : " << coreBlocksCount << " blocks (" << coreLenSum << " bp)\n";
+    std::cout << "  - Soft Core (>= 95%)     : " << softCore95BlocksCount << " blocks (" << softCore95LenSum << " bp)\n";
+    std::cout << "  - Soft Core (>= 90%)     : " << softCore90BlocksCount << " blocks (" << softCore90LenSum << " bp)\n";
+    // std::cout << "  - Accessory (< 100%)     : " << accessoryBlocksCount << " blocks (" << accessoryLenSum << " bp)\n";
+
+    std::cout << "\n[4. Alignment Quality]\n";
+    if (globalDenominator > 0) {
+        std::cout << "  - Global Average Identity: " << std::fixed << std::setprecision(4) << globalIdentity << " (Excluded singletons)\n";
+    } else {
+        std::cout << "  - Global Average Identity: N/A (No valid multi-segment blocks found)\n";
+    }
+
+    std::cout << "============================================================\n\n";
+}
+
 
 void BlockSet::refine() {
-    bool DEBUG_MODE = true;
+    bool DEBUG_MODE = false;
     if (DEBUG_MODE) std::cout << "\n============================================================\n"
                               << "=== BlockSet Refine: Optimizing Graph Topology ===\n"
                               << "============================================================\n";
 
+    // ==========================================
     // 內部神器：基於真實基因體座標的全局指標重建！
+    // ==========================================
     auto rebuildAllPointers = [&]() {
         for (auto blk : this->getAllBlocks()) {
             blk->clearLinkages();
@@ -1460,7 +2055,7 @@ void BlockSet::refine() {
     };
 
     // ==========================================
-    // 階段 1: 找出長 Gap (>100) 並獨立出來
+    // 階段 1: 找出長 Gap (>100) 並利用 splitSingleBlock 獨立出來
     // ==========================================
     if (DEBUG_MODE) std::cout << "[Refine Phase 1] Isolating long gaps (>100bp)...\n";
     bool splitOccurred = true;
@@ -1483,6 +2078,7 @@ void BlockSet::refine() {
                 if (cutPos != -1) break;
             }
             if (cutPos != -1) {
+                if (DEBUG_MODE) std::cout << "  -> Found long gap in Block " << blk->getId() << ", cutting at " << cutPos << "\n";
                 this->splitSingleBlock(blk->getId(), cutPos);
                 splitOccurred = true; 
                 break; 
@@ -1494,6 +2090,7 @@ void BlockSet::refine() {
     // 階段 2: 移除 Pure Gap Segments
     // ==========================================
     if (DEBUG_MODE) std::cout << "\n[Refine Phase 2] Removing pure gap segments...\n";
+    int removedSegs = 0;
     for (auto blk : this->getAllBlocks()) {
         std::vector<std::string> seqsToRemove;
         for (auto& seqPair : blk->getSequences()) {
@@ -1502,6 +2099,7 @@ void BlockSet::refine() {
             for (auto& segPairInner : seqPair.second.getSegments()) {
                 if (segPairInner.second.getStart() == segPairInner.second.getEnd()) {
                     segsToRemove.push_back(segPairInner.first);
+                    removedSegs++;
                 }
             }
             for (int sCoord : segsToRemove) seqPair.second.getSegments().erase(sCoord);
@@ -1509,10 +2107,12 @@ void BlockSet::refine() {
         }
         for (const auto& s : seqsToRemove) blk->getSequences().erase(s);
     }
+    if (DEBUG_MODE) std::cout << "  -> Removed " << removedSegs << " pure gap segments.\n";
+
     rebuildAllPointers();
 
     // ==========================================
-    // 太極迴圈：Phase 3 (Unzip) 與 Phase 4 (Concat) 互相制衡，直到圖形結晶穩定
+    // 太極迴圈核心工具：合併區塊 (Concat)
     // ==========================================
     auto concatBlocks = [&](std::shared_ptr<Block> left, std::shared_ptr<Block> right) {
         int leftLen = left->getConsensus().length();
@@ -1546,7 +2146,14 @@ void BlockSet::refine() {
                     
                     if (isContiguousFwd || isContiguousRev) {
                         Segment newSeg = lSeg;
-                        newSeg.setEnd(rSeg.getEnd()); 
+                        
+                        // 【修復核心】：針對正反股分別擴張正確的邊界
+                        if (isContiguousFwd) {
+                            newSeg.setEnd(rSeg.getEnd()); 
+                        } else {
+                            newSeg.setStart(rSeg.getStart()); 
+                        }
+
                         for (auto v : rSeg.getVariations()) { 
                             v.shift(leftLen); 
                             newSeg.getVariations().push_back(v); 
@@ -1598,12 +2205,15 @@ void BlockSet::refine() {
         return newBlock;
     };
 
+    // ==========================================
+    // 太極迴圈：Phase 3 (Unzip) 與 Phase 4 (Concat) 互相制衡，直到圖形結晶穩定
+    // ==========================================
     bool topologyChanged = true;
     while (topologyChanged) {
         topologyChanged = false;
 
         // ------------------------------------------
-        // Phase 3: 解壓縮 (Unzip) - 門檻提高至 <100bp
+        // Phase 3: 解壓縮 (Unzip) - 門檻 <100bp
         // ------------------------------------------
         if (DEBUG_MODE) std::cout << "\n[Refine Phase 3] Unzipping highly-branched small blocks (<100bp)...\n";
         bool unzippedOccurred = true;
@@ -1613,7 +2223,6 @@ void BlockSet::refine() {
             
             for (auto blk : currentBlocks) {
                 if (!this->getBlock(blk->getId())) continue;
-                // 【核心修改】：門檻提高到 100bp，確保 Phase 4 製造的碎塊無所遁形
                 if (blk->getConsensus().length() >= 100 || blk->getSequences().empty()) continue;
 
                 struct Bucket {
@@ -1664,7 +2273,7 @@ void BlockSet::refine() {
                     }
                     this->deleteBlock(blk->getId());
                     unzippedOccurred = true;
-                    topologyChanged = true; // 記錄全圖有變化
+                    topologyChanged = true; 
                     break;
                 }
             }
@@ -1700,7 +2309,7 @@ void BlockSet::refine() {
                     if (DEBUG_MODE) std::cout << "  -> Merging small Block " << blk->getId() << " into Prev Block " << sharedPrev->getId() << "\n";
                     concatBlocks(sharedPrev, blk);
                     mergedOccurred = true;
-                    topologyChanged = true; // 記錄全圖有變化
+                    topologyChanged = true;
                     break;
                 }
 
@@ -1720,7 +2329,7 @@ void BlockSet::refine() {
                     if (DEBUG_MODE) std::cout << "  -> Merging small Block " << blk->getId() << " into Next Block " << sharedNext->getId() << "\n";
                     concatBlocks(blk, sharedNext);
                     mergedOccurred = true;
-                    topologyChanged = true; // 記錄全圖有變化
+                    topologyChanged = true;
                     break;
                 }
             }
