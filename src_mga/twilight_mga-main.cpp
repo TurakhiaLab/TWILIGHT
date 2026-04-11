@@ -118,7 +118,14 @@ int main(int argc, char** argv) {
     // mga::identifyPrimaryAlignments(alignments, chains);
     // mga::detectDuplications(alignments);
     // mga::parser::parsePAF(vm["alignment"].as<std::string>());
-    
+    auto final_set = manager.get()->getBlockSet(manager.get()->getBlockSets().begin()->first);
+    for (auto& seqName: final_set->getSequences()) {
+        std::cerr << "Validate Sequence " << seqName << '\n';
+        auto seq_after = final_set->reconstructSequence(seqName);
+        auto seq_before = manager.get()->getSequence(seqName);
+        if (seq_after == seq_before) std::cout << "  ✅ [PERFECT] Validation Passed! Reconstructed sequence perfectly matches the raw sequence. (Len: " << seq_after.length() << " bp)\n";
+        else                        std::cerr << "  ❌ [CRITICAL ERROR] Validation Failed! Sequence mismatch.\n"; 
+    }
     
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;

@@ -109,6 +109,7 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
                 loadedNames.insert(seqName);
 
                 blockManager->addSequenceLength(seqName, seqLen);
+                blockManager->addSequence(seqName, seqContent);
                 seqNum++;
             }
         }

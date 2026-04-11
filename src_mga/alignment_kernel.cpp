@@ -43,9 +43,32 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
         stringPairVec consensus1, consensus2;
         stringPairVec remaining1, remaining2;
 
-        if (BlockSet1->getSequenceCount() == 1) BlockSet1->selfMapping(option);
+        
+        if (BlockSet1->getSequenceCount() == 1) {
+            std::string seqName = BlockSet1->getAllBlocks().front()->getSequences().begin()->first;
+            std::string rawSeq = BlockSet1->getAllBlocks().front()->getConsensus();
+            BlockSet1->selfMapping(option);
+            std::string reconstructedSeq = BlockSet1->reconstructSequence(seqName);
+
+            if (rawSeq == reconstructedSeq) std::cout << "  ✅ [PERFECT] Validation Passed! Reconstructed sequence perfectly matches the raw sequence. (Len: " << rawSeq.length() << " bp)\n";
+            else                            std::cerr << "  ❌ [CRITICAL ERROR] Validation Failed! Sequence mismatch.\n";
+            // BlockSet1->debugValidateSegments(false);
+            // BlockSet1->debugValidateLinkages(false);
+            // BlockSet1->debugValidateQuality(false);
+        }
         BlockSet1->getRepresentativeAndRemaining(consensus1, remaining1);
-        if (BlockSet2->getSequenceCount() == 1) BlockSet2->selfMapping(option);
+        if (BlockSet2->getSequenceCount() == 1) {
+            std::string seqName = BlockSet2->getAllBlocks().front()->getSequences().begin()->first;
+            std::string rawSeq = BlockSet2->getAllBlocks().front()->getConsensus();
+            BlockSet2->selfMapping(option);
+            std::string reconstructedSeq = BlockSet2->reconstructSequence(seqName);
+
+            if (rawSeq == reconstructedSeq) std::cout << "  ✅ [PERFECT] Validation Passed! Reconstructed sequence perfectly matches the raw sequence. (Len: " << rawSeq.length() << " bp)\n";
+            else                            std::cerr << "  ❌ [CRITICAL ERROR] Validation Failed! Sequence mismatch.\n";
+            // BlockSet2->debugValidateSegments(false);
+            // BlockSet2->debugValidateLinkages(false);
+            // BlockSet2->debugValidateQuality(false);
+        }
         BlockSet2->getRepresentativeAndRemaining(consensus2, remaining2);
 
         // 1. Prepare temporary files for minimap2
@@ -83,8 +106,8 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
         }
         
         // Clear sequence file
-        // std::remove(consensus1_path.c_str());
-        // std::remove(consensus2_path.c_str());
+        std::remove(consensus1_path.c_str());
+        std::remove(consensus2_path.c_str());
         // std::remove(remaining1_path.c_str());
         // std::remove(remaining2_path.c_str());
         // 3. Parse PAF output
@@ -104,9 +127,9 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
             std::cout << "Number of Alignments: " << mainAlignments.size() << '\n';
             
             BlockSet* mergeBlockSet = blockManager->merge(BlockSet1, BlockSet2, mainAlignments);
-
-            mergeBlockSet->debugValidateSegments(false);
-            mergeBlockSet->debugValidateLinkages(false);
+            
+            // mergeBlockSet->debugValidateSegments(false);
+            // mergeBlockSet->debugValidateLinkages(false);
             mergeBlockSet->refine();
             mergeBlockSet->debugValidateSegments(false);
             mergeBlockSet->debugValidateLinkages(false);
@@ -115,6 +138,7 @@ void mga::progressive::alignmentKernel(NodePairVec& alnPairs, BlockManager* bloc
             blockManager->removeBlockSet(node1->identifier);
             blockManager->removeBlockSet(node2->identifier);
             blockManager->changeBlockSetId(mergeBlockSet->getId(), node1->identifier); 
+
 
             // // Align remaining blocks to the main blocksets
 

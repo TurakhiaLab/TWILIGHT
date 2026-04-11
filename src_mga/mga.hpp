@@ -380,9 +380,12 @@ class BlockSet {
         size_t getSequenceCount() {return seqs.size(); }
         std::vector<std::string> getSequences() {return seqs; }
         std::string getLongestSeq() { return longest_sequence_; }
+        std::string reconstructSequence(const std::string& seqName);
     
         void getRepresentativeAndRemaining(std::vector<std::pair<std::string, std::string>>& representative, std::vector<std::pair<std::string, std::string>>& remaining);
-        
+        void printBlocks(std::ostream& os = std::cout);
+        void printBlock(Block::ID blockId, std::ostream& os = std::cout);
+
         void print(std::ostream& os = std::cout) const;
         std::map<int, uint64_t> splitBlocksByCuts(const std::set<int>& cuts);
         std::pair<uint64_t, uint64_t> splitSingleBlock(int parentID, int localCut);
@@ -393,6 +396,7 @@ class BlockSet {
         void debugValidateSegments(bool verbose);
         void debugValidateLinkages(bool verbose);
         void debugValidateQuality(bool verbose);
+        std::shared_ptr<Block> concatenateBlocks(Block::ID superId);
         void refine();
 
         void invalidateRepCache() { is_rep_cached_ = false; }
@@ -423,6 +427,7 @@ class BlockManager {
 
         BlockSet* createBlockSet(BlockSet::SetId id);
         BlockSet* getBlockSet(BlockSet::SetId id) const;
+        std::unordered_map<BlockSet::SetId, std::unique_ptr<BlockSet>>& getBlockSets() {return block_sets_;};
         std::vector<BlockSet*> getAllBlockSets() const;
         bool changeBlockSetId(BlockSet::SetId old_id, BlockSet::SetId new_id);
         bool removeBlockSet(BlockSet::SetId id);
@@ -438,9 +443,19 @@ class BlockManager {
         void addSequenceLength(std::string seqName, int seqLen) { sequence_lengths[seqName] = seqLen;}
         int getSequenceLength(std::string seqName) { return sequence_lengths[seqName];}
 
+        void addSequence(std::string& seqName, std::string& seq) {
+            if (sequences.find(seqName) != sequences.end()) {
+                std::cerr << "ERROR: Sequence " << seqName << " already exists.\n";
+                return;
+            }
+            sequences[seqName] = seq;
+        };
+        std::string& getSequence(std::string seqName) { return sequences[seqName];}
+
     private:
         std::unordered_map<BlockSet::SetId, std::unique_ptr<BlockSet>> block_sets_;
         std::unordered_map<std::string, int> sequence_lengths;
+        std::unordered_map<std::string, std::string> sequences;
 
         void applySplits(std::list<std::shared_ptr<Block>>& list, const std::set<int>& cuts);
 

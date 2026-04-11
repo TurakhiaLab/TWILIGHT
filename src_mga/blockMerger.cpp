@@ -342,7 +342,7 @@ std::tuple<bool, mga::Cigar, bool> extractSubCigar(
 // 主函數：Graph Merge
 // ==========================================
 BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mga::Alignment>& alignments) {
-    bool DEBUG_MODE = true;
+    bool DEBUG_MODE = false;
 
     if (DEBUG_MODE) std::cout << "\n========================================================\n"
                               << "=== GRAPH MERGE START: " << refSet->getId() << " + " << qrySet->getId() << " ===\n"
@@ -353,147 +353,12 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
     // ==========================================
     if (DEBUG_MODE) std::cout << "[Phase 0] Concatenating Involved Blocks into Super-Blocks...\n";
     
-    auto concatenateBlocks = [&](BlockSet* bSet, Block::ID superId) -> std::shared_ptr<Block> {
-        auto consensusBlocks = bSet->getRepresentativeBlocks(); 
-        if (consensusBlocks.empty()) return nullptr;
-        
-        std::string super_consensus = "";
-        
-        struct Track {
-            std::string seqID;
-            Segment seg;
-        };
-        std::vector<Track> super_tracks;
-    
-        for (auto blkID : consensusBlocks) {
-            auto blk = bSet->getBlock(blkID);
-            int current_super_len = super_consensus.length();
-            int blk_len = blk->getConsensus().length();
-            
-            super_consensus += blk->getConsensus();
-            std::vector<Track> next_super_tracks;
-            std::map<std::string, std::set<int>> used_blk_segs;
-            
-            for (auto& old_track : super_tracks) {
-                bool extended = false;
-                std::string id = old_track.seqID;
-                
-                auto it = blk->getSequences().find(id);
-                if (it != blk->getSequences().end()) {
-                    SequenceInfo blk_info = it->second; 
-                    for (auto& kv : blk_info.getSegments()) {
-                        int seg_start = kv.first;
-                        Segment& new_seg = kv.second;
-                        
-                        if (used_blk_segs[id].count(seg_start)) continue;
-                        
-                        if (old_track.seg.getEnd() == new_seg.getStart() && 
-                            old_track.seg.isReverse() == new_seg.isReverse()) {
-                            
-                            Track merged_track = old_track;
-                            merged_track.seg.setEnd(new_seg.getEnd());
-                            
-                            for (auto var : new_seg.getVariations()) {
-                                var.shift(current_super_len);
-                                merged_track.seg.getVariations().push_back(var);
-                            }
-                            
-                            next_super_tracks.push_back(merged_track);
-                            used_blk_segs[id].insert(seg_start);
-                            extended = true;
-                            break;
-                        }
-                    }
-                }
-                
-                if (!extended) {
-                    Track gap_extended_track = old_track;
-                    gap_extended_track.seg.getVariations().push_back(Variation::createGap(current_super_len, current_super_len + blk_len));
-                    next_super_tracks.push_back(gap_extended_track);
-                }
-            }
-            
-            for (auto& seqPair : blk->getSequences()) {
-                std::string id = seqPair.first;
-                SequenceInfo blk_info = seqPair.second;
-                
-                for (auto& kv : blk_info.getSegments()) {
-                    int seg_start = kv.first;
-                    Segment new_seg = kv.second;
-                    
-                    if (!used_blk_segs[id].count(seg_start)) {
-                        Track padded_track;
-                        padded_track.seqID = id;
-                        padded_track.seg = new_seg;
-                        
-                        for (auto& var : padded_track.seg.getVariations()) {
-                            var.shift(current_super_len);
-                        }
-                        
-                        if (current_super_len > 0) {
-                            padded_track.seg.getVariations().insert(
-                                padded_track.seg.getVariations().begin(), 
-                                Variation::createGap(0, current_super_len)
-                            );
-                        }
-                        next_super_tracks.push_back(padded_track);
-                    }
-                }
-            }
-            super_tracks = std::move(next_super_tracks);
-        }
-    
-        auto super_block = std::make_shared<Block>(superId, super_consensus);
-        std::map<std::string, SequenceInfo> final_seq_map;
-        
-        for (auto& track : super_tracks) {
-            if (final_seq_map.find(track.seqID) == final_seq_map.end()) {
-                final_seq_map[track.seqID] = SequenceInfo(track.seqID);
-            }
-            final_seq_map[track.seqID].addSegments(track.seg);
-        }
-        
-        for (auto& kv : final_seq_map) {
-            super_block->addSequence(kv.second);
-        }
-        
-        if (DEBUG_MODE) {
-            int expected_len = super_block->getConsensus().length();
-            std::cout << "[DEBUG-CHECK] Validating SuperBlock " << superId << " (Target Len: " << expected_len << ")...\n";
-            bool all_passed = true;
-            for (auto& seqPair : super_block->getSequences()) {
-                for (auto& segPair : seqPair.second.getSegments()) {
-                    Segment& seg = segPair.second;
-                    int coord_diff = std::abs(seg.getEnd() - seg.getStart());
-                    int gap_len = 0;
-                    for (auto& var : seg.getVariations()) {
-                        if (var.getType() == Variation::GAP) {
-                            gap_len += (var.getEnd() - var.getStart());
-                        }
-                    }
-                    int total_calculated_len = coord_diff + gap_len;
-                    if (total_calculated_len != expected_len) {
-                        std::cerr << "  ❌ [WARNING] Length mismatch in Seq: " << seqPair.first 
-                                  << " | Coord Diff: " << coord_diff << " + Gaps: " << gap_len 
-                                  << " = " << total_calculated_len << " (Expected: " << expected_len << ")\n";
-                        all_passed = false;
-                    }
-                }
-            }
-            if (all_passed) std::cout << "  ✅ All segments dynamically sum to " << expected_len << " bp perfectly!\n";
-        }
-        
-        return super_block;
-    };
-
-    DEBUG_MODE = false;
-    auto refSuperBlock = concatenateBlocks(refSet, 9999991); 
-    auto qrySuperBlock = concatenateBlocks(qrySet, 9999992);
+    auto refSuperBlock = refSet->concatenateBlocks(9999991); 
+    auto qrySuperBlock = qrySet->concatenateBlocks(9999992);
     BlockSet refSuperSet ("ref_super");
     BlockSet qrySuperSet ("qry_super");
     refSuperBlock = refSuperSet.addBlock(refSuperBlock);
     qrySuperBlock = qrySuperSet.addBlock(qrySuperBlock);
-    DEBUG_MODE = true;
 
     // ==========================================
     // Phase 1: 使用 Dictionary + splitSingleBlock 切割
@@ -520,13 +385,12 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         validAlignments.push_back(aln); // 保留合格的 Alignment
     }
 
-    // if (DEBUG_MODE) {
-    //     std::cout << "Reference Cut Points: \n";
-    //     for (auto cut: refCuts) std::cout << cut << " "; std::cout << "\n";
-    //     std::cout << "Query Cut Points: \n";
-    //     for (auto cut: qryCuts) std::cout << cut << " "; std::cout << "\n";
-    // }
-    
+    if (DEBUG_MODE) {
+        std::cout << "Reference Cut Points: \n";
+        for (auto cut: refCuts) std::cout << cut << " "; std::cout << "\n";
+        std::cout << "Query Cut Points: \n";
+        for (auto cut: qryCuts) std::cout << cut << " "; std::cout << "\n";
+    }
     
     std::map<int, BlockSet::SegNode> refDict;
     refDict[0] = {0, (int)refSuperBlock->getConsensus().length(), refSuperBlock->getId()};
@@ -581,15 +445,18 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         dict[cutPos] = {cutPos, end, parts.second};
     };
 
-    DEBUG_MODE = false;
     for (int cut : refCuts) splitDictBlock(refDict, &refSuperSet, cut);
     for (int cut : qryCuts) splitDictBlock(qryDict, &qrySuperSet, cut);
-    DEBUG_MODE = true;
 
     if (DEBUG_MODE) {
         std::cout << "  -> Ref SuperBlock split into " << refDict.size() << " atomic blocks.\n";
         std::cout << "  -> Qry SuperBlock split into " << qryDict.size() << " atomic blocks.\n";
     }
+
+    refSuperSet.debugValidateSegments(false);
+    qrySuperSet.debugValidateSegments(false);
+
+
 
     std::map<int, Block::ID> refBlocksMap;
     for (auto& kv : refDict) {
@@ -634,7 +501,6 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
     // Phase 2: Grouping Homologous Blocks
     // ==========================================
     if (DEBUG_MODE) std::cout << "\n[Phase 2] Grouping Homologous Blocks (Primary & Secondary)...\n";
-    DEBUG_MODE = false;
     UnionFind uf; 
     for (const auto& kv : globalBlockPool) uf.find(kv.first); 
 
@@ -698,7 +564,6 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         isRefBlockMap[kv.second.blkId] = false; 
     }
 
-    DEBUG_MODE = true;
     // ==========================================
     // Phase 4: Iterative Spanning-Tree Merging per Group
     // ==========================================
@@ -707,7 +572,6 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
     std::string newID = "Merged_" + refSet->getId() + "_" + qrySet->getId();
     BlockSet* resultSet = createBlockSet(newID); 
 
-    DEBUG_MODE = false;
     std::map<Block::ID, std::vector<Block::ID>> groupedBlocks;
     for (auto& kv : uf.parent) {
         groupedBlocks[uf.find(kv.first)].push_back(kv.first);
@@ -742,7 +606,9 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         if (DEBUG_MODE) std::cout << "  ├─ Initial Hub Block ID: " << origBaseId 
                                   << " (Initial Len: " << baseBlock->getConsensus().length() << " bp)\n";
 
+        // ==========================================
         // 2. 初始化群組的 Spanning Tree 狀態
+        // ==========================================
         std::map<Block::ID, std::vector<int>> coordMaps; // 記錄每一個 Original Member 的座標變化
         coordMaps[origBaseId] = std::vector<int>(baseBlock->getConsensus().length() + 1);
         std::iota(coordMaps[origBaseId].begin(), coordMaps[origBaseId].end(), 0);
@@ -752,6 +618,10 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         for (Block::ID id : members) {
             if (id != origBaseId) unmergedMembers.insert(id);
         }
+
+        // 【新增】：追蹤每個積木加入 Hub 時的「絕對反轉狀態」
+        std::map<Block::ID, bool> isReversedInHub;
+        isReversedInHub[origBaseId] = false;
 
         // 3. 核心迴圈：利用圖的邊緣 (Valid Alignments) 依序拉攏未合併的積木
         while (!unmergedMembers.empty()) {
@@ -785,10 +655,25 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
             auto memberBlock = globalBlockPool[targetUnmergedId];
             if (DEBUG_MODE) std::cout << "  ├─ Merging Member " << targetUnmergedId << " (via edge from " << targetMergedId << ")\n";
 
-            // A. 將 CIGAR 補償為指向「當前 SuperBase 的 Consensus」
-            // 【核心修改】：取得當前 baseBlock (Hub) 的長度，傳給 adjustCigarWithMap 讓它自動在頭尾補齊 D
+            // ==========================================
+            // A. 處理 Inverse 邏輯與 CIGAR 方向性 (負正得負)
+            // ==========================================
+            // 1. 取得橋樑積木 (M) 當初加入 Hub 時的方向狀態
+            bool mIsRev = isReversedInHub[targetMergedId];
+            
+            // 2. 計算新積木 (U) 應該套用的真實反轉狀態
+            bool effectiveInverse = mIsRev ^ bestInverse;
+
+            // 3. 【核心修復】：原本的 bestOrigCigar 是基於原始 M 到原始 U。
+            // 如果 M 已經在 Hub 中反轉，我們必須將 CIGAR 左右對調，才能讓 coordMaps 正確映射！
+            mga::Cigar inputCigar = bestOrigCigar;
+            if (mIsRev) {
+                std::reverse(inputCigar.begin(), inputCigar.end());
+            }
+
+            // 4. 將 CIGAR 補償為指向「當前 SuperBase 的 Consensus」
             int superBaseLen = baseBlock->getConsensus().length();
-            mga::Cigar adjustedCigar = adjustCigarWithMap(bestOrigCigar, coordMaps[targetMergedId], superBaseLen);
+            mga::Cigar adjustedCigar = adjustCigarWithMap(inputCigar, coordMaps[targetMergedId], superBaseLen);
 
             if (DEBUG_MODE) {
                 std::cout << "  │    - Orig CIGAR: ";
@@ -834,8 +719,8 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
             }
             if (tmpR < stepCoordMap.size()) stepCoordMap[tmpR] = mPos;
 
-            // D. 執行真實的物理合併
-            baseBlock = refSuperSet.mergeTwoBlocks(baseBlock, memberBlock, adjustedCigar, bestInverse); 
+            // D. 執行真實的物理合併 (傳入算好的 effectiveInverse)
+            baseBlock = refSuperSet.mergeTwoBlocks(baseBlock, memberBlock, adjustedCigar, effectiveInverse); 
 
             // E. 聯動更新【所有】已在池內的 Member 的座標系！
             for (auto& kv : coordMaps) {
@@ -849,6 +734,7 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
             // F. 狀態更新
             mergedMembers.insert(targetUnmergedId);
             unmergedMembers.erase(targetUnmergedId);
+            isReversedInHub[targetUnmergedId] = effectiveInverse; // 【新增】：記錄這塊積木的最終反轉狀態
         }
 
         if (DEBUG_MODE) std::cout << "  └─ Final Merged Block ID: " << baseBlock->getId() << "\n\n";
@@ -859,7 +745,7 @@ BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mg
         }
     }
 
-    DEBUG_MODE = true;
+
     // ==========================================
     // Phase 5: 拓撲重建 (Topology Reconstruction)
     // ==========================================
