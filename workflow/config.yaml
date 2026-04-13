@@ -5,8 +5,8 @@ sequences: ""                             # input unaligned sequence file
 output_msa: ""                            # Output MSA file name  
 backbone_aln: ""                          # Backbone Alignment
 backbone_tree: ""                         # Backbone tree. If not specified, FastTree will be used for estimation.
-init_tree: "parttree"                     # Tree estimation method for the initial guide tree (from unaligned sequences), options: "maffttree", "parttree", "mashtree"
-iter_tree: "rapidnj"                      # Tree estimation method for intermediate iterations (faster), options: "rapidnj", "fasttree"        
+init_tree: "dipper"                       # Tree estimation method for the initial guide tree (from unaligned sequences), options: "dipper", "maffttree", "parttree"
+iter_tree: "dipper"                       # Tree estimation method for intermediate iterations (faster), options: "dipper", "rapidnj", "fasttree"        
 final_tree: ""                            # Tree estimation method for the final MSA (higher quality, slower), options: "raxml", "fasttree", "iqtree"
 num_threads:                              # Number of threads
 iterations: ""                            # Number of iterations: 1-5. Default: 3 for iterative mode and 2 for placement mode
@@ -17,7 +17,7 @@ overwrite: "no"                           # Overwrite existing files
 # Path for executable files
 # please make sure you have the correct paths
 twilight: "../bin/twilight"
-mashtree: "mashtree"
+dipper: "dipper_cpu"
 fasttree: "FastTreeMP"
 raxml: "raxmlHPC-PTHREADS"
 mafft: "mafft"

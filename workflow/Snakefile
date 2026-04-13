@@ -17,8 +17,8 @@ Options (use with --config)
 Iterative Mode:
     SEQ        Path to input unaligned sequence file. [Required]
     ITER       Total number of iterations (1–5). Default: 3.
-    INITTREE   Tree estimation method for the initial guide tree: "parttree", "maffttree", or "mashtree".
-    ITERTREE   Tree estimation method for intermediate iterations: "rapidnj" or "fasttree".
+    INITTREE   Tree estimation method for the initial guide tree: "dipper", "parttree", or "maffttree".
+    ITERTREE   Tree estimation method for intermediate iterations: "dipper", "rapidnj" or "fasttree".
     FINALTREE  Final tree estimation method (skip if unspecified): "fasttree", "raxml" or "iqtree".
 Placement Mode:
     ALN        Backbone alignment for placing new sequences. [Required]
@@ -64,10 +64,10 @@ def checkConfig(iter, inittree, itertree, finaltree):
 	if int(iter) <= 0 or int(iter) > 5:
 		print("ERROR: %d iterations not supported." % iter, file=sys.stderr)
 		exit(1)
-	if str(inittree) != "maffttree" and str(inittree) != "parttree" and str(inittree) != "mashtree":
+	if str(inittree) != "maffttree" and str(inittree) != "parttree" and str(inittree) != "dipper":
 		print("ERROR: Unrecognized tree method for initial guide tree. Please choose from \"parttree\", \"maffttree\" and \"mashtree\".", file=sys.stderr)
 		exit(1)
-	if str(itertree) != "fasttree" and str(itertree) != "rapidnj":
+	if str(itertree) != "fasttree" and str(itertree) != "rapidnj" and str(itertree) != "dipper":
 		print("ERROR: Unrecognized tree method for subsequent iterations. Please choose from \"fasttree\" and \"rapidnj\".", file=sys.stderr)
 		exit(1)
 	if str(finaltree) != "":
@@ -113,10 +113,6 @@ if str(config["type"]) != "n" and str(config["type"]) != "p":
 	print("ERROR: Unknown datatype. Please specify sequence type, n (nucleotide) or p (protein).", file=sys.stderr)
 	exit(1)
 
-if str(config["type"]) == "p" and str(init_tree) == "mashtree":
-	print("ERROR: MashTree does not support protein sequences.", file=sys.stderr)
-	exit(1)
-
 checkFiles(overwrite, config["work_dir"], config["output_msa"], (config["final_tree"] != ""))
 checkConfig(iterations, init_tree, iter_tree, final_tree)
 # FastTree 
@@ -149,12 +145,12 @@ include: "rules/twilight.smk"
 
 # Iterative Mode
 if mode == 0:
-	if (init_tree == "mashtree"):
-		include: "rules/mashtree.smk"
 	if (init_tree == "maffttree"):
 		include: "rules/maffttree.smk"
 	if (init_tree == "parttree"):
 		include: "rules/parttree.smk"
+	if (init_tree == "dipper"):
+		include: "rules/dipper_init.smk"
 	if (final_tree == "fasttree" or iter_tree == "fasttree"):
 		include: "rules/fasttree.smk"
 	if (final_tree == "iqtree"):
@@ -163,6 +159,8 @@ if mode == 0:
 		include: "rules/raxml.smk"
 	if (iter_tree == "rapidnj"):
 		include: "rules/rapidnj.smk"
+	if (iter_tree == "dipper"):
+		include: "rules/dipper_iter.smk"
 # Placement
 elif mode == 1:
 	include: "rules/placement.smk"

@@ -15,6 +15,7 @@ ARCH=$(uname -m)
 OS=$(uname -s)
 
 # Iterative mode
+conda install bioconda::dipper -y # FastTree
 conda install bioconda::fasttree -y # FastTree
 conda install mafft -y              # MAFFT
 conda install bioconda::raxml -y    # RAxML
@@ -24,10 +25,4 @@ make -C rapidNJ/
 # Placement mode
 conda install bioconda::epa-ng -y   # EPA-NG
 conda install bioconda::gappa -y    # GAPPA
-
-if [[ "$OS" == "Linux" && "$ARCH" == "x86_64" ]]; then
-    conda install bioconda::mashtree -y # MashTree
-else
-    echo "Skipping mashtree installation: not supported on $OS/$ARCH."
-fi
 
