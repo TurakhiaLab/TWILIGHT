@@ -281,8 +281,8 @@ snakemake --cores 1
 TWILIGHT iterative mode estimate guide trees using external tools. 
 
 Supported tree inference tools:
-- Initial guide tree: `parttree`, `maffttree`, `mashtree`
-- Intermediate iterations (optimized for speed): `rapidnj`, `fasttree`
+- Initial guide tree: `dipper`, `parttree`, `maffttree`
+- Intermediate iterations (optimized for speed): `dipper`, `rapidnj`, `fasttree`
 - Final tree (optimized for quality): `fasttree`, `raxml`, `iqtree`
 
 Usage syntax
