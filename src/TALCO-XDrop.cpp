@@ -33,7 +33,7 @@
 #define I_BOUNDARY -2
 #define D_BOUNDARY -3
 // -------
-static constexpr float CONSISTENCY_ALPHA = 1.0f;
+static constexpr float CONSISTENCY_ALPHA = 30.0f;
 // -------
 
 Talco_xdrop::Params::Params(msa::Params& param) {

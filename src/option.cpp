@@ -105,7 +105,7 @@ msa::Option::Option(po::variables_map& vm) {
             std::cerr << "ERROR: --accurate is currently supported only for guide-tree alignment from unaligned sequences.\n";
             exit(1);
         }
-        this->maxSubtree = 200;
+        if (!(vm.count("max-subtree"))) this->maxSubtree = 200;
     }
     // -------
 

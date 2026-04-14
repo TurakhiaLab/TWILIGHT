@@ -193,7 +193,7 @@ else()
 					      src/io.cpp
 					      src/option.cpp
 					      src/local-align.cpp
-					      src/consistency.cpp
+					      src/consistency_v2.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
