@@ -104,26 +104,10 @@ std::vector<std::vector<float>> buildConsistencyTable(
                     if (posB != -1) {
                         int qID = qryMap[seqB * maxLen + posB];
                         if (qID != -1) {
-                            if (num_B[qID] == 0.0f) active_B.push_back(qID);
-                            num_B[qID] += accurateState.directLib.getWeight(seqA, seqB);
-                        }
-                    }
-                }
-
-                for (int seqC = 0; seqC < totalSeq; ++seqC) {
-                    if (seqC == seqA) continue;
-                    int posC = accurateState.directLib.getAlignedPos(seqA, seqC, posA);
-                    if (posC == -1) continue;
-                    float w_AC = accurateState.directLib.getWeight(seqA, seqC);
-                    for (int seqB = 0; seqB < totalSeq; ++seqB) {
-                        if (seqB == seqA || seqB == seqC) continue;
-                        int posB = accurateState.directLib.getAlignedPos(seqC, seqB, posC);
-                        if (posB != -1) {
-                            int qID = qryMap[seqB * maxLen + posB];
-                            if (qID != -1) {
-                                float w_BC = accurateState.directLib.getWeight(seqC, seqB);
+                            float extendedWeight = accurateState.directLib.getPairWeight(seqA, seqB, posA);
+                            if (extendedWeight > 0.0f) {
                                 if (num_B[qID] == 0.0f) active_B.push_back(qID);
-                                num_B[qID] += std::min(w_AC, w_BC);
+                                num_B[qID] += extendedWeight;
                             }
                         }
                     }
@@ -189,8 +173,6 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
     preprocessTime.store(0);
     talcoTime.store(0);
 
-    std::cout << "Total Pairs: " << nodes.size() << '\n';
-    
     tbb::parallel_for(tbb::blocked_range<int>(0, nodes.size()), [&](tbb::blocked_range<int> range){ 
     for (int nIdx = range.begin(); nIdx < range.end(); ++nIdx) {
     // for (int nIdx = 0; nIdx <  nodes.size(); ++nIdx) {
@@ -248,10 +230,10 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 auto consistEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds consistTime = consistEnd - consistStart;
 
-                std::cerr << "Accurate mode consistency table for pair " << nIdx
-                          << ": " << consistencyTable.size() << "x"
-                          << (consistencyTable.empty() ? 0 : consistencyTable.front().size())
-                          << ", non-zero entries=" << nonZeroEntries << " Time: " << consistTime.count() / 1000 << " us\n";
+                // std::cerr << "Accurate mode consistency table for pair " << nIdx
+                //           << ": " << consistencyTable.size() << "x"
+                //           << (consistencyTable.empty() ? 0 : consistencyTable.front().size())
+                //           << ", non-zero entries=" << nonZeroEntries << " Time: " << consistTime.count() / 1000 << " us\n";
             }
             
         }

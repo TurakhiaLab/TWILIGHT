@@ -60,6 +60,7 @@ struct DirectPairLibrary
         this->weights.resize(totalPairs, -1.0f);
         this->forward.resize(totalPairs * length, -1);
         this->backward.resize(totalPairs * length, -1);
+        this->pairWeight.resize(totalPairs * length, 0.0f);
     }
 
     // --- Getter ---
@@ -86,15 +87,16 @@ struct DirectPairLibrary
         if (baseIdx < alnIdx) return this->forward[offset+basePos];
         else                  return this->backward[offset+basePos];
     }
+    float getPairWeight(int refIdx, int qryIdx, int refPos) {
+        int offset = getOffset(refIdx, qryIdx);
+        if (refIdx < qryIdx) return this->pairWeight[offset+refPos];
+        else {
+            int qryPos = this->backward[offset+refPos];
+            if (qryPos == -1) return 0.0f;
+            return this->pairWeight[offset+qryPos];
+        }
+    }
     
-    // std::unordered_map<ResiduePairKey, float, ResiduePairKeyHash> weights;
-    // std::unordered_map<ResidueKey, std::vector<std::pair<ResidueKey, float>>, ResidueKeyHash> adjacency;
-    // std::size_t alignedResiduePairs = 0;
-    // void addSupport(int seqA, int posA, int seqB, int posB, float weight = 1.0f);
-    // float getSupport(int seqA, int posA, int seqB, int posB) const;
-    // const std::vector<std::pair<ResidueKey, float>>& neighbors(int seqId, int pos) const;
-    // void mergeFrom(const DirectPairLibrary& other);
-
     // --- Mapping function ---
     inline int idx(int i, int j) {
         if (i == j) {
@@ -107,6 +109,7 @@ struct DirectPairLibrary
     std::vector<float> weights;
     std::vector<int32_t> forward;
     std::vector<int32_t> backward;
+    std::vector<float> pairWeight;
     int totalSequence;
     int totalPairs;
     int length;
@@ -114,6 +117,7 @@ struct DirectPairLibrary
     // --- Pre-compute supportive values
     std::vector<float> residueSupport;
     void computeResidueSupport();
+    void computePairWeights();
 
 };
 

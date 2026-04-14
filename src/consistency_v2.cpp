@@ -150,7 +150,7 @@ float computePairNew(msa::accurate::DirectPairLibrary& directLib, int seqA, int 
 
 std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx)
 {
-    auto buildStart = std::chrono::high_resolution_clock::now();
+    auto time0 = std::chrono::high_resolution_clock::now();
     auto accurateState = std::make_shared<SubtreeAccurateState>();
     accurateState->subtreeIdx = subtreeIdx;
     auto aligner = makeDefaultLocalAligner();
@@ -202,14 +202,23 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
 
     accurateState.get()->directLib = ConsistencyLibrary;
     
+    auto time1 = std::chrono::high_resolution_clock::now();
     accurateState.get()->directLib.computeResidueSupport();
+    auto time2 = std::chrono::high_resolution_clock::now();
+    accurateState.get()->directLib.computePairWeights();
+    auto time3 = std::chrono::high_resolution_clock::now();
 
     if (option->printDetail) {
-        auto buildEnd = std::chrono::high_resolution_clock::now();
-        std::chrono::nanoseconds buildTime = buildEnd - buildStart;
+        auto ms = [](auto a, auto b) {
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(b - a).count() / 1000000;
+        };
         std::cerr << "Built accurate-mode direct library for subtree " << subtreeIdx
                   << " with " << ConsistencyLibrary.getPairs() 
-                  << " pairs in " << buildTime.count() / 1000000 << " ms.\n";
+                  << " pairs in " << ms(time0, time3) << " ms.\n"
+                  << "Time breakdown: \n"
+                  << "  1. Build pairwise library: " << ms(time0, time1) << " ms\n"
+                  << "  2. Compute residue support: " << ms(time1, time2) << " ms\n"
+                  << "  3. Compute pair weights: " << ms(time2, time3) << " ms\n";
     }
 
     return accurateState;
@@ -245,6 +254,41 @@ void msa::accurate::DirectPairLibrary::addLocalAlignmentResult(int refID, int qr
             this->backward[offset+align] = base;
         }
     }
+}
+
+// -------
+void msa::accurate::DirectPairLibrary::computePairWeights() {
+    pairWeight.assign(totalPairs * length, 0.0f);
+    
+    tbb::parallel_for( tbb::blocked_range<int>(0, totalSequence), [&](const tbb::blocked_range<int>& range) {
+        for (int seqA = range.begin(); seqA < range.end(); ++seqA) {
+            for (int seqB = seqA + 1; seqB < totalSequence; ++seqB) {
+                float w_AB = getWeight(seqA, seqB);
+                uint64_t offset = getOffset(seqA, seqB);
+                for (int posA = 0; posA < length; ++posA) {
+                    int posB = forward[offset + posA];
+                    if (posB == -1) continue;
+                    
+                    float numerator = w_AB > 0.0f ? w_AB : 0.0f;
+                    for (int seqC = 0; seqC < totalSequence; ++seqC) {
+                        if (seqC == seqA || seqC == seqB) continue;
+                        int posC_A = getAlignedPos(seqA, seqC, posA);
+                        if (posC_A == -1) continue;
+                        int posC_B = getAlignedPos(seqB, seqC, posB);
+                        if (posC_B == -1) continue;
+                        if (posC_A == posC_B) {
+                            float w_AC = getWeight(seqA, seqC);
+                            float w_BC = getWeight(seqB, seqC);
+                            if (w_AC > 0.0f && w_BC > 0.0f) {
+                                numerator += std::min(w_AC, w_BC);
+                            }
+                        }
+                    }
+                    pairWeight[offset + posA] = numerator;
+                }
+            }
+        }
+    });
 }
 
 // -------
