@@ -90,11 +90,24 @@ msa::Option::Option(po::variables_map& vm) {
     this->debug = vm.count("check");
     this->cpuOnly = vm.count("cpu-only");
     this->printDetail = vm.count("verbose");
+    // -------
+    this->accurate = vm.count("accurate");
+    this->consistencyWeight = 1.0f;
+    // -------
     this->deleteTemp = !vm.count("keep-temp");
     this->alignGappy = !vm.count("no-align-gappy");
     this->compressed = vm.count("compress");
     this->noFilter = !vm.count("filter");
     this->writeFiltered = vm.count("write-filtered");
+    // -------
+    if (this->accurate) {
+        if (this->alnMode != DEFAULT_ALN) {
+            std::cerr << "ERROR: --accurate is currently supported only for guide-tree alignment from unaligned sequences.\n";
+            exit(1);
+        }
+        this->maxSubtree = 200;
+    }
+    // -------
 
     // Detect Data Type
     if (vm.count("type")) {
@@ -238,6 +251,9 @@ msa::Option::Option(po::variables_map& vm) {
 
     
     std::cerr << "====== Configuration =======\n";
+    // -------
+    if (this->accurate) std::cerr << "Accurate mode: enabled (forcing max-subtree to 200, consistency weight=" << this->consistencyWeight << ")\n";
+    // -------
     if (this->maxSubtree != INT32_MAX) 
     std::cerr << "Max-subtree: " << this->maxSubtree << '\n';
     if (this->gappyVertical == 1) 

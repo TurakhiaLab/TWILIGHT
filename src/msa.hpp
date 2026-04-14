@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <array>
@@ -27,6 +28,11 @@ int letterIdx(char type, char inChar);
 
 namespace msa
 {
+    namespace accurate
+    {
+        struct SubtreeAccurateState;
+    }
+
     enum Type {
         DEFAULT_ALN = 0,
         MERGE_MSA   = 1,
@@ -51,6 +57,16 @@ namespace msa
     using alnPath = std::vector<int8_t>;
     using alnPathVec = std::vector<alnPath>;
     using Profile = std::vector<std::vector<float>>;
+    // -------
+    struct ResidueInstance
+    {
+        int seqId;
+        int residueIndex;
+        float weight;
+    };
+    using ColumnResidues = std::vector<ResidueInstance>;
+    using ColumnProvenance = std::vector<ColumnResidues>;
+    // -------
 
     struct Option
     {
@@ -76,6 +92,10 @@ namespace msa
         bool compressed;
         char type; // 'n' for dna/rna, 'p' for protein
         bool alignGappy;
+        // -------
+        bool accurate;
+        float consistencyWeight;
+        // -------
         // File Names
         std::string treeFile;
         std::string seqFile;
@@ -138,6 +158,9 @@ namespace msa
         std::vector<Node*> fallback_nodes;
         std::unordered_map<int, SequenceInfo *> id_map;
         std::unordered_map<std::string, SequenceInfo *> name_map;
+        // -------
+        std::shared_ptr<accurate::SubtreeAccurateState> accurateState;
+        // -------
 
         void addSequence(int id, const std::string &name, std::string &seq, int subtreeIdx, float weight, bool debug, int alnMode);
         void debug();
@@ -180,6 +203,9 @@ namespace msa
         constexpr int _UPDATE_SEQ_TH = 1000;
 
         void calculateProfile(float *profile, NodePair &nodes, SequenceDB *database, Option *option, int32_t memLen);
+        // -------
+        void extractColumnProvenance(Node* node, SequenceDB* database, ColumnProvenance& provenance);
+        // -------
         void removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask);
         void calculatePSGP(float *hostFreq, float *hostGapOp, float *hostGapEx, NodePair &nodes, SequenceDB* database, Option *option, int memLen, IntPair offset, IntPair lens, Params &param);
         void getConsensus(Option *option, float *profile, std::string &consensus, int len);

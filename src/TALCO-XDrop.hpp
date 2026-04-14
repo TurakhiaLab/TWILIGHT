@@ -60,6 +60,10 @@ namespace Talco_xdrop {
         const std::vector<std::vector<float>>& gapOp,
         const std::vector<std::vector<float>>& gapEx,
         const std::pair<float, float>& num,
+        // -------
+        const msa::Profile* consistencyTable,
+        float consistencyWeight,
+        // -------
         std::vector<int8_t>& aln,
         int16_t& errorType
     );
@@ -71,6 +75,10 @@ namespace Talco_xdrop {
         const std::vector<std::vector<float>>& gapEx,
         const std::pair<float, float>& num,
         Params* params,
+        // -------
+        const msa::Profile* consistencyTable,
+        float consistencyWeight,
+        // -------
         int32_t &reference_idx,
         int32_t &query_idx,
         std::vector<int8_t> &aln,

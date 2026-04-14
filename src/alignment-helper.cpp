@@ -71,6 +71,28 @@ void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, Se
     return;
 }
 
+// -------
+void msa::alignment_helper::extractColumnProvenance(Node* node, SequenceDB* database, ColumnProvenance& provenance)
+{
+    const int alnLen = node->getAlnLen(database->currentTask);
+    provenance.assign(alnLen, ColumnResidues{});
+    for (auto sIdx : node->seqsIncluded) {
+        if (sIdx < 0) continue;
+        auto* sequence = database->sequences[sIdx];
+        const int storage = sequence->storage;
+        int residueIndex = 0;
+        for (int col = 0; col < alnLen; ++col) {
+            const char symbol = sequence->alnStorage[storage][col];
+            if (symbol != '-' && symbol != '.') {
+                provenance[col].push_back({sequence->id, residueIndex, sequence->weight});
+                ++residueIndex;
+            }
+        }
+    }
+    return;
+}
+// -------
+
 void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask)
 {
     float gap_threshold = option->gappyVertical;

@@ -143,6 +143,9 @@ void msa::SequenceDB::cleanSubtreeDB() {
     this->fallback_nodes.clear();
     this->id_map.clear();
     this->name_map.clear();
+    // -------
+    this->accurateState.reset();
+    // -------
 };
 
 phylogeny::Tree* msa::SequenceDB::getPlacementTree(Tree* T) {

@@ -2,6 +2,8 @@
 #include "msa.hpp"
 #endif
 
+#include "consistency.hpp"
+
 #include "version.hpp"
 
 #include <tbb/global_control.h>
@@ -76,6 +78,9 @@ void parseArguments(int argc, char** argv)
     generalDesc.add_options()
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("verbose,v", "Print out every detail process.")
+        // -------
+        ("accurate", "Enable subtree-local accurate mode with direct pairwise-library construction.")
+        // -------
         ("help,h", "Print help messages.")
         ("version,V", "Show program version.");
 
@@ -144,6 +149,11 @@ int main(int argc, char** argv) {
             // Read sequences for each subtree
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, option->reroot);
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
+            // -------
+            if (option->accurate) {
+                database->accurateState = msa::accurate::buildSubtreeAccurateState(database, option, subtree);
+            }
+            // -------
             // Progressive alignment on each subtree
             msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU, subtree);
             // post-alignment debugging
@@ -159,28 +169,34 @@ int main(int argc, char** argv) {
                 std::chrono::nanoseconds storeTime = storeEnd - storeStart;
                 std::cerr << "Stored the subalignments in " << storeTime.count() / 1000000 << " ms.\n";
             }
-            else {
-                // Output final alignment
-                auto outStart = std::chrono::high_resolution_clock::now();
-                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask));
+	            else {
+	                // Output final alignment
+	                auto outStart = std::chrono::high_resolution_clock::now();
+	                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask));
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
-                std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-                std::cerr << "Wrote alignment to " << outFileName << " in " <<  outTime.count() / 1000000 << " ms\n";
-            }
-            delete subT;
-            auto subtreeEnd = std::chrono::high_resolution_clock::now();
+	                std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
+	                std::cerr << "Wrote alignment to " << outFileName << " in " <<  outTime.count() / 1000000 << " ms\n";
+	            }
+	            // -------
+	            database->accurateState.reset();
+	            // -------
+	            delete subT;
+	            auto subtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
             if (P->partitionsRoot.size() > 1) std::cerr << "Finished subalignment No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
             else                              std::cerr << "Finished the alignment in " << subtreeTime.count() / 1000000000 << " s\n";
         }
-        if (P->partitionsRoot.size() > 1) {
-            auto alnSubtreeEnd = std::chrono::high_resolution_clock::now();
-            std::chrono::nanoseconds alnSubtreeTime = alnSubtreeEnd - alnSubtreeStart;
-            std::cerr << "Finished all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
-            // Merge subalignment
-            database->currentTask = 2;
-            msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+	        if (P->partitionsRoot.size() > 1) {
+	            auto alnSubtreeEnd = std::chrono::high_resolution_clock::now();
+	            std::chrono::nanoseconds alnSubtreeTime = alnSubtreeEnd - alnSubtreeStart;
+	            std::cerr << "Finished all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
+	            // Merge subalignment
+	            // -------
+	            database->accurateState.reset();
+	            // -------
+	            database->currentTask = 2;
+	            msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
             msa::io::update_and_writeAlignments(database, option, totalSeqs);

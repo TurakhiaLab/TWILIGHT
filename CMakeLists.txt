@@ -64,6 +64,8 @@ if(USE_CUDA)
 					  src/scoring-matrix.cpp
 					  src/io.cpp
 					  src/option.cpp
+					  src/local-align.cpp
+					  src/consistency.cpp
 					  src/sequencedb.cpp
 					  src/progressive.cpp
 					  src/alignment-cpu.cpp
@@ -95,6 +97,8 @@ elseif(USE_HIP)
 					  src/scoring-matrix.cpp
 					  src/io.cpp
 					  src/option.cpp
+					  src/local-align.cpp
+					  src/consistency.cpp
 					  src/sequencedb.cpp
 					  src/progressive.cpp
 					  src/alignment-cpu.cpp
@@ -138,6 +142,8 @@ else()
 					      src/scoring-matrix.cpp
 					      src/io.cpp
 					      src/option.cpp
+					      src/local-align.cpp
+					      src/consistency.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
@@ -167,6 +173,8 @@ else()
 					      src/scoring-matrix.cpp
 					      src/io.cpp
 					      src/option.cpp
+					      src/local-align.cpp
+					      src/consistency.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
@@ -184,6 +192,8 @@ else()
 					      src/scoring-matrix.cpp
 					      src/io.cpp
 					      src/option.cpp
+					      src/local-align.cpp
+					      src/consistency.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp

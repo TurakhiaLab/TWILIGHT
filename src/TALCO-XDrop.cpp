@@ -32,6 +32,9 @@
 
 #define I_BOUNDARY -2
 #define D_BOUNDARY -3
+// -------
+static constexpr float CONSISTENCY_ALPHA = 1.0f;
+// -------
 
 Talco_xdrop::Params::Params(msa::Params& param) {
     this->matrixSize = param.matrixSize;
@@ -66,6 +69,10 @@ void Talco_xdrop::Align_freq (
     const std::vector<std::vector<float>>& gapOp,
     const std::vector<std::vector<float>>& gapEx,
     const std::pair<float, float>& num,
+    // -------
+    const msa::Profile* consistencyTable,
+    float consistencyWeight,
+    // -------
     std::vector<int8_t>& aln,
     int16_t& errorType
 ) {     
@@ -83,6 +90,10 @@ void Talco_xdrop::Align_freq (
                 gapEx,
                 num,
                 params, 
+                // -------
+                consistencyTable,
+                consistencyWeight,
+                // -------
                 reference_idx, 
                 query_idx, 
                 tile_aln, 
@@ -239,6 +250,10 @@ void Talco_xdrop::Tile (
     const std::vector<std::vector<float>>& gapEx,
     const std::pair<float, float>& num,
     Params* param,
+    // -------
+    const msa::Profile* consistencyTable,
+    float consistencyWeight,
+    // -------
     int32_t &reference_idx,
     int32_t &query_idx,
     std::vector<int8_t> &aln,
@@ -370,6 +385,9 @@ void Talco_xdrop::Tile (
                     ((offsetDiag >= 0) && (offsetDiag <= U[(k+1)%3]-L[(k+1)%3])) ||
                     (tile == 0 && (i == 0 || j == 0 ))) {
                     scoreType similarScore = 0;
+                    // -------
+                    scoreType consistencyBonus = 0;
+                    // -------
                     float numerator = 0.0f;
                     const float* refColumns = reference[reference_idx + j].data();
                     const float* qryColumns = query[query_idx + i].data();
@@ -442,12 +460,19 @@ void Talco_xdrop::Tile (
                         #endif
                     }
                     similarScore = numerator/denominator;
-                    if  (tile == 0 && (i == 0 || j == 0 )) {
-                        if (i == 0 && j == 0) match = similarScore;
-                        else                  match = similarScore + gapOpenAtEnds + gapExtendAtEnds * (std::max(0, std::max(reference_idx + j, query_idx + i) - 1));
+                    // -------
+                    if (consistencyTable != nullptr &&
+                        reference_idx + j < static_cast<int32_t>(consistencyTable->size()) &&
+                        query_idx + i < static_cast<int32_t>((*consistencyTable)[reference_idx + j].size())) {
+                        consistencyBonus = CONSISTENCY_ALPHA * consistencyWeight * (*consistencyTable)[reference_idx + j][query_idx + i];
                     }
-                    else if (offsetDiag < 0)               match = similarScore;
-                    else                                   match = S[(k+1)%3][offsetDiag] + similarScore;
+                    // -------
+                    if  (tile == 0 && (i == 0 || j == 0 )) {
+                        if (i == 0 && j == 0) match = similarScore + consistencyBonus;
+                        else                  match = similarScore + consistencyBonus + gapOpenAtEnds + gapExtendAtEnds * (std::max(0, std::max(reference_idx + j, query_idx + i) - 1));
+                    }
+                    else if (offsetDiag < 0)               match = similarScore + consistencyBonus;
+                    else                                   match = S[(k+1)%3][offsetDiag] + similarScore + consistencyBonus;
                 }
                 scoreType pos_gapOpen_ref =  gapOp[0][reference_idx+j];
                 scoreType pos_gapOpen_qry =  gapOp[1][query_idx+i];
