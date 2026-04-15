@@ -465,6 +465,7 @@ void Talco_xdrop::Tile (
                         reference_idx + j < static_cast<int32_t>(consistencyTable->size()) &&
                         query_idx + i < static_cast<int32_t>((*consistencyTable)[reference_idx + j].size())) {
                         consistencyBonus = CONSISTENCY_ALPHA * consistencyWeight * (*consistencyTable)[reference_idx + j][query_idx + i];
+                        // if (consistencyBonus > 0) std::cout << similarScore << ' ' << consistencyBonus << ' ' << consistencyWeight << ' ' << (*consistencyTable)[reference_idx + j][query_idx + i] << '\n';
                     }
                     // -------
                     if  (tile == 0 && (i == 0 || j == 0 )) {

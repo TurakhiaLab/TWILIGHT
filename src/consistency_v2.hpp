@@ -138,7 +138,7 @@ struct SubtreeAccurateState
     // -------
 };
 
-std::shared_ptr<SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx);
+std::shared_ptr<SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx, Params& param);
 // -------
 // float getOrComputePairTcs(SubtreeAccurateState& accurateState, int seqA, int posA, int seqB, int posB);
 float getOrComputePairNew(SubtreeAccurateState& accurateState, int seqA, int posA, int seqB, int posB);

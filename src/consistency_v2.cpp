@@ -9,6 +9,8 @@
 #include <iostream>
 #include <string>
 #include <utility>
+#include <atomic>
+#include <mutex>
 
 #include <tbb/enumerable_thread_specific.h>
 #include <tbb/parallel_for.h>
@@ -148,7 +150,7 @@ float computePairNew(msa::accurate::DirectPairLibrary& directLib, int seqA, int 
 
 } // namespace
 
-std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx)
+std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx, Params& params)
 {
     auto time0 = std::chrono::high_resolution_clock::now();
     auto accurateState = std::make_shared<SubtreeAccurateState>();
@@ -190,15 +192,41 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
         }
     }
 
-    tbb::parallel_for( tbb::blocked_range<std::size_t>(0, pairJobs.size()), [&](const tbb::blocked_range<std::size_t>& range) {
+    std::atomic<size_t> progress{0};
+    std::mutex cout_mutex;
+    size_t total = pairJobs.size();
+
+    tbb::parallel_for( tbb::blocked_range<std::size_t>(0, total), [&](const tbb::blocked_range<std::size_t>& range) {
         for (std::size_t pairIdx = range.begin(); pairIdx < range.end(); ++pairIdx) {
             const auto [refIdx, qryIdx] = pairJobs[pairIdx];
             const auto* refSeq = sequences[refIdx];
             const auto* qrySeq = sequences[qryIdx];
-            auto alignment = aligner->align(currentSequences[refIdx], currentSequences[qryIdx], option->type);
-            ConsistencyLibrary.addLocalAlignmentResult(refSeq->id, qrySeq->id, alignment);
+            auto alignment = aligner->align(
+                currentSequences[refIdx],
+                currentSequences[qryIdx],
+                option->type,
+                params
+            );
+            ConsistencyLibrary.addLocalAlignmentResult(
+                refSeq->id, qrySeq->id, alignment
+            );
+
+            // print progress
+            size_t current = ++progress;
+            if ((current % 10 == 0 || current == total) && pairIdx == range.begin()) {
+                double percent = 100.0 * current / total;
+                std::lock_guard<std::mutex> lock(cout_mutex);
+                std::cout << "1. All-to-all Pairwise Alignment: ["
+                          << current << "/" << total
+                          << " pairs aligned] ("
+                          << std::fixed << std::setprecision(1)
+                          << percent << "%)\r"
+                          << std::flush;
+            }
         }
     });
+
+    std::cout << std::endl;
 
     accurateState.get()->directLib = ConsistencyLibrary;
     
@@ -259,23 +287,36 @@ void msa::accurate::DirectPairLibrary::addLocalAlignmentResult(int refID, int qr
 // -------
 void msa::accurate::DirectPairLibrary::computePairWeights() {
     pairWeight.assign(totalPairs * length, 0.0f);
-    
-    tbb::parallel_for( tbb::blocked_range<int>(0, totalSequence), [&](const tbb::blocked_range<int>& range) {
+
+    std::atomic<int> progress{0};
+    std::mutex cout_mutex;
+    int total = totalSequence;
+
+    tbb::parallel_for(
+        tbb::blocked_range<int>(0, totalSequence),
+        [&](const tbb::blocked_range<int>& range) {
+
         for (int seqA = range.begin(); seqA < range.end(); ++seqA) {
+
             for (int seqB = seqA + 1; seqB < totalSequence; ++seqB) {
                 float w_AB = getWeight(seqA, seqB);
                 uint64_t offset = getOffset(seqA, seqB);
+
                 for (int posA = 0; posA < length; ++posA) {
                     int posB = forward[offset + posA];
                     if (posB == -1) continue;
-                    
+
                     float numerator = w_AB > 0.0f ? w_AB : 0.0f;
+
                     for (int seqC = 0; seqC < totalSequence; ++seqC) {
                         if (seqC == seqA || seqC == seqB) continue;
+
                         int posC_A = getAlignedPos(seqA, seqC, posA);
                         if (posC_A == -1) continue;
+
                         int posC_B = getAlignedPos(seqB, seqC, posB);
                         if (posC_B == -1) continue;
+
                         if (posC_A == posC_B) {
                             float w_AC = getWeight(seqA, seqC);
                             float w_BC = getWeight(seqB, seqC);
@@ -284,15 +325,33 @@ void msa::accurate::DirectPairLibrary::computePairWeights() {
                             }
                         }
                     }
+
                     pairWeight[offset + posA] = numerator;
                 }
             }
+
+            int current = ++progress;
+
+            if ((current % 5 == 0 || current == total) && seqA == range.begin()) {
+                double percent = 100.0 * current / total;
+
+                std::lock_guard<std::mutex> lock(cout_mutex);
+                std::cout << "3. Compute Pair Weights: "
+                          << current << "/" << total
+                          << "] ("
+                          << std::fixed << std::setprecision(1)
+                          << percent << "%)\r"
+                          << std::flush;
+            }
         }
     });
+
+    std::cout << std::endl;
 }
 
 // -------
 void msa::accurate::DirectPairLibrary::computeResidueSupport() {
+    std::cerr << "2. Compute Residue Support: ";
     residueSupport.assign(totalSequence * length, 0.0f);
     for (int i = 0; i < totalSequence; ++i) {
         for (int j = i + 1; j < totalSequence; ++j) {
@@ -308,4 +367,5 @@ void msa::accurate::DirectPairLibrary::computeResidueSupport() {
             }
         }
     }
+    std::cerr << "Done.\n";
 }

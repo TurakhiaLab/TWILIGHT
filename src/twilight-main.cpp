@@ -2,7 +2,7 @@
 #include "msa.hpp"
 #endif
 
-#include "consistency.hpp"
+#include "consistency_v2.hpp"
 
 #include "version.hpp"
 
@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
             // -------
             if (option->accurate) {
-                database->accurateState = msa::accurate::buildSubtreeAccurateState(database, option, subtree);
+                database->accurateState = msa::accurate::buildSubtreeAccurateState(database, option, subtree, *param);
             }
             // -------
             // Progressive alignment on each subtree

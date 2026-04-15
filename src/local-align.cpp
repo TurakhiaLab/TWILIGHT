@@ -11,11 +11,14 @@ namespace {
 class SmithWatermanAligner final : public LocalAligner
 {
 public:
-    LocalAlignmentResult align(const std::string& reference, const std::string& query, char type) const override
+    LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, msa::Params& params) const override
     {
-        const int matchScore = (type == 'p') ? 3 : 2;
-        const int mismatchScore = (type == 'p') ? -2 : -1;
-        const int gapPenalty = -2;
+        // const int matchScore = (type == 'p') ? 3 : 2;
+        // const int mismatchScore = (type == 'p') ? -2 : -1;
+        // const int gapPenalty = -2;
+
+        const int gapPenalty = static_cast<int>(params.gapExtend) * 5;
+        
 
         const int refLen = static_cast<int>(reference.size());
         const int qryLen = static_cast<int>(query.size());
@@ -28,7 +31,7 @@ public:
 
         for (int i = 1; i <= refLen; ++i) {
             for (int j = 1; j <= qryLen; ++j) {
-                const int diag = score[i - 1][j - 1] + residueScore(reference[i - 1], query[j - 1], type, matchScore, mismatchScore);
+                const int diag = score[i - 1][j - 1] + residueScore(reference[i - 1], query[j - 1], type, params);
                 const int up = score[i - 1][j] + gapPenalty;
                 const int left = score[i][j - 1] + gapPenalty;
 
@@ -92,14 +95,13 @@ public:
     }
 
 private:
-    static int residueScore(char referenceBase, char queryBase, char type, int matchScore, int mismatchScore)
+    static int residueScore(char referenceBase, char queryBase, char type, Params& params)
     {
         const char ref = static_cast<char>(std::toupper(static_cast<unsigned char>(referenceBase)));
         const char qry = static_cast<char>(std::toupper(static_cast<unsigned char>(queryBase)));
-        if (ref == qry) return matchScore;
-        if (type == 'n' && (ref == 'N' || qry == 'N')) return 0;
-        if (type == 'p' && (ref == 'X' || qry == 'X')) return 0;
-        return mismatchScore;
+        int refIndex = letterIdx(type, toupper(referenceBase));
+        int qryIndex = letterIdx(type, toupper(queryBase));
+        return params.scoringMatrix[refIndex][qryIndex];
     }
 };
 

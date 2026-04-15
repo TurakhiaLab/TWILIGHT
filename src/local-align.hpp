@@ -1,11 +1,16 @@
 #ifndef LOCAL_ALIGN_HPP
 #define LOCAL_ALIGN_HPP
 
+#include "msa.hpp"
+
 #include <memory>
 #include <string>
 #include <vector>
 
 namespace msa {
+
+    struct Params;
+
 namespace accurate {
 
 struct AlignedResiduePair
@@ -25,7 +30,7 @@ class LocalAligner
 {
 public:
     virtual ~LocalAligner() = default;
-    virtual LocalAlignmentResult align(const std::string& reference, const std::string& query, char type) const = 0;
+    virtual LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params) const = 0;
 };
 
 std::shared_ptr<LocalAligner> makeDefaultLocalAligner();
