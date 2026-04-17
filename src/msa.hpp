@@ -172,6 +172,11 @@ namespace msa
         std::vector<std::vector<float>> buildConsistencyTable( const ColumnProvenance& refProvenance, const ColumnProvenance& qryProvenance, msa::accurate::SubtreeAccurateState& accurateState);    
         std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx, Params& params);
         float getOrComputePairNew(msa::accurate::SubtreeAccurateState& accurateState, int seqA, int posA, int seqB, int posB);
+
+
+        namespace gpu {
+            std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_GPU(SequenceDB* database, Option* option, int subtreeIdx, Params& params);
+        }
     }
 
     

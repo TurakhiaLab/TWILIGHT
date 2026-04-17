@@ -41,8 +41,9 @@ void parseArguments(int argc, char** argv)
     po::options_description alignDesc("Alignment Options and Parameters");
     alignDesc.add_options()
         ("type", po::value<std::string>(), "Data type. n: nucleotide, p: protein. Will be automatically inferred if not provided.")
-        ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree.")
+        ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree. Default: unlimited, or 200 in --accurate mode.")
         ("remove-gappy,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
+        ("auto-gappy-k", po::value<float>()->default_value(3.0f), "Use adaptive threshold for gappy column removal based on mean + k * stdev of gap frequencies. A value > 0 enables this. Recommended: 2.0 or 3.0. Overrides --remove-gappy.")
         ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
         ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)")
         ("prune", "Prune the input guide tree based on the presence of unaligned sequences.")
@@ -50,8 +51,6 @@ void parseArguments(int argc, char** argv)
 
     po::options_description seqFilterDesc("Sequence Filtering Options");
     seqFilterDesc.add_options()
-        // ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
-        // ("psgop", po::value<std::string>()->default_value("y"), "y: Enable, n: Disable position-specific gap open penalty.")
         ("length-deviation", po::value<float>(), "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.")
         ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
         ("max-len", po::value<int>(), "Sequences longer than max-len will be deferred or excluded.")
@@ -76,6 +75,7 @@ void parseArguments(int argc, char** argv)
     generalDesc.add_options()
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("verbose,v", "Print out every detail process.")
+        ("accurate", "Enable subtree-local accurate mode with direct pairwise-library construction.")
         ("help,h", "Print help messages.")
         ("version,V", "Show program version.");
 
@@ -144,6 +144,10 @@ int main(int argc, char** argv) {
             // Read sequences for each subtree
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, option->reroot);
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
+            if (option->accurate) {
+                if (option->cpuOnly)database->accurateState = msa::accurate::buildSubtreeAccurateState(database, option, subtree, *param);
+                else                database->accurateState = msa::accurate::gpu::buildSubtreeAccurateState_GPU(database, option, subtree, *param);
+            }
             // Progressive alignment on each subtree
             msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU, subtree);
             // post-alignment debugging

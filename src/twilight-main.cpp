@@ -75,9 +75,7 @@ void parseArguments(int argc, char** argv)
     generalDesc.add_options()
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("verbose,v", "Print out every detail process.")
-        // -------
         ("accurate", "Enable subtree-local accurate mode with direct pairwise-library construction.")
-        // -------
         ("help,h", "Print help messages.")
         ("version,V", "Show program version.");
 
