@@ -1,6 +1,7 @@
 #ifndef MSA_HPP
 #include "msa.hpp"
 #endif
+#include <cmath>
 
 #include <tbb/parallel_for.h>
 #include <tbb/spin_rw_mutex.h>
@@ -72,10 +73,10 @@ void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, Se
 }
 
 // -------
-void msa::alignment_helper::extractColumnProvenance(Node* node, SequenceDB* database, ColumnProvenance& provenance)
+void msa::alignment_helper::extractColumnProvenance(Node* node, SequenceDB* database, accurate::ColumnProvenance& provenance)
 {
     const int alnLen = node->getAlnLen(database->currentTask);
-    provenance.assign(alnLen, ColumnResidues{});
+    provenance.assign(alnLen, accurate::ColumnResidues{});
     for (auto sIdx : node->seqsIncluded) {
         if (sIdx < 0) continue;
         auto* sequence = database->sequences[sIdx];
@@ -95,15 +96,57 @@ void msa::alignment_helper::extractColumnProvenance(Node* node, SequenceDB* data
 
 void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask)
 {
-    float gap_threshold = option->gappyVertical;
-    if (gap_threshold == 1.0) return;
+    // Exit early if no removal is needed (fixed threshold at 1.0 and adaptive mode is off)
+    if (option->autoGappyK <= 0.0f && option->gappyVertical == 1.0) return;
+
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
     int refLen = nodes.first->getAlnLen(currentTask), qryLen = nodes.second->getAlnLen(currentTask);
     int refNum = nodes.first->getAlnNum(currentTask), qryNum = nodes.second->getAlnNum(currentTask);
     int start = -1, length = 0;
+
+    // --- Reference Profile Threshold ---
+    float ref_gap_threshold = option->gappyVertical;
+    if (option->autoGappyK > 0.0f && lens.first > 1 && refNum > 0) {
+        // --- Pass 1: Collect non-extreme gap ratios for robust statistics ---
+        std::vector<float> clean_gap_ratios;
+        clean_gap_ratios.reserve(lens.first);
+        const float extreme_threshold = 0.995f; // Exclude near-100% gappy columns from stats
+
+        for (int i = 0; i < lens.first; ++i) {
+            float ratio = static_cast<float>(hostFreq[profileSize * i + profileSize - 1]) / refNum;
+            if (ratio < extreme_threshold) {
+                clean_gap_ratios.push_back(ratio);
+            }
+        }
+
+        // --- Pass 2: Calculate adaptive threshold on the cleaner data ---
+        if (!clean_gap_ratios.empty()) {
+            double sum = 0.0;
+            for (float ratio : clean_gap_ratios) {
+                sum += ratio;
+            }
+            double mean = sum / clean_gap_ratios.size();
+            
+            double sq_sum = 0.0;
+            for(float ratio : clean_gap_ratios) {
+                sq_sum += (ratio - mean) * (ratio - mean);
+            }
+            double stdev = std::sqrt(sq_sum / clean_gap_ratios.size());
+            
+            float adaptive_threshold = static_cast<float>(mean + option->autoGappyK * stdev);
+            ref_gap_threshold = std::min(option->gappyVertical, adaptive_threshold);
+        }
+        
+        ref_gap_threshold = std::max(0.50f, ref_gap_threshold);
+        
+        // if (option->printDetail && option->cpuNum == 1) { // Limit printing in parallel mode
+        //     std::cout << "Robust adaptive gappy threshold for ref profile: " << std::fixed << std::setprecision(3) << ref_gap_threshold << "\n";
+        // }
+    }
+
     // Reference
     for (int i = 0; i < lens.first; ++i) {
-        if ((hostFreq[profileSize * i + profileSize - 1]) / refNum > gap_threshold) {
+        if (refNum > 0 && (hostFreq[profileSize * i + profileSize - 1]) / refNum > ref_gap_threshold) {
             if (start == -1) {
                 start = i; // new region starts
                 length = 1;
@@ -121,10 +164,47 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
     if (start != -1) { // handle case where sequence ends inside a region
         gappyColumns.first.push_back({start, length});
     }
+
+    // --- Query Profile Threshold ---
+    float qry_gap_threshold = option->gappyVertical;
+    if (option->autoGappyK > 0.0f && lens.second > 1 && qryNum > 0) {
+        // --- Pass 1: Collect non-extreme gap ratios ---
+        std::vector<float> clean_gap_ratios;
+        clean_gap_ratios.reserve(lens.second);
+        const float extreme_threshold = 0.99f;
+
+        for (int i = 0; i < lens.second; ++i) {
+            float ratio = static_cast<float>(hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum;
+            if (ratio < extreme_threshold) {
+                clean_gap_ratios.push_back(ratio);
+            }
+        }
+
+        // --- Pass 2: Calculate adaptive threshold on the cleaner data ---
+        if (!clean_gap_ratios.empty()) {
+            double sum = 0.0;
+            for (float ratio : clean_gap_ratios) {
+                sum += ratio;
+            }
+            double mean = sum / clean_gap_ratios.size();
+            double sq_sum = 0.0;
+            for(float ratio : clean_gap_ratios) {
+                sq_sum += (ratio - mean) * (ratio - mean);
+            }
+            double stdev = std::sqrt(sq_sum / clean_gap_ratios.size());
+            float adaptive_threshold = static_cast<float>(mean + option->autoGappyK * stdev);
+            qry_gap_threshold = std::min(option->gappyVertical, adaptive_threshold);
+        }
+        qry_gap_threshold = std::max(0.50f, qry_gap_threshold);
+        // if (option->printDetail && option->cpuNum == 1) {
+        //     std::cout << "Robust adaptive gappy threshold for qry profile: " << std::fixed << std::setprecision(3) << qry_gap_threshold << "\n";
+        // }
+    }
+
     // Query
     start = -1, length = 0;
     for (int i = 0; i < lens.second; ++i) {
-        if ((hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > gap_threshold)
+        if (qryNum > 0 && (hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > qry_gap_threshold)
         {
             if (start == -1) {
                 start = i; // new region starts
@@ -238,6 +318,101 @@ void msa::alignment_helper::calculatePSGP(float *hostFreq, float *hostGapOp, flo
     }); 
     });
     return;
+}
+
+void msa::alignment_helper::calculatePSGP_MAFFT(float* hostGapOp, float* hostGapEx, NodePair& nodes, SequenceDB* database, int memLen, IntPair lens, Params& param)
+{
+    // Profile 1 (Reference)
+    {
+        const int refLen = lens.first;
+        const float totalWeight = nodes.first->alnWeight;
+        if (refLen > 0 && totalWeight > 0.0f) {
+            std::vector<float> gap_starts(refLen, 0.0f);
+            std::vector<float> gap_ends(refLen, 0.0f);
+
+            for (int sIdx : nodes.first->seqsIncluded) {
+                if (sIdx < 0) continue; // Skip subtree nodes
+                auto* seq = database->sequences[sIdx];
+                const float w = seq->weight;
+                const char* aln = seq->alnStorage[seq->storage];
+                
+                if (refLen == 0) continue;
+
+                bool in_gap = (aln[0] == '-');
+
+                for (int i = 1; i < refLen; ++i) {
+                    bool current_is_gap = (aln[i] == '-');
+                    if (!in_gap && current_is_gap) { // 0 -> 1 transition: gap starts
+                        gap_starts[i] += w;
+                    } else if (in_gap && !current_is_gap) { // 1 -> 0 transition: gap ends
+                        gap_ends[i - 1] += w;
+                    }
+                    in_gap = current_is_gap;
+                }
+            }
+
+            for (int i = 0; i < refLen; ++i) {
+                float g_start_freq = gap_starts[i] / totalWeight;
+                float g_end_freq = gap_ends[i] / totalWeight;
+                float modulation = 1.0f - (g_start_freq + g_end_freq) / 2.0f;
+                
+                if (modulation < 0.0f) modulation = 0.0f;
+
+                hostGapOp[i] = param.gapOpen * modulation;
+                hostGapEx[i] = param.gapExtend * modulation;
+            }
+        } else { // if no sequences or zero weight, use base penalties
+             for (int i = 0; i < refLen; ++i) {
+                hostGapOp[i] = param.gapOpen;
+                hostGapEx[i] = param.gapExtend;
+            }
+        }
+    }
+
+    // Profile 2 (Query)
+    {
+        const int qryLen = lens.second;
+        const float totalWeight = nodes.second->alnWeight;
+        if (qryLen > 0 && totalWeight > 0.0f) {
+            std::vector<float> gap_starts(qryLen, 0.0f);
+            std::vector<float> gap_ends(qryLen, 0.0f);
+
+            for (int sIdx : nodes.second->seqsIncluded) {
+                if (sIdx < 0) continue; // Skip subtree nodes
+                auto* seq = database->sequences[sIdx];
+                const float w = seq->weight;
+                const char* aln = seq->alnStorage[seq->storage];
+
+                if (qryLen == 0) continue;
+
+                bool in_gap = (aln[0] == '-');
+                for (int i = 1; i < qryLen; ++i) {
+                    bool current_is_gap = (aln[i] == '-');
+                    if (!in_gap && current_is_gap) {
+                        gap_starts[i] += w;
+                    } else if (in_gap && !current_is_gap) {
+                        gap_ends[i - 1] += w;
+                    }
+                    in_gap = current_is_gap;
+                }
+            }
+
+            for (int i = 0; i < qryLen; ++i) {
+                float g_start_freq = gap_starts[i] / totalWeight;
+                float g_end_freq = gap_ends[i] / totalWeight;
+                float modulation = 1.0f - (g_start_freq + g_end_freq) / 2.0f;
+                if (modulation < 0.0f) modulation = 0.0f;
+
+                hostGapOp[memLen + i] = param.gapOpen * modulation;
+                hostGapEx[memLen + i] = param.gapExtend * modulation;
+            }
+        } else {
+            for (int i = 0; i < qryLen; ++i) {
+                hostGapOp[memLen + i] = param.gapOpen;
+                hostGapEx[memLen + i] = param.gapExtend;
+            }
+        }
+    }
 }
 
 void msa::alignment_helper::getConsensus(Option *option, float *profile, std::string &consensus, int len)

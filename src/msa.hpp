@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <array>
+#include <memory>
 
 #include <boost/program_options.hpp>
 #include <tbb/spin_rw_mutex.h>
@@ -28,11 +29,13 @@ int letterIdx(char type, char inChar);
 
 namespace msa
 {
-    namespace accurate
-    {
-        struct SubtreeAccurateState;
-    }
+    // Forward declaration
+    struct Params;  
+    struct Option; 
+    struct SequenceDB;
+    namespace accurate { struct SubtreeAccurateState; } // Forward declaration for SequenceDB
 
+    
     enum Type {
         DEFAULT_ALN = 0,
         MERGE_MSA   = 1,
@@ -58,15 +61,120 @@ namespace msa
     using alnPathVec = std::vector<alnPath>;
     using Profile = std::vector<std::vector<float>>;
     // -------
-    struct ResidueInstance
+
+    namespace accurate
     {
-        int seqId;
-        int residueIndex;
-        float weight;
-    };
-    using ColumnResidues = std::vector<ResidueInstance>;
-    using ColumnProvenance = std::vector<ColumnResidues>;
-    // -------
+        // --- From local-align.hpp ---
+        struct AlignedResiduePair
+        {
+            int refIndex;
+            int qryIndex;
+        };
+
+        struct LocalAlignmentResult
+        {
+            int score = 0;
+            float identity = 0.0f;
+            std::vector<AlignedResiduePair> alignedPairs;
+        };
+
+        // --- Concrete class replacing LocalAligner ---
+        class SmithWatermanAligner
+        {
+        public:
+            LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params) const;
+            LocalAlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params) const;
+        };
+
+        // --- From consistency_v2.hpp ---
+        struct ResidueKey
+        {
+            int seqId;
+            int pos;
+            bool operator==(const ResidueKey& other) const;
+        };
+
+        struct ResidueKeyHash
+        {
+            std::size_t operator()(const ResidueKey& key) const;
+        };
+
+        struct ResiduePairKey
+        {
+            int seqA;
+            int posA;
+            int seqB;
+            int posB;
+
+            ResiduePairKey(int firstSeq, int firstPos, int secondSeq, int secondPos);
+            bool operator==(const ResiduePairKey& other) const;
+        };
+
+        struct ResiduePairKeyHash
+        {
+            std::size_t operator()(const ResiduePairKey& key) const;
+        };
+
+        struct ResidueInstance
+        {
+            int seqId;
+            int residueIndex;
+            float weight;
+        };
+
+        struct DirectPairLibrary
+        {
+            // --- Constructor ---
+            DirectPairLibrary() {};
+            DirectPairLibrary(int sequenceCount, int length);
+
+            // --- Getters ---
+            int getSequence();
+            int getPairs();
+            inline uint64_t getOffset(int i, int j);
+
+            // --- Modifiers ---
+            void addLocalAlignmentResult(int refID, int qryID, LocalAlignmentResult& result);
+
+            // --- Lookups ---
+            float getWeight(int refIdx, int qryIdx);
+            bool is_aligned(int refIdx, int qryIdx, int refPos, int qryPos);
+            int getAlignedPos(int baseIdx, int alnIdx, int basePos);
+            float getPairWeight(int refIdx, int qryIdx, int refPos);
+            
+            // --- Mapping function ---
+            inline int idx(int i, int j);
+
+            std::vector<float> weights;
+            std::vector<int32_t> forward;
+            std::vector<int32_t> backward;
+            std::vector<float> pairWeight;
+            int totalSequence;
+            int totalPairs;
+            int length;
+            
+            // --- Pre-computation ---
+            std::vector<float> residueSupport;
+            void computeResidueSupport();
+            void computePairWeights();
+        };
+
+        struct SubtreeAccurateState
+        {
+            int subtreeIdx = -1;
+            DirectPairLibrary directLib;
+        };
+        
+        using ColumnResidues = std::vector<ResidueInstance>;
+        using ColumnProvenance = std::vector<ColumnResidues>;
+
+        void removeColumns(ColumnProvenance& provenance, const IntPairVec& removedColumns);
+        std::vector<std::vector<float>> buildConsistencyTable( const ColumnProvenance& refProvenance, const ColumnProvenance& qryProvenance, msa::accurate::SubtreeAccurateState& accurateState);    
+        std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx, Params& params);
+        float getOrComputePairNew(msa::accurate::SubtreeAccurateState& accurateState, int seqA, int posA, int seqB, int posB);
+    }
+
+    
 
     struct Option
     {
@@ -81,6 +189,7 @@ namespace msa
         // Alignment Options
         int maxSubtree;
         float gappyVertical;
+        float autoGappyK;
         float lenDev;
         float maxAmbig;
         int maxLen;
@@ -159,7 +268,7 @@ namespace msa
         std::unordered_map<int, SequenceInfo *> id_map;
         std::unordered_map<std::string, SequenceInfo *> name_map;
         // -------
-        std::shared_ptr<accurate::SubtreeAccurateState> accurateState;
+        std::shared_ptr<accurate::SubtreeAccurateState> accurateState; // Now uses the full definition
         // -------
 
         void addSequence(int id, const std::string &name, std::string &seq, int subtreeIdx, float weight, bool debug, int alnMode);
@@ -203,11 +312,9 @@ namespace msa
         constexpr int _UPDATE_SEQ_TH = 1000;
 
         void calculateProfile(float *profile, NodePair &nodes, SequenceDB *database, Option *option, int32_t memLen);
-        // -------
-        void extractColumnProvenance(Node* node, SequenceDB* database, ColumnProvenance& provenance);
-        // -------
         void removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask);
         void calculatePSGP(float *hostFreq, float *hostGapOp, float *hostGapEx, NodePair &nodes, SequenceDB* database, Option *option, int memLen, IntPair offset, IntPair lens, Params &param);
+        void calculatePSGP_MAFFT(float* hostGapOp, float* hostGapEx, NodePair& nodes, SequenceDB* database, int memLen, IntPair lens, Params& param);
         void getConsensus(Option *option, float *profile, std::string &consensus, int len);
         void pairwiseGlobal(const std::string &seq1, const std::string &seq2, alnPath &alnPath, Params &param);
         void addGappyColumnsBack(alnPath &aln_before, alnPath &aln_after, std::pair<IntPairVec, IntPairVec> &gappyColumns, Params &param, IntPair rgcLens, stringPair orgSeqs);
@@ -219,7 +326,22 @@ namespace msa
         // void alignEnds (NodePair &nodes, SequenceDB *database,  char type, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln);
         // IntPair smith_waterman(const std::string &seq1, const std::string &seq2);
         // alnPath smith_waterman_tb(const std::string &seq1, const std::string &seq2);
+        // -------
+        void extractColumnProvenance(Node* node, SequenceDB* database, accurate::ColumnProvenance& provenance);
+        // -------
+        
     }
+
+    std::vector<int8_t> alignProfile(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
 
     namespace progressive
     {
@@ -296,6 +418,19 @@ namespace msa
             void parallelAlignmentGPU(Tree *T, NodePairVec &alnPairs, SequenceDB *database, Option *option, Params &param);
         }
     }
+
+    std::vector<int8_t> alignProfile(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable, // 允許為空指標
+        float consistencyWeight
+    );
 }
+
+
 
 #endif

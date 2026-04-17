@@ -6,139 +6,10 @@
 #include "TALCO-XDrop.hpp"
 #endif
 
-#include "consistency_v2.hpp"
-
 #include <tbb/parallel_for.h>
 #include <tbb/spin_rw_mutex.h>
 #include <chrono>
 #include <algorithm>
-
-namespace {
-
-void removeColumns(msa::ColumnProvenance& provenance, const msa::IntPairVec& removedColumns)
-{
-    if (removedColumns.empty()) return;
-    msa::ColumnProvenance filtered;
-    filtered.reserve(provenance.size());
-    int removeIdx = 0;
-    int nextRemoveStart = removedColumns[removeIdx].first;
-    int nextRemoveEnd = nextRemoveStart + removedColumns[removeIdx].second;
-    for (int col = 0; col < static_cast<int>(provenance.size()); ++col) {
-        while (removeIdx < static_cast<int>(removedColumns.size()) && col >= nextRemoveEnd) {
-            ++removeIdx;
-            if (removeIdx < static_cast<int>(removedColumns.size())) {
-                nextRemoveStart = removedColumns[removeIdx].first;
-                nextRemoveEnd = nextRemoveStart + removedColumns[removeIdx].second;
-            }
-        }
-        const bool removed = (removeIdx < static_cast<int>(removedColumns.size()) && col >= nextRemoveStart && col < nextRemoveEnd);
-        if (!removed) filtered.push_back(std::move(provenance[col]));
-    }
-    provenance = std::move(filtered);
-}
-
-std::vector<std::vector<float>> buildConsistencyTable(
-    const msa::ColumnProvenance& refProvenance,
-    const msa::ColumnProvenance& qryProvenance,
-    msa::accurate::SubtreeAccurateState& accurateState)
-{
-    int refLen = refProvenance.size();
-    int qryLen = qryProvenance.size();
-    std::vector<std::vector<float>> consistencyTable(refLen, std::vector<float>(qryLen, 0.0f));
-
-    int totalSeq = accurateState.directLib.getSequence();
-    int maxLen = accurateState.directLib.length;
-
-    struct QryResInfo {
-        int qryCol;
-        int seqB;
-        int posB;
-        float weight;
-        float S_B;
-    };
-
-    std::vector<QryResInfo> qryResList;
-    std::vector<int> qryMap(totalSeq * maxLen, -1);
-    std::vector<float> qryColWeightSum(qryLen, 0.0f);
-    std::vector<float> refColWeightSum(refLen, 0.0f);
-
-    for (int qryCol = 0; qryCol < qryLen; ++qryCol) {
-        for (const auto& qryRes : qryProvenance[qryCol]) {
-            int seqB = qryRes.seqId;
-            int posB = qryRes.residueIndex;
-            int id = qryResList.size();
-            float S_B = accurateState.directLib.residueSupport[seqB * maxLen + posB];
-            qryResList.push_back({qryCol, seqB, posB, qryRes.weight, S_B});
-            qryMap[seqB * maxLen + posB] = id;
-            qryColWeightSum[qryCol] += qryRes.weight;
-        }
-    }
-
-    for (int refCol = 0; refCol < refLen; ++refCol) {
-        for (const auto& refRes : refProvenance[refCol]) {
-            refColWeightSum[refCol] += refRes.weight;
-        }
-    }
-
-    int qryResCount = qryResList.size();
-
-    tbb::parallel_for( tbb::blocked_range<std::size_t>(0, refLen), [&](const tbb::blocked_range<std::size_t>& range) {
-        std::vector<float> num_B(qryResCount, 0.0f);
-        std::vector<int> active_B;
-        active_B.reserve(totalSeq);
-
-        for (std::size_t refCol = range.begin(); refCol < range.end(); ++refCol) {
-            if (refProvenance[refCol].empty()) continue;
-
-            std::vector<float> col_scores(qryLen, 0.0f);
-            for (const auto& refRes : refProvenance[refCol]) {
-                int seqA = refRes.seqId;
-                int posA = refRes.residueIndex;
-                float wA = refRes.weight;
-                float S_A = accurateState.directLib.residueSupport[seqA * maxLen + posA];
-                if (S_A <= 0.0f) continue;
-
-                for (int seqB = 0; seqB < totalSeq; ++seqB) {
-                    if (seqB == seqA) continue;
-                    int posB = accurateState.directLib.getAlignedPos(seqA, seqB, posA);
-                    if (posB != -1) {
-                        int qID = qryMap[seqB * maxLen + posB];
-                        if (qID != -1) {
-                            float extendedWeight = accurateState.directLib.getPairWeight(seqA, seqB, posA);
-                            if (extendedWeight > 0.0f) {
-                                if (num_B[qID] == 0.0f) active_B.push_back(qID);
-                                num_B[qID] += extendedWeight;
-                            }
-                        }
-                    }
-                }
-                
-                for (int qID : active_B) {
-                    float num = num_B[qID];
-                    num_B[qID] = 0.0f;
-                    const auto& qInfo = qryResList[qID];
-                    float S_B = qInfo.S_B;
-                    float tcs = (S_A + S_B > 0.0f) ? std::clamp((2.0f * num) / (S_A + S_B), 0.0f, 1.0f) : 0.0f;
-                    col_scores[qInfo.qryCol] += wA * qInfo.weight * tcs;
-                }
-                active_B.clear();
-            }
-            
-            float denom_ref = refColWeightSum[refCol];
-            if (denom_ref <= 0.0f) continue;
-            for (int qryCol = 0; qryCol < qryLen; ++qryCol) {
-                float denom = denom_ref * qryColWeightSum[qryCol];
-                if (denom > 0.0f) {
-                    consistencyTable[refCol][qryCol] = col_scores[qryCol] / denom;
-                }
-            }
-        }
-    });
-
-    return consistencyTable;
-}
-
-} // namespace
 
 void msa::progressive::cpu::allocateMemory_and_Initialize(float*& freq, float*& gapOp, float*& gapEx, int memLen, int profileSize)
 {
@@ -189,7 +60,7 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
         stringPair consensus({"", ""});
         IntPair lens = {refLen, qryLen};
         // -------
-        ColumnProvenance refProvenance, qryProvenance;
+        accurate::ColumnProvenance refProvenance, qryProvenance;
         std::vector<std::vector<float>> consistencyTable;
         // -------
         
@@ -203,9 +74,6 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 size_t refResidues = 0, qryResidues = 0;
                 for (const auto& column : refProvenance) refResidues += column.size();
                 for (const auto& column : qryProvenance) qryResidues += column.size();
-                // std::cerr << "Accurate mode provenance for pair " << nIdx
-                //           << ": ref columns=" << refProvenance.size() << ", residues=" << refResidues
-                //           << "; qry columns=" << qryProvenance.size() << ", residues=" << qryResidues << '\n';
             }
         }
 
@@ -216,10 +84,10 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
         // -------
         if (option->accurate && database->currentTask == 0 && database->accurateState) {
             
-            removeColumns(refProvenance, gappyColumns.first);
-            removeColumns(qryProvenance, gappyColumns.second);
+            accurate::removeColumns(refProvenance, gappyColumns.first);
+            accurate::removeColumns(qryProvenance, gappyColumns.second);
             auto consistStart = std::chrono::high_resolution_clock::now();
-            consistencyTable = buildConsistencyTable(refProvenance, qryProvenance, *database->accurateState);
+            consistencyTable = accurate::buildConsistencyTable(refProvenance, qryProvenance, *database->accurateState);
             if (option->printDetail) {
                 std::size_t nonZeroEntries = 0;
                 for (const auto& row : consistencyTable) {
@@ -229,16 +97,13 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 }
                 auto consistEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds consistTime = consistEnd - consistStart;
-
-                // std::cerr << "Accurate mode consistency table for pair " << nIdx
-                //           << ": " << consistencyTable.size() << "x"
-                //           << (consistencyTable.empty() ? 0 : consistencyTable.front().size())
-                //           << ", non-zero entries=" << nonZeroEntries << " Time: " << consistTime.count() / 1000 << " us\n";
             }
             
         }
         // -------
         alignment_helper::calculatePSGP(hostFreq, hostGapOp, hostGapEx, nodes[nIdx], database, option, memLen, {0,0}, lens, param);
+        // alignment_helper::calculatePSGP_MAFFT(hostGapOp, hostGapEx, nodes[nIdx], database, memLen, lens, param);
+        
         auto preEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds pTime = preEnd - preStart;
         int pt = preprocessTime.fetch_add(pTime.count());
@@ -270,6 +135,7 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
             while (aln_wo_gc.empty()) {
                 int16_t errorType = 0;
                 aln_wo_gc.clear();
+                // if (num.first > 1 && num.second > 1) std::cout << nIdx << ": " << freqRef.size() << " " << freqQry.size() << "\n";
                 Talco_xdrop::Align_freq (
                     talco_params,
                     freqRef,
@@ -284,6 +150,25 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                     aln_wo_gc,
                     errorType
                 );
+                // aln_wo_gc = alignProfile (
+                //     freqRef,
+                //     freqQry,
+                //     gapOp,
+                //     gapEx,
+                //     num,
+                //     param,
+                //     (option->accurate && database->currentTask == 0 && database->accurateState && !consistencyTable.empty()) ? &consistencyTable : nullptr,
+                //     (option->accurate && database->currentTask == 0 && database->accurateState) ? option->consistencyWeight : 0.0f                
+                // );
+                // if (freqRef.size() == 430 && freqQry.size() == 1238) {
+                //     for (auto& a: aln_wo_gc) std::cout << (a & 0xFFFF);
+                //     std::cout << std::endl;
+                // }
+                // if (freqRef.size() == 321 && freqQry.size() == 380) {
+                //     for (auto& a: aln_wo_gc) std::cout << (a & 0xFFFF);
+                //     std::cout << std::endl;
+                // }
+                
                 if (database->currentTask == 0 && errorType != 0) {
                     aln_wo_gc.clear();
                     {
@@ -340,8 +225,8 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 if (a == 2) {alnRef += 1;}
             }
             float refWeight = nodes[nIdx].first->alnWeight, qryWeight = nodes[nIdx].second->alnWeight;
-            if (alnRef != refLen) std::cout << "R: Post " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
-            if (alnQry != qryLen) std::cout << "Q: Post " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
+            if (alnRef != refLen) std::cout << nIdx << " : R: Post " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\t" << refLen << '-' << qryLen << '\n';
+            if (alnQry != qryLen) std::cout << nIdx << " : Q: Post " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\t" << refLen << '-' << qryLen << '\n';
             std::map<int,std::string> startAln, endAln;
             
             if (option->alnMode != PLACE_WO_TREE) {

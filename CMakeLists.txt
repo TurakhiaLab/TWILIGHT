@@ -198,7 +198,7 @@ else()
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
 					      src/alignment-helper.cpp
-					      src/TALCO-XDrop.cpp
+					      src/TALCO-XDrop_sg.cpp
 		    )	
 		endif()
 	endif()

@@ -9,7 +9,6 @@
 #include <vector>
 #include <unordered_map>
 
-#include <tbb/enumerable_thread_specific.h>
 #include <tbb/spin_rw_mutex.h>
 #include <iostream>
 

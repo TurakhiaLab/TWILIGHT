@@ -13,35 +13,69 @@ size_t getNumLeaves(phylogeny::Node* node, int grpID) {
     return children;
 }
 
-void updateCentroidEdge (phylogeny::Node* node, phylogeny::Node* root, size_t halfTaxa, size_t& Imbalance, phylogeny::Node*& breakEdge){
-    if (node->grpID != root->grpID || node->children.size() == 0) return;
+// --- Centroid Decomposition (Fallback Strategy) ---
+void updateCentroidEdge (phylogeny::Node* node, phylogeny::Node* root, size_t totalLeaves, size_t& minMaxPartition, phylogeny::Node*& breakEdge){
+    if (node->grpID != root->grpID) return;
+
     for (auto ch: node->children){
-        updateCentroidEdge(ch, root, halfTaxa, Imbalance, breakEdge);
+        updateCentroidEdge(ch, root, totalLeaves, minMaxPartition, breakEdge);
     }
-    size_t numDescendants = getNumLeaves(node, root->grpID);
-    size_t tempImbalance = (halfTaxa > numDescendants) ? (halfTaxa - numDescendants) : (numDescendants - halfTaxa);
-    if (tempImbalance < Imbalance) {
-        breakEdge = node;
-        Imbalance = tempImbalance;
+
+    if (node != root) {
+        size_t numDescendants = getNumLeaves(node, root->grpID);
+        if (numDescendants > 0 && numDescendants < totalLeaves) {
+            size_t maxPartition = std::max(numDescendants, totalLeaves - numDescendants);
+            if (maxPartition < minMaxPartition) {
+                breakEdge = node;
+                minMaxPartition = maxPartition;
+            }
+        }
     }
-    return;
 }
 
 phylogeny::Node* getCentroidEdge(phylogeny::Node* node, int rootID){
-    phylogeny::Node* centroidEdge = node;
     size_t numLeaves = getNumLeaves(node, node->grpID);
-    size_t centroidImbalance = numLeaves;
-    size_t halfTaxa = numLeaves/2;
-    halfTaxa = (halfTaxa == 0) ? 1 : halfTaxa;
-    updateCentroidEdge (node, node, halfTaxa, centroidImbalance, centroidEdge);
+    if (numLeaves <= 1) return node;
+
+    phylogeny::Node* centroidEdge = nullptr;
+    for(auto child : node->children){
+        if(child->grpID == node->grpID){
+            centroidEdge = child;
+            break;
+        }
+    }
+    if (!centroidEdge) return node;
+
+    size_t minMaxPartition = numLeaves;
+    updateCentroidEdge (node, node, numLeaves, minMaxPartition, centroidEdge);
     return centroidEdge;
 }
 
-phylogeny::Node* getBreakingEdge(phylogeny::Node* root, int minSize){
-    return getCentroidEdge(root, root->grpID);
+// --- Greedy Strategy ---
+void findGreedyEdge(phylogeny::Node* node, phylogeny::Node* root, size_t maxPartitionSize, int& bestSize, phylogeny::Node*& breakEdge) {
+    if (node->grpID != root->grpID) return;
+
+    for (auto ch : node->children) {
+        findGreedyEdge(ch, root, maxPartitionSize, bestSize, breakEdge);
+    }
+
+    if (node != root) {
+        size_t numDescendants = getNumLeaves(node, root->grpID);
+        if (numDescendants <= maxPartitionSize && (int)numDescendants > bestSize) {
+            bestSize = numDescendants;
+            breakEdge = node;
+        }
+    }
 }
 
-void setChildrenGrpID(phylogeny::Node*& node, int ID_org, int ID) {
+phylogeny::Node* getGreedyEdge(phylogeny::Node* node, size_t maxPartitionSize) {
+    phylogeny::Node* breakEdge = nullptr;
+    int bestSize = -1; 
+    findGreedyEdge(node, node, maxPartitionSize, bestSize, breakEdge);
+    return breakEdge;
+}
+
+void setChildrenGrpID(phylogeny::Node* node, int ID_org, int ID) {
     if (node->grpID != ID_org) return;
     node->grpID = ID;
     if (node->children.size() == 0) return;
@@ -51,60 +85,44 @@ void setChildrenGrpID(phylogeny::Node*& node, int ID_org, int ID) {
     return;
 }
 
-void phylogeny::PartitionInfo::bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root) {
-    
-    size_t tree1ID = (root->grpID == -1) ? 0 : root->grpID;
-    size_t tree2ID = (root->grpID == -1) ? 1 : this->numPartitions + 1;
-    this->numPartitions += 1;
-    Node* head = edge->parent;
-    int headID = edge->parent->grpID;
-    while (true){
-        if (head->parent == nullptr) break;
-        if (head->parent->grpID != headID) break;
-        head = head->parent;
-    }
-    tree1Root = head;
-    tree2Root = edge;
-    size_t tree2ID_org = tree2Root->grpID;
-    size_t tree1ID_org = tree1Root->grpID;
-    setChildrenGrpID(tree2Root, tree2ID_org, tree2ID);
-    if (tree1Root->grpID == -1) {
-        setChildrenGrpID(tree1Root, tree1ID_org, tree1ID);
-    }
+void phylogeny::PartitionInfo::bipartition(phylogeny::Node* rootOfPartition, phylogeny::Node* edgeToCut, int newGrpID) {
+    setChildrenGrpID(edgeToCut, rootOfPartition->grpID, newGrpID);
 }
 
 void phylogeny::PartitionInfo::partitionTree(Node* root) {
-    size_t totalLeaves = getNumLeaves(root, root->grpID);
-    if (totalLeaves <= this->maxPartitionSize) {
-        if (this->partitionsRoot.empty()) {
-            setChildrenGrpID(root, root->grpID, 0);
-            size_t numLeaves = getNumLeaves(root, root->grpID);
-            this->partitionsRoot[root->identifier] = std::make_pair(root, numLeaves);
-        }
-        return;
-    }
+    std::stack<phylogeny::Node*> treesToPartition;
     
-    Node* breakEdge = getBreakingEdge(root, this->minPartitionSize);
-    if (breakEdge->identifier == root->identifier) {
-        return;
-    }
+    setChildrenGrpID(root, -1, 0);
+    treesToPartition.push(root);
+    this->numPartitions = 0;
 
-    Node* tree1 = nullptr;
-    Node* tree2 = nullptr;
-    bipartition(root, breakEdge, tree1, tree2);
-    
-    size_t numTree1Leaves = getNumLeaves(tree1, tree1->grpID);
-    size_t numTree2Leaves = getNumLeaves(tree2, tree2->grpID);
-    if (root->parent == nullptr) {
-        this->partitionsRoot[tree1->identifier] = std::make_pair(tree1, numTree2Leaves);
-    }
-    this->partitionsRoot[tree2->identifier] = std::make_pair(tree2, numTree2Leaves);
-    this->partitionsRoot[tree1->identifier].second = numTree1Leaves;
-    if (numTree2Leaves > this->maxPartitionSize) {
-        partitionTree(tree2);
-    }
-    if (numTree1Leaves > this->maxPartitionSize) {
-        partitionTree(tree1);
+    while (!treesToPartition.empty()) {
+        phylogeny::Node* currentRoot = treesToPartition.top();
+        treesToPartition.pop();
+
+        size_t totalLeaves = getNumLeaves(currentRoot, currentRoot->grpID);
+
+        if (totalLeaves <= this->maxPartitionSize) {
+            this->partitionsRoot[currentRoot->identifier] = std::make_pair(currentRoot, totalLeaves);
+            continue;
+        }
+
+        Node* breakEdge = getGreedyEdge(currentRoot, this->maxPartitionSize);
+
+        if (breakEdge == nullptr) {
+            breakEdge = getCentroidEdge(currentRoot, currentRoot->grpID);
+        }
+        
+        if (breakEdge == nullptr || breakEdge == currentRoot) {
+            this->partitionsRoot[currentRoot->identifier] = std::make_pair(currentRoot, totalLeaves);
+            continue;
+        }
+
+        this->numPartitions++;
+        bipartition(currentRoot, breakEdge, this->numPartitions);
+
+        this->partitionsRoot[breakEdge->identifier] = std::make_pair(breakEdge, getNumLeaves(breakEdge, breakEdge->grpID));
+        treesToPartition.push(currentRoot);
     }
     return;
 }

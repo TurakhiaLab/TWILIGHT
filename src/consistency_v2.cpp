@@ -1,6 +1,3 @@
-#include "consistency_v2.hpp"
-
-#include "local-align.hpp"
 #include "msa.hpp"
 
 #include <algorithm>
@@ -12,7 +9,6 @@
 #include <atomic>
 #include <mutex>
 
-#include <tbb/enumerable_thread_specific.h>
 #include <tbb/parallel_for.h>
 
 bool msa::accurate::ResidueKey::operator==(const ResidueKey& other) const
@@ -57,47 +53,11 @@ std::size_t msa::accurate::ResiduePairKeyHash::operator()(const ResiduePairKey& 
     return seed;
 }
 
-namespace {
 
 std::string getCurrentSequence(const msa::SequenceDB::SequenceInfo* sequence)
 {
     return std::string(sequence->alnStorage[sequence->storage], sequence->len);
 }
-
-/*
-float computePairTcs(const msa::accurate::DirectPairLibrary& directLib, int seqA, int posA, int seqB, int posB)
-{
-    const float directSupport = directLib.getSupport(seqA, posA, seqB, posB);
-    const auto& neighborsA = directLib.neighbors(seqA, posA);
-    const auto& neighborsB = directLib.neighbors(seqB, posB);
-
-    if (neighborsA.empty() && neighborsB.empty()) return directSupport;
-
-    float numerator = directSupport;
-    float supportA = directSupport;
-    float supportB = directSupport;
-
-    for (const auto& neighborA : neighborsA) supportA += neighborA.second;
-    for (const auto& neighborB : neighborsB) supportB += neighborB.second;
-
-    for (const auto& neighborA : neighborsA) {
-        const float supportThroughB = directLib.getSupport(
-            neighborA.first.seqId,
-            neighborA.first.pos,
-            seqB,
-            posB
-        );
-        if (supportThroughB > 0.0f) {
-            numerator += std::min(neighborA.second, supportThroughB);
-        }
-    }
-
-    const float denominator = supportA + supportB;
-    if (denominator <= 0.0f) return 0.0f;
-
-    return std::clamp((2.0f * numerator) / denominator, 0.0f, 1.0f);
-}
-*/
 
 float computePairNew(msa::accurate::DirectPairLibrary& directLib, int seqA, int posA, int seqB, int posB)
 {
@@ -148,14 +108,82 @@ float computePairNew(msa::accurate::DirectPairLibrary& directLib, int seqA, int 
     return std::clamp((2.0f * numerator) / denominator, 0.0f, 1.0f);
 }
 
-} // namespace
+msa::accurate::DirectPairLibrary::DirectPairLibrary(int sequenceCount, int length) {
+    this->length = length;
+    this->totalSequence = sequenceCount;
+    this->totalPairs = (sequenceCount + 1) * sequenceCount / 2 - sequenceCount;
+    this->weights.resize(totalPairs, -1.0f);
+    this->forward.resize(totalPairs * length, -1);
+    this->backward.resize(totalPairs * length, -1);
+    this->pairWeight.resize(totalPairs * length, 0.0f);
+}
+
+// --- Getter ---
+int msa::accurate::DirectPairLibrary::getSequence() {return totalSequence;}
+int msa::accurate::DirectPairLibrary::getPairs() {return totalPairs;}
+inline uint64_t msa::accurate::DirectPairLibrary::getOffset(int i, int j) { return static_cast<uint64_t>(length) * static_cast<uint64_t>(idx(i,j));}
+// --- Modifier ---
+void msa::accurate::DirectPairLibrary::addLocalAlignmentResult(int refID, int qryID, LocalAlignmentResult& result) {
+    uint64_t offset = getOffset(refID, qryID);
+    int id = idx(refID, qryID);
+    this->weights[id] = result.identity;
+    if (refID < qryID) { // Ref-based
+        for (auto& alignedPair: result.alignedPairs) {
+            int base = alignedPair.refIndex;
+            int align = alignedPair.qryIndex;
+            this->forward[offset+base] = align;
+            this->backward[offset+align] = base;
+        }
+    }
+    else {
+        for (auto& alignedPair: result.alignedPairs) {
+            int base = alignedPair.qryIndex;
+            int align = alignedPair.refIndex;
+            this->forward[offset+base] = align;
+            this->backward[offset+align] = base;
+        }
+    }
+}
+// --- lookup ---
+float msa::accurate::DirectPairLibrary::getWeight(int refIdx, int qryIdx) {
+    return this->weights[idx(refIdx, qryIdx)];
+};
+bool msa::accurate::DirectPairLibrary::is_aligned(int refIdx, int qryIdx, int refPos, int qryPos) {
+    int offset = getOffset(refIdx, qryIdx);
+    if (refIdx < qryIdx) return (this->forward[offset+refPos] == qryPos);
+    else                 return (this->backward[offset+refPos] == qryPos);
+}
+int msa::accurate::DirectPairLibrary::getAlignedPos(int baseIdx, int alnIdx, int basePos) {
+    int offset = getOffset(baseIdx, alnIdx);
+    if (baseIdx < alnIdx) return this->forward[offset+basePos];
+    else                  return this->backward[offset+basePos];
+}
+float msa::accurate::DirectPairLibrary::getPairWeight(int refIdx, int qryIdx, int refPos) {
+    int offset = getOffset(refIdx, qryIdx);
+    if (refIdx < qryIdx) return this->pairWeight[offset+refPos];
+    else {
+        int qryPos = this->backward[offset+refPos];
+        if (qryPos == -1) return 0.0f;
+        return this->pairWeight[offset+qryPos];
+    }
+}
+
+// --- Mapping function ---
+inline int msa::accurate::DirectPairLibrary::idx(int i, int j) {
+    if (i == j) {
+        std::cerr << "ERROR: Lookup pairwise alignment of same sequence\n.";
+        return -1;
+    }
+    if (i > j) std::swap(i, j);
+    return i * totalSequence - i * (i + 1) / 2 + (j - i - 1);
+}
 
 std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx, Params& params)
 {
     auto time0 = std::chrono::high_resolution_clock::now();
     auto accurateState = std::make_shared<SubtreeAccurateState>();
-    accurateState->subtreeIdx = subtreeIdx;
-    auto aligner = makeDefaultLocalAligner();
+    accurateState->subtreeIdx = subtreeIdx; 
+    SmithWatermanAligner aligner;
 
     const auto& sequences = database->sequences;
     // -------
@@ -201,7 +229,7 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
             const auto [refIdx, qryIdx] = pairJobs[pairIdx];
             const auto* refSeq = sequences[refIdx];
             const auto* qrySeq = sequences[qryIdx];
-            auto alignment = aligner->align(
+            auto alignment = aligner.align_affine(
                 currentSequences[refIdx],
                 currentSequences[qryIdx],
                 option->type,
@@ -262,27 +290,7 @@ float msa::accurate::getOrComputePairNew(SubtreeAccurateState& accurateState, in
 // -------
 
 
-void msa::accurate::DirectPairLibrary::addLocalAlignmentResult(int refID, int qryID, LocalAlignmentResult& result) {
-    uint64_t offset = getOffset(refID, qryID);
-    int id = idx(refID, qryID);
-    this->weights[id] = result.identity;
-    if (refID < qryID) { // Ref-based
-        for (auto& alignedPair: result.alignedPairs) {
-            int base = alignedPair.refIndex;
-            int align = alignedPair.qryIndex;
-            this->forward[offset+base] = align;
-            this->backward[offset+align] = base;
-        }
-    }
-    else {
-        for (auto& alignedPair: result.alignedPairs) {
-            int base = alignedPair.qryIndex;
-            int align = alignedPair.refIndex;
-            this->forward[offset+base] = align;
-            this->backward[offset+align] = base;
-        }
-    }
-}
+
 
 // -------
 void msa::accurate::DirectPairLibrary::computePairWeights() {
@@ -368,4 +376,128 @@ void msa::accurate::DirectPairLibrary::computeResidueSupport() {
         }
     }
     std::cerr << "Done.\n";
+}
+
+
+void msa::accurate::removeColumns(ColumnProvenance& provenance, const IntPairVec& removedColumns)
+{
+    if (removedColumns.empty()) return;
+    ColumnProvenance filtered;
+    filtered.reserve(provenance.size());
+    int removeIdx = 0;
+    int nextRemoveStart = removedColumns[removeIdx].first;
+    int nextRemoveEnd = nextRemoveStart + removedColumns[removeIdx].second;
+    for (int col = 0; col < static_cast<int>(provenance.size()); ++col) {
+        while (removeIdx < static_cast<int>(removedColumns.size()) && col >= nextRemoveEnd) {
+            ++removeIdx;
+            if (removeIdx < static_cast<int>(removedColumns.size())) {
+                nextRemoveStart = removedColumns[removeIdx].first;
+                nextRemoveEnd = nextRemoveStart + removedColumns[removeIdx].second;
+            }
+        }
+        const bool removed = (removeIdx < static_cast<int>(removedColumns.size()) && col >= nextRemoveStart && col < nextRemoveEnd);
+        if (!removed) filtered.push_back(std::move(provenance[col]));
+    }
+    provenance = std::move(filtered);
+}
+
+std::vector<std::vector<float>> msa::accurate::buildConsistencyTable(
+    const ColumnProvenance& refProvenance,
+    const ColumnProvenance& qryProvenance,
+    SubtreeAccurateState& accurateState)
+{
+    int refLen = refProvenance.size();
+    int qryLen = qryProvenance.size();
+    std::vector<std::vector<float>> consistencyTable(refLen, std::vector<float>(qryLen, 0.0f));
+
+    int totalSeq = accurateState.directLib.getSequence();
+    int maxLen = accurateState.directLib.length;
+
+    struct QryResInfo {
+        int qryCol;
+        int seqB;
+        int posB;
+        float weight;
+        float S_B;
+    };
+
+    std::vector<QryResInfo> qryResList;
+    std::vector<int> qryMap(totalSeq * maxLen, -1);
+    std::vector<float> qryColWeightSum(qryLen, 0.0f);
+    std::vector<float> refColWeightSum(refLen, 0.0f);
+
+    for (int qryCol = 0; qryCol < qryLen; ++qryCol) {
+        for (const auto& qryRes : qryProvenance[qryCol]) {
+            int seqB = qryRes.seqId;
+            int posB = qryRes.residueIndex;
+            int id = qryResList.size();
+            float S_B = accurateState.directLib.residueSupport[seqB * maxLen + posB];
+            qryResList.push_back({qryCol, seqB, posB, qryRes.weight, S_B});
+            qryMap[seqB * maxLen + posB] = id;
+            qryColWeightSum[qryCol] += qryRes.weight;
+        }
+    }
+
+    for (int refCol = 0; refCol < refLen; ++refCol) {
+        for (const auto& refRes : refProvenance[refCol]) {
+            refColWeightSum[refCol] += refRes.weight;
+        }
+    }
+
+    int qryResCount = qryResList.size();
+
+    tbb::parallel_for( tbb::blocked_range<std::size_t>(0, refLen), [&](const tbb::blocked_range<std::size_t>& range) {
+        std::vector<float> num_B(qryResCount, 0.0f);
+        std::vector<int> active_B;
+        active_B.reserve(totalSeq);
+
+        for (std::size_t refCol = range.begin(); refCol < range.end(); ++refCol) {
+            if (refProvenance[refCol].empty()) continue;
+
+            std::vector<float> col_scores(qryLen, 0.0f);
+            for (const auto& refRes : refProvenance[refCol]) {
+                int seqA = refRes.seqId;
+                int posA = refRes.residueIndex;
+                float wA = refRes.weight;
+                float S_A = accurateState.directLib.residueSupport[seqA * maxLen + posA];
+                if (S_A <= 0.0f) continue;
+
+                for (int seqB = 0; seqB < totalSeq; ++seqB) {
+                    if (seqB == seqA) continue;
+                    int posB = accurateState.directLib.getAlignedPos(seqA, seqB, posA);
+                    if (posB != -1) {
+                        int qID = qryMap[seqB * maxLen + posB];
+                        if (qID != -1) {
+                            float extendedWeight = accurateState.directLib.getPairWeight(seqA, seqB, posA);
+                            if (extendedWeight > 0.0f) {
+                                if (num_B[qID] == 0.0f) active_B.push_back(qID);
+                                num_B[qID] += extendedWeight;
+                            }
+                        }
+                    }
+                }
+                
+                for (int qID : active_B) {
+                    float num = num_B[qID];
+                    num_B[qID] = 0.0f;
+                    const auto& qInfo = qryResList[qID];
+                    float S_B = qInfo.S_B;
+                    float tcs = (S_A + S_B > 0.0f) ? std::clamp((2.0f * num) / (S_A + S_B), 0.0f, 1.0f) : 0.0f;
+                    col_scores[qInfo.qryCol] += wA * qInfo.weight * tcs;
+                }
+                active_B.clear();
+            }
+            
+            float denom_ref = refColWeightSum[refCol];
+            if (denom_ref <= 0.0f) continue;
+            for (int qryCol = 0; qryCol < qryLen; ++qryCol) {
+                float denom = denom_ref * qryColWeightSum[qryCol];
+                if (denom > 0.0f) {
+                    consistencyTable[refCol][qryCol] = col_scores[qryCol] / denom;
+                }
+            }
+        }
+    });
+
+    return consistencyTable;
 }

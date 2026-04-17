@@ -1,4 +1,4 @@
-#include "local-align.hpp"
+#include "msa.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -6,111 +6,449 @@
 
 namespace msa {
 namespace accurate {
-namespace {
 
-class SmithWatermanAligner final : public LocalAligner
+static int residueScore(char referenceBase, char queryBase, char type, Params& params)
 {
-public:
-    LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, msa::Params& params) const override
-    {
-        // const int matchScore = (type == 'p') ? 3 : 2;
-        // const int mismatchScore = (type == 'p') ? -2 : -1;
-        // const int gapPenalty = -2;
+    const char ref = static_cast<char>(std::toupper(static_cast<unsigned char>(referenceBase)));
+    const char qry = static_cast<char>(std::toupper(static_cast<unsigned char>(queryBase)));
+    int refIndex = letterIdx(type, toupper(referenceBase));
+    int qryIndex = letterIdx(type, toupper(queryBase));
+    return params.scoringMatrix[refIndex][qryIndex];
+}
 
-        const int gapPenalty = static_cast<int>(params.gapExtend) * 5;
-        
+LocalAlignmentResult SmithWatermanAligner::align_affine (const std::string& reference, const std::string& query, char type, msa::Params& params) const
+{
+    const int gOpen = static_cast<int>(params.gapOpen);
+    const int gExt  = static_cast<int>(params.gapExtend);
 
-        const int refLen = static_cast<int>(reference.size());
-        const int qryLen = static_cast<int>(query.size());
-        std::vector<std::vector<int>> score(refLen + 1, std::vector<int>(qryLen + 1, 0));
-        std::vector<std::vector<uint8_t>> traceback(refLen + 1, std::vector<uint8_t>(qryLen + 1, 0));
+    const int MIN_INF = -100000000; 
 
-        int bestScore = 0;
-        int bestRef = 0;
-        int bestQry = 0;
+    const int totalRef = static_cast<int>(reference.size());
+    const int totalQry = static_cast<int>(query.size());
+
+    // 1. Tiling Parameters
+    const int T = 1000;
+    const int O = 100;
+
+    int ref_idx = 0;
+    int qry_idx = 0;
+
+    int max_ref_tile = std::min(T, totalRef);
+    int max_qry_tile = std::min(T, totalQry);
+
+    std::vector<std::vector<int>> score(max_ref_tile + 1, std::vector<int>(max_qry_tile + 1, 0));
+    std::vector<std::vector<uint8_t>> traceback(max_ref_tile + 1, std::vector<uint8_t>(max_qry_tile + 1, 0));
+    std::vector<int> E(max_qry_tile + 1, MIN_INF);
+
+    std::vector<std::pair<int, int>> global_pairs;
+    
+    int last_max_score = 0;
+    int last_max_state = 0;
+    int final_alignment_score = 0;
+
+    while (ref_idx < totalRef && qry_idx < totalQry) {
+        int refLen = std::min(T, totalRef - ref_idx);
+        int qryLen = std::min(T, totalQry - qry_idx);
+
+        std::fill(E.begin(), E.end(), MIN_INF);
+
+        if (ref_idx == 0 && qry_idx == 0) {
+            // Semi-global: No gap penalty at the begining for the first tile
+            for (int i = 0; i <= refLen; ++i) { score[i][0] = 0; traceback[i][0] = 0; }
+            for (int j = 0; j <= qryLen; ++j) { score[0][j] = 0; traceback[0][j] = 0; }
+        } else {
+            score[0][0] = last_max_score;
+            for (int i = 1; i <= refLen; ++i) {
+                int penalty = (last_max_state == 1 && i == 1) ? gExt : (i == 1 ? gOpen : gExt);
+                score[i][0] = score[i-1][0] + penalty;
+                uint8_t tb = 2; // UP
+                if (i > 1 || last_max_state == 1) tb |= 0x04; // affine gap extension
+                traceback[i][0] = tb;
+            }
+            for (int j = 1; j <= qryLen; ++j) {
+                int penalty = (last_max_state == 2 && j == 1) ? gExt : (j == 1 ? gOpen : gExt);
+                score[0][j] = score[0][j-1] + penalty;
+                uint8_t tb = 3; // LEFT
+                if (j > 1 || last_max_state == 2) tb |= 0x08; // affine gap extension
+                traceback[0][j] = tb;
+            }
+        }
 
         for (int i = 1; i <= refLen; ++i) {
+            int F_val = MIN_INF;
             for (int j = 1; j <= qryLen; ++j) {
-                const int diag = score[i - 1][j - 1] + residueScore(reference[i - 1], query[j - 1], type, params);
-                const int up = score[i - 1][j] + gapPenalty;
-                const int left = score[i][j - 1] + gapPenalty;
+                uint8_t tb = 0;
 
-                int best = 0;
-                uint8_t direction = 0;
-                if (diag > best) {
-                    best = diag;
-                    direction = 1;
+                int e_open = score[i - 1][j] + gOpen; 
+                int e_ext  = E[j] + gExt;
+                if (e_open >= e_ext) {
+                    E[j] = e_open;
+                } else {
+                    E[j] = e_ext;
+                    tb |= 0x04;
                 }
-                if (up > best) {
-                    best = up;
-                    direction = 2;
+
+                int f_open = score[i][j - 1] + gOpen;
+                int f_ext  = F_val + gExt;
+                if (f_open >= f_ext) {
+                    F_val = f_open;
+                } else {
+                    F_val = f_ext;
+                    tb |= 0x08;
                 }
-                if (left > best) {
-                    best = left;
-                    direction = 3;
-                }
+
+                int diag = score[i - 1][j - 1] + residueScore(reference[ref_idx + i - 1], query[qry_idx + j - 1], type, params);
+
+                int best = MIN_INF;
+                uint8_t h_src = 0;
+
+                if (diag > best) { best = diag; h_src = 1; }
+                if (E[j] > best) { best = E[j]; h_src = 2; }
+                if (F_val > best) { best = F_val; h_src = 3; }
 
                 score[i][j] = best;
-                traceback[i][j] = direction;
+                tb |= h_src;
+                traceback[i][j] = tb;
+            }
+        }
 
-                if (best > bestScore) {
-                    bestScore = best;
-                    bestRef = i;
-                    bestQry = j;
+        bool is_last_tile_ref = (ref_idx + refLen == totalRef);
+        bool is_last_tile_qry = (qry_idx + qryLen == totalQry);
+        bool is_last_tile = is_last_tile_ref || is_last_tile_qry;
+
+        int best_i = refLen;
+        int best_j = qryLen;
+        int max_score = MIN_INF;
+        uint8_t best_tb = 0;
+
+        if (is_last_tile) {
+            // Semi-global: Find maximum at the border line (Free end gap)
+            if (is_last_tile_ref) {
+                for (int j = 0; j <= qryLen; ++j) {
+                    if (score[refLen][j] > max_score) {
+                        max_score = score[refLen][j];
+                        best_i = refLen; best_j = j;
+                        best_tb = traceback[refLen][j];
+                    }
+                }
+            }
+            if (is_last_tile_qry) {
+                for (int i = 0; i <= refLen; ++i) {
+                    if (score[i][qryLen] > max_score) {
+                        max_score = score[i][qryLen];
+                        best_i = i; best_j = qryLen;
+                        best_tb = traceback[i][qryLen];
+                    }
+                }
+            }
+            final_alignment_score = max_score;
+        } else {
+            int start_i = std::max(1, refLen - O);
+            int start_j = std::max(1, qryLen - O);
+            
+            // 1. Search for the L-shaped "bottom horizontal strip region" (Bottom Region)
+            for (int i = start_i; i <= refLen; ++i) {
+                for (int j = 1; j <= qryLen; ++j) {
+                    if (score[i][j] > max_score) {
+                        max_score = score[i][j];
+                        best_i = i; best_j = j;
+                        best_tb = traceback[i][j];
+                    }
+                }
+            }
+            
+            // 2. Search for the L-shaped "right vertical strip region" (Right Region)
+            for (int i = 1; i < start_i; ++i) {
+                for (int j = start_j; j <= qryLen; ++j) {
+                    if (score[i][j] > max_score) {
+                        max_score = score[i][j];
+                        best_i = i; best_j = j;
+                        best_tb = traceback[i][j];
+                    }
                 }
             }
         }
 
-        LocalAlignmentResult result;
-        result.score = bestScore;
-        for (int i = bestRef, j = bestQry; i > 0 && j > 0 && score[i][j] > 0; ) {
-            const uint8_t direction = traceback[i][j];
-            if (direction == 1) {
-                result.alignedPairs.push_back({i - 1, j - 1});
-                --i;
-                --j;
-            }
-            else if (direction == 2) {
-                --i;
-            }
-            else if (direction == 3) {
-                --j;
-            }
-            else {
-                break;
+        int i = best_i;
+        int j = best_j;
+        int currentState = 0;
+        std::vector<std::pair<int, int>> local_pairs;
+
+        while (i > 0 || j > 0) {
+            if (ref_idx == 0 && qry_idx == 0 && score[i][j] == 0 && traceback[i][j] == 0) break;
+            if (i == 0 && j == 0) break;
+            uint8_t tb = traceback[i][j];
+            if (currentState == 0) { 
+                uint8_t h_src = tb & 0x03;
+                if (h_src == 1) {
+                    local_pairs.push_back({ref_idx + i - 1, qry_idx + j - 1});
+                    --i; --j;
+                } else if (h_src == 2) { 
+                    currentState = 1; 
+                } else if (h_src == 3) { 
+                    currentState = 2;
+                } else { 
+                    if (i > 0 && j == 0) currentState = 1;
+                    else if (j > 0 && i == 0) currentState = 2;
+                    else break;
+                }
+            } 
+            else if (currentState == 1) { 
+                bool e_from_e = (tb & 0x04) != 0; 
+                --i; 
+                if (!e_from_e) currentState = 0; 
+            } 
+            else if (currentState == 2) { 
+                bool f_from_f = (tb & 0x08) != 0; 
+                --j; 
+                if (!f_from_f) currentState = 0; 
             }
         }
 
-        std::reverse(result.alignedPairs.begin(), result.alignedPairs.end());
-        int identicalPairs = 0;
-        for (const auto& alignedPair : result.alignedPairs) {
-            const char ref = static_cast<char>(std::toupper(static_cast<unsigned char>(reference[alignedPair.refIndex])));
-            const char qry = static_cast<char>(std::toupper(static_cast<unsigned char>(query[alignedPair.qryIndex])));
-            if (ref == qry) ++identicalPairs;
-        }
-        if (!result.alignedPairs.empty()) {
-            result.identity = static_cast<float>(identicalPairs) / static_cast<float>(result.alignedPairs.size());
-        }
-        return result;
+        std::reverse(local_pairs.begin(), local_pairs.end());
+        global_pairs.insert(global_pairs.end(), local_pairs.begin(), local_pairs.end());
+
+        if (is_last_tile) break;
+
+        ref_idx += best_i;
+        qry_idx += best_j;
+        last_max_score = max_score;
+
+        uint8_t h_src = best_tb & 0x03;
+        if (h_src == 1) last_max_state = 0;
+        else if (h_src == 2) last_max_state = 1;
+        else if (h_src == 3) last_max_state = 2;
+        else last_max_state = 0;
     }
 
-private:
-    static int residueScore(char referenceBase, char queryBase, char type, Params& params)
-    {
-        const char ref = static_cast<char>(std::toupper(static_cast<unsigned char>(referenceBase)));
-        const char qry = static_cast<char>(std::toupper(static_cast<unsigned char>(queryBase)));
-        int refIndex = letterIdx(type, toupper(referenceBase));
-        int qryIndex = letterIdx(type, toupper(queryBase));
-        return params.scoringMatrix[refIndex][qryIndex];
+    LocalAlignmentResult result;
+    result.score = final_alignment_score;
+
+    int identicalPairs = 0;
+    for (const auto& alignedPair : global_pairs) {
+        result.alignedPairs.push_back({alignedPair.first, alignedPair.second});
+        const char ref_c = static_cast<char>(std::toupper(static_cast<unsigned char>(reference[alignedPair.first])));
+        const char qry_c = static_cast<char>(std::toupper(static_cast<unsigned char>(query[alignedPair.second])));
+        if (ref_c == qry_c) ++identicalPairs;
     }
-};
-
-} // namespace
-
-std::shared_ptr<LocalAligner> makeDefaultLocalAligner()
-{
-    return std::make_shared<SmithWatermanAligner>();
+    
+    if (!result.alignedPairs.empty()) {
+        result.identity = static_cast<float>(identicalPairs) / static_cast<float>(result.alignedPairs.size());
+    }
+    
+    return result;
 }
 
 } // namespace accurate
 } // namespace msa
+
+static constexpr float CONSISTENCY_ALPHA = 100.0f;
+
+// Helper function to compute the similarity score between two profile columns 
+// mimicking the numerator/denominator logic from the provided code.
+inline float scoreProfileOptimized(
+    const std::vector<float>& refCol,
+    const std::vector<float>& transQryCol,
+    int alphabetSize)
+{
+    float score = 0.0f;
+    for (int l = 0; l < alphabetSize; ++l) {
+        score += refCol[l] * transQryCol[l];
+    }
+    return score;
+}
+
+std::vector<int8_t> msa::alignProfile(
+    const std::vector<std::vector<float>>& reference,
+    const std::vector<std::vector<float>>& query,
+    const std::vector<std::vector<float>>& gapOp, 
+    const std::vector<std::vector<float>>& gapEx, 
+    const std::pair<float, float>& num,           
+    msa::Params& param,
+    const std::vector<std::vector<float>>* consistencyTable, // 允許為空指標
+    float consistencyWeight)
+{
+    const int N = static_cast<int>(reference.size());
+    const int M = static_cast<int>(query.size());
+    const float MIN_INF = -1e9f;
+
+    bool isProtein = (reference[0].size() != 6);
+    int alphabetSize = isProtein ? 22 : 6;
+    int gapIdx = alphabetSize - 1; 
+    float denominator = num.first * num.second;
+
+    // =================================================================
+    // 優化核心：預先計算 Transformed Query Profile (O(M * K^2) 而非 O(N * M * K^2))
+    // 將 denominator 的除法也一併在這裡做完，節省 DP 內的除法開銷
+    // =================================================================
+    std::vector<std::vector<float>> transQry(M, std::vector<float>(alphabetSize, 0.0f));
+    for (int j = 0; j < M; ++j) {
+        for (int l = 0; l < alphabetSize; ++l) {
+            float sum = 0.0f;
+            for (int m = 0; m < alphabetSize; ++m) {
+                // if (m == gapIdx && l == gapIdx) {
+                //     sum += 0.0f;
+                // }
+                // else if (m == gapIdx || l == gapIdx) {
+                //     sum += query[j][m] * param.gapExtend; // 注意：確認是否為 gapCharScore
+                // }
+                // else {
+                //     sum += query[j][m] * param.scoringMatrix[m][l];
+                // }
+                if (m != gapIdx && l != gapIdx) {
+                    sum += query[j][m] * param.scoringMatrix[m][l];
+                }
+            }
+            transQry[j][l] = sum / denominator;
+        }
+    }
+
+    // =================================================================
+    // 記憶體優化：使用 1D Vector 攤平 2D 矩陣，保證記憶體連續，消除分配負擔
+    // 對於浮點數分數，我們只需要保留上一列 (prev) 和當前列 (curr)
+    // =================================================================
+    std::vector<float> M_prev(M + 1, 0.0f), M_curr(M + 1, MIN_INF);
+    std::vector<float> I_prev(M + 1, 0.0f), I_curr(M + 1, MIN_INF);
+    std::vector<float> D_prev(M + 1, 0.0f), D_curr(M + 1, MIN_INF);
+
+    // Traceback 需要記錄完整路徑，使用一維陣列計算 Index (i * (M+1) + j)
+    const uint8_t STATE_M = 0, STATE_I = 1, STATE_D = 2;
+    int totalCells = (N + 1) * (M + 1);
+    std::vector<uint8_t> tb_M(totalCells, 0);
+    std::vector<uint8_t> tb_I(totalCells, 0);
+    std::vector<uint8_t> tb_D(totalCells, 0);
+
+    // 初始化第 0 列 (Free End-Gaps)
+    M_prev[0] = 0.0f;
+    for (int j = 1; j <= M; ++j) {
+        M_prev[j] = 0.0f;
+        I_prev[j] = 0.0f;
+        D_prev[j] = MIN_INF; 
+    }
+
+    // DP 矩陣填值
+    for (int i = 1; i <= N; ++i) {
+        // 每列起點初始化
+        M_curr[0] = 0.0f;
+        D_curr[0] = 0.0f;
+        I_curr[0] = MIN_INF;
+
+        float pos_gapOpen_ref   = gapOp[0][i - 1];
+        float pos_gapExtend_ref = gapEx[0][i - 1];
+
+        for (int j = 1; j <= M; ++j) {
+            float pos_gapOpen_qry   = gapOp[1][j - 1];
+            float pos_gapExtend_qry = gapEx[1][j - 1];
+            
+            int idx = i * (M + 1) + j;
+
+            // -- Calculate I_mat --
+            float i_open = M_curr[j - 1] + pos_gapOpen_qry;
+            float i_ext  = I_curr[j - 1] + pos_gapExtend_qry;
+            if (i_open >= i_ext) { I_curr[j] = i_open; tb_I[idx] = STATE_M; } 
+            else                 { I_curr[j] = i_ext;  tb_I[idx] = STATE_I; }
+
+            // -- Calculate D_mat --
+            float d_open = M_prev[j] + pos_gapOpen_ref;
+            float d_ext  = D_prev[j] + pos_gapExtend_ref;
+            if (d_open >= d_ext) { D_curr[j] = d_open; tb_D[idx] = STATE_M; } 
+            else                 { D_curr[j] = d_ext;  tb_D[idx] = STATE_D; }
+
+            // -- Calculate M_mat --
+            // 這裡改成呼叫優化後的 O(K) 點積
+            // float match_score = scoreProfileOptimized(reference[i - 1], transQry[j - 1], alphabetSize);
+            // 計算 Consistency Bonus
+            float consistencyBonus = 0.0f;
+            if (consistencyTable != nullptr &&
+                i - 1 < static_cast<int32_t>(consistencyTable->size()) &&
+                j - 1 < static_cast<int32_t>((*consistencyTable)[i - 1].size())) {
+                consistencyBonus = CONSISTENCY_ALPHA * consistencyWeight * (*consistencyTable)[i - 1][j - 1];
+            }
+
+            // M_mat = Dot Product + Consistency Bonus
+            float match_score = scoreProfileOptimized(reference[i - 1], transQry[j - 1], alphabetSize) + consistencyBonus;
+            
+            
+            float m_from_m = M_prev[j - 1];
+            float m_from_i = I_prev[j - 1];
+            float m_from_d = D_prev[j - 1];
+
+            float max_m = m_from_m; 
+            tb_M[idx] = STATE_M;
+            
+            if (m_from_i > max_m) { max_m = m_from_i; tb_M[idx] = STATE_I; }
+            if (m_from_d > max_m) { max_m = m_from_d; tb_M[idx] = STATE_D; }
+            
+            M_curr[j] = match_score + max_m;
+        }
+
+        // 當前列計算完畢，將 curr 變成下一輪的 prev
+        M_prev = M_curr;
+        I_prev = I_curr;
+        D_prev = D_curr;
+    }
+
+    // =================================================================
+    // Traceback 邏輯 (尋找最後一列或最後一行的最大值)
+    // =================================================================
+    float best_score = MIN_INF;
+    int best_i = N, best_j = M;
+    uint8_t best_state = STATE_M;
+
+    // 檢查最後一列 (因為我們最後的狀態留在 prev 變數中，所以檢查 prev)
+    // for (int j = 0; j <= M; ++j) {
+    //     if (M_prev[j] > best_score) { best_score = M_prev[j]; best_i = N; best_j = j; best_state = STATE_M; }
+    //     if (I_prev[j] > best_score) { best_score = I_prev[j]; best_i = N; best_j = j; best_state = STATE_I; }
+    //     if (D_prev[j] > best_score) { best_score = D_prev[j]; best_i = N; best_j = j; best_state = STATE_D; }
+    // }
+    
+    // 注意：如果是要在「最後一行」尋找最大值，因為我們為了省記憶體丟失了前面的 float 分數。
+    // 如果你的應用情境「強烈依賴」未對齊的 Query 後綴免費丟棄（即從 M_mat[i][M] 離開），
+    // 且效能比記憶體更重要，你可以把 M_curr 換回 1D 全展開陣列 vector<float> M_mat((N+1)*(M+1))。
+    // 但通常 Free End-Gaps 最大值大多會落在 (N, M) 附近。這裡先以最後一列 (i=N) 的搜尋為主。
+
+    std::vector<int8_t> path;
+    int curr_i = best_i;
+    int curr_j = best_j;
+
+    while (curr_i < N) { path.push_back(2); curr_i++; } // 理論上 best_i 已經是 N
+    while (curr_j < M) { path.push_back(1); curr_j++; } // 補齊結尾的 Insertions
+
+    curr_i = N;
+    curr_j = best_j;
+    uint8_t state = best_state;
+
+    while (curr_i > 0 || curr_j > 0) {
+        if (curr_i == 0) {
+            path.push_back(1);
+            curr_j--;
+        } 
+        else if (curr_j == 0) {
+            path.push_back(2);
+            curr_i--;
+        } 
+        else {
+            int idx = curr_i * (M + 1) + curr_j;
+            if (state == STATE_M) {
+                path.push_back(0);
+                state = tb_M[idx];
+                curr_i--;
+                curr_j--;
+            } 
+            else if (state == STATE_I) {
+                path.push_back(1);
+                state = tb_I[idx];
+                curr_j--;
+            } 
+            else if (state == STATE_D) {
+                path.push_back(2);
+                state = tb_D[idx];
+                curr_i--;
+            }
+        }
+    }
+
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+

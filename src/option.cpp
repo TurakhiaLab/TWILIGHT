@@ -51,11 +51,7 @@ msa::Option::Option(po::variables_map& vm) {
         std::cerr << "ERROR: Invalid value for --max-subtree. The value of --max-subtree should be a positive integer (got " << this->maxSubtree << ").\n";
         exit(1);
     }
-    this->gappyVertical = vm["remove-gappy"].as<float>();
-    if (this->gappyVertical > 1 || this->gappyVertical <= 0) {
-        std::cerr << "ERROR: Invalid value for --remove-gappy. The value of --remove-gappy should be in (0,1]\n";
-        exit(1);
-    }
+
     this->lenDev = vm.count("length-deviation") ? vm["length-deviation"].as<float>() : 0;
     if (this->lenDev < 0) {
         std::cerr << "ERROR: Invalid value for --length-deviation. The value of --length-deviation should be non-negative\n";
@@ -85,6 +81,15 @@ msa::Option::Option(po::variables_map& vm) {
         std::cerr << "ERROR: Invalid arguments. --length-deviation cannot be used together with --min-len or --max-len.\n";
         exit(1);
     }
+
+    this->gappyVertical = vm["remove-gappy"].as<float>();
+    if (this->gappyVertical > 1 || this->gappyVertical <= 0) {
+        std::cerr << "ERROR: Invalid value for --remove-gappy. The value of --remove-gappy should be in (0,1]\n";
+        exit(1);
+    }
+    this->autoGappyK = vm["auto-gappy-k"].as<float>();
+
+
     
     this->reroot = !vm.count("rooted");
     this->debug = vm.count("check");
@@ -256,10 +261,12 @@ msa::Option::Option(po::variables_map& vm) {
     // -------
     if (this->maxSubtree != INT32_MAX) 
     std::cerr << "Max-subtree: " << this->maxSubtree << '\n';
-    if (this->gappyVertical == 1) 
-    std::cerr << "Disable removing gappy columns.\n";
-    else
-    std::cerr << "Threshold for removing gappy columns: " << this->gappyVertical << '\n';
+    if (this->autoGappyK > 0.0f) {
+        std::cerr << "Adaptive gappy column removal enabled with k=" << this->autoGappyK << " (overrides --remove-gappy).\n";
+    } else {
+        if (this->gappyVertical == 1) std::cerr << "Disable removing gappy columns.\n";
+        else std::cerr << "Threshold for removing gappy columns: " << this->gappyVertical << '\n';
+    }
     if (this->lenDev > 0)   std::cerr << "Allowed deviation from the median length: " << (this->lenDev * 100) << "%\n";
     else if (this->minLen > 0 || this->maxLen < INT32_MAX) std::cerr << "Allowed sequence length range: [" << this->minLen << ", " << this->maxLen << "]\n";
     if (this->maxAmbig < 1) std::cerr << "Allowed proportion of ambiguous characters: " << (this->maxAmbig * 100) << "%\n";

@@ -65,6 +65,7 @@ namespace phylogeny {
         ~PartitionInfo();
 
         void partitionTree(Node* root);
+        void bipartition(phylogeny::Node* rootOfPartition, phylogeny::Node* edgeToCut, int newGrpID);
         void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root);
     };
 
