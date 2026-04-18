@@ -133,8 +133,9 @@ else()
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -march=native")
 			set(SRC_FILES src/cuda/twilight-main.cu
 					      src/cuda/gpu-info.cu
-				          src/cuda/alignment-gpu.cu
-				          src/cuda/device-function.cu
+				              src/cuda/alignment-gpu.cu
+				              src/cuda/device-function.cu
+					      src/cuda/consistency.cu
 					      src/phylogeny.cpp
 					      src/tree.cpp
 					      src/partitionInfo.cpp
@@ -143,12 +144,12 @@ else()
 					      src/io.cpp
 					      src/option.cpp
 					      src/local-align.cpp
-					      src/consistency.cpp
+					      src/consistency_v2.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
 					      src/alignment-helper.cpp
-					      src/TALCO-XDrop.cpp
+					      src/TALCO-XDrop_sg.cpp
 			)
 		else()
 			message(STATUS "No CUDA-capable GPU found.")
