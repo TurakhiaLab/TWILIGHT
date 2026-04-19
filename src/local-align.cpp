@@ -278,23 +278,14 @@ std::vector<int8_t> msa::alignProfile(
     float denominator = num.first * num.second;
 
     // =================================================================
-    // 優化核心：預先計算 Transformed Query Profile (O(M * K^2) 而非 O(N * M * K^2))
-    // 將 denominator 的除法也一併在這裡做完，節省 DP 內的除法開銷
+    // Optimization core: Pre-calculate Transformed Query Profile (O(M * K^2) instead of O(N * M * K^2))
+    // Perform denominator division here as well to save division overhead within DP
     // =================================================================
     std::vector<std::vector<float>> transQry(M, std::vector<float>(alphabetSize, 0.0f));
     for (int j = 0; j < M; ++j) {
         for (int l = 0; l < alphabetSize; ++l) {
             float sum = 0.0f;
             for (int m = 0; m < alphabetSize; ++m) {
-                // if (m == gapIdx && l == gapIdx) {
-                //     sum += 0.0f;
-                // }
-                // else if (m == gapIdx || l == gapIdx) {
-                //     sum += query[j][m] * param.gapExtend; // 注意：確認是否為 gapCharScore
-                // }
-                // else {
-                //     sum += query[j][m] * param.scoringMatrix[m][l];
-                // }
                 if (m != gapIdx && l != gapIdx) {
                     sum += query[j][m] * param.scoringMatrix[m][l];
                 }
@@ -302,23 +293,22 @@ std::vector<int8_t> msa::alignProfile(
             transQry[j][l] = sum / denominator;
         }
     }
-
     // =================================================================
-    // 記憶體優化：使用 1D Vector 攤平 2D 矩陣，保證記憶體連續，消除分配負擔
-    // 對於浮點數分數，我們只需要保留上一列 (prev) 和當前列 (curr)
+    // Memory optimization: Use 1D vector to flatten 2D matrix, ensuring contiguous memory and eliminating allocation overhead
+    // For floating-point scores, we only need to keep the previous (prev) and current (curr) rows
     // =================================================================
     std::vector<float> M_prev(M + 1, 0.0f), M_curr(M + 1, MIN_INF);
     std::vector<float> I_prev(M + 1, 0.0f), I_curr(M + 1, MIN_INF);
     std::vector<float> D_prev(M + 1, 0.0f), D_curr(M + 1, MIN_INF);
 
-    // Traceback 需要記錄完整路徑，使用一維陣列計算 Index (i * (M+1) + j)
+    // Traceback 
     const uint8_t STATE_M = 0, STATE_I = 1, STATE_D = 2;
-    int totalCells = (N + 1) * (M + 1);
+    int totalCells = (N + 1) * (M + 1); // Traceback needs to record the full path, using a 1D array to calculate Index (i * (M+1) + j)
     std::vector<uint8_t> tb_M(totalCells, 0);
     std::vector<uint8_t> tb_I(totalCells, 0);
     std::vector<uint8_t> tb_D(totalCells, 0);
 
-    // 初始化第 0 列 (Free End-Gaps)
+
     M_prev[0] = 0.0f;
     for (int j = 1; j <= M; ++j) {
         M_prev[j] = 0.0f;
@@ -326,9 +316,7 @@ std::vector<int8_t> msa::alignProfile(
         D_prev[j] = MIN_INF; 
     }
 
-    // DP 矩陣填值
     for (int i = 1; i <= N; ++i) {
-        // 每列起點初始化
         M_curr[0] = 0.0f;
         D_curr[0] = 0.0f;
         I_curr[0] = MIN_INF;
@@ -355,9 +343,9 @@ std::vector<int8_t> msa::alignProfile(
             else                 { D_curr[j] = d_ext;  tb_D[idx] = STATE_D; }
 
             // -- Calculate M_mat --
-            // 這裡改成呼叫優化後的 O(K) 點積
+            // Changed here to call optimized O(K) dot product
             // float match_score = scoreProfileOptimized(reference[i - 1], transQry[j - 1], alphabetSize);
-            // 計算 Consistency Bonus
+            // Calculate Consistency Bonus
             float consistencyBonus = 0.0f;
             if (consistencyTable != nullptr &&
                 i - 1 < static_cast<int32_t>(consistencyTable->size()) &&
@@ -381,40 +369,28 @@ std::vector<int8_t> msa::alignProfile(
             
             M_curr[j] = match_score + max_m;
         }
-
-        // 當前列計算完畢，將 curr 變成下一輪的 prev
+        
         M_prev = M_curr;
         I_prev = I_curr;
         D_prev = D_curr;
     }
 
     // =================================================================
-    // Traceback 邏輯 (尋找最後一列或最後一行的最大值)
+    // Traceback logic (finding the maximum value in the last row or column)
     // =================================================================
     float best_score = MIN_INF;
     int best_i = N, best_j = M;
     uint8_t best_state = STATE_M;
 
-    // 檢查最後一列 (因為我們最後的狀態留在 prev 變數中，所以檢查 prev)
-    // for (int j = 0; j <= M; ++j) {
-    //     if (M_prev[j] > best_score) { best_score = M_prev[j]; best_i = N; best_j = j; best_state = STATE_M; }
-    //     if (I_prev[j] > best_score) { best_score = I_prev[j]; best_i = N; best_j = j; best_state = STATE_I; }
-    //     if (D_prev[j] > best_score) { best_score = D_prev[j]; best_i = N; best_j = j; best_state = STATE_D; }
-    // }
     
-    // 注意：如果是要在「最後一行」尋找最大值，因為我們為了省記憶體丟失了前面的 float 分數。
-    // 如果你的應用情境「強烈依賴」未對齊的 Query 後綴免費丟棄（即從 M_mat[i][M] 離開），
-    // 且效能比記憶體更重要，你可以把 M_curr 換回 1D 全展開陣列 vector<float> M_mat((N+1)*(M+1))。
-    // 但通常 Free End-Gaps 最大值大多會落在 (N, M) 附近。這裡先以最後一列 (i=N) 的搜尋為主。
-
     std::vector<int8_t> path;
     int curr_i = best_i;
     int curr_j = best_j;
 
-    while (curr_i < N) { path.push_back(2); curr_i++; } // 理論上 best_i 已經是 N
-    while (curr_j < M) { path.push_back(1); curr_j++; } // 補齊結尾的 Insertions
-
-    curr_i = N;
+    while (curr_i < N) { path.push_back(2); curr_i++; } 
+    while (curr_j < M) { path.push_back(1); curr_j++; } 
+    
+    curr_i = N; // Theoretically, best_i is already N
     curr_j = best_j;
     uint8_t state = best_state;
 
@@ -451,4 +427,3 @@ std::vector<int8_t> msa::alignProfile(
     std::reverse(path.begin(), path.end());
     return path;
 }
-

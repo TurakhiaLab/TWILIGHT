@@ -442,11 +442,11 @@ void Talco_xdrop::Tile (
                     if (type == 0) {
                         // DNA/RNA
                         #if defined(TALCO_SIMD)
-                        __m256i mask = _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0); // 只取前 5 個
+                        __m256i mask = _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0); // Take only the first 5
                         __m256 refv = _mm256_maskload_ps(refColumns, mask);
                         __m256 tqv  = _mm256_maskload_ps(tqColumns, mask);
                         __m256 prod = _mm256_mul_ps(refv, tqv);
-                        
+
                         alignas(32) float tmp[8];
                         _mm256_store_ps(tmp, prod);
                         similarScore = tmp[0] + tmp[1] + tmp[2] + tmp[3] + tmp[4];
@@ -457,7 +457,7 @@ void Talco_xdrop::Tile (
                         #endif
                     }
                     else {
-                        // Protein: 20 個 state
+                        // Protein: 20 states
                         #if defined(TALCO_SIMD)
                         __m256 refv1 = _mm256_loadu_ps(&refColumns[0]);
                         __m256 tqv1  = _mm256_loadu_ps(&tqColumns[0]);
@@ -488,7 +488,7 @@ void Talco_xdrop::Tile (
                         consistencyBonus = CONSISTENCY_ALPHA * consistencyWeight * (*consistencyTable)[reference_idx + j][query_idx + i];
                     }
                     // -------
-                    if  (tile == 0 && (i == 0 || j == 0 )) {
+                    if (tile == 0 && (i == 0 || j == 0)) {
                         if (i == 0 && j == 0) match = similarScore + consistencyBonus;
                         else                  match = similarScore + consistencyBonus + gapOpenAtEnds + gapExtendAtEnds * (std::max(0, std::max(reference_idx + j, query_idx + i) - 1));
                     }
@@ -820,7 +820,7 @@ void Talco_xdrop::Tile (
             int32_t global_remaining_qry = static_cast<int32_t>(query.size()) - query_idx - 1;
             int32_t global_remaining_ref = static_cast<int32_t>(reference.size()) - reference_idx - 1;
         
-            // Note: aln is tile_aln, which is reversed later. So we push trailing gaps first.
+        // Note: aln is tile_aln, which is reversed later. So, we push trailing gaps first.
             for (int r = 0; r < global_remaining_ref; ++r) aln.push_back(static_cast<int8_t>(2)); // Ref unaligned tail
             for (int q = 0; q < global_remaining_qry; ++q) aln.push_back(static_cast<int8_t>(1)); // Query unaligned tail
         }

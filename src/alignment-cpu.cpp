@@ -102,7 +102,6 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
         }
         // -------
         alignment_helper::calculatePSGP(hostFreq, hostGapOp, hostGapEx, nodes[nIdx], database, option, memLen, {0,0}, lens, param);
-        // alignment_helper::calculatePSGP_MAFFT(hostGapOp, hostGapEx, nodes[nIdx], database, memLen, lens, param);
         
         auto preEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds pTime = preEnd - preStart;

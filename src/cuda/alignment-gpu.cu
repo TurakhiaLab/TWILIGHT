@@ -11,8 +11,8 @@
 
 void msa::progressive::gpu::alignmentKernel_GPU(Tree* T, NodePairVec& alnPairs, SequenceDB* database, Option* option, Params &param) {
     int cpuThres = option->cpuNum * 3;
-    if (option->cpuOnly || alnPairs.size() < cpuThres || database->currentTask == 2) cpu::parallelAlignmentCPU(T, alnPairs, database, option, param);
-    else                                                                                  parallelAlignmentGPU(T, alnPairs, database, option, param);
+    if (option->cpuOnly || alnPairs.size() < cpuThres || database->currentTask == 2 || option->accurate) cpu::parallelAlignmentCPU(T, alnPairs, database, option, param);
+    else                                                                                                      parallelAlignmentGPU(T, alnPairs, database, option, param);
 }
 
 void msa::progressive::gpu::GPU_pointers::allocateMemory(Option *option, int len, int numBlocks) {

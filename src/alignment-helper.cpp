@@ -99,6 +99,8 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
     // Exit early if no removal is needed (fixed threshold at 1.0 and adaptive mode is off)
     if (option->autoGappyK <= 0.0f && option->gappyVertical == 1.0) return;
 
+    const int minProfileSize4Removal = 1000;
+
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
     int refLen = nodes.first->getAlnLen(currentTask), qryLen = nodes.second->getAlnLen(currentTask);
     int refNum = nodes.first->getAlnNum(currentTask), qryNum = nodes.second->getAlnNum(currentTask);
@@ -106,7 +108,7 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
 
     // --- Reference Profile Threshold ---
     float ref_gap_threshold = option->gappyVertical;
-    if (option->autoGappyK > 0.0f && lens.first > 1 && refNum > 0) {
+    if (option->autoGappyK > 0.0f && lens.first > 1 && refNum >= minProfileSize4Removal) {
         // --- Pass 1: Collect non-extreme gap ratios for robust statistics ---
         std::vector<float> clean_gap_ratios;
         clean_gap_ratios.reserve(lens.first);
@@ -139,35 +141,32 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
         
         ref_gap_threshold = std::max(0.50f, ref_gap_threshold);
         
-        // if (option->printDetail && option->cpuNum == 1) { // Limit printing in parallel mode
-        //     std::cout << "Robust adaptive gappy threshold for ref profile: " << std::fixed << std::setprecision(3) << ref_gap_threshold << "\n";
-        // }
-    }
 
-    // Reference
-    for (int i = 0; i < lens.first; ++i) {
-        if (refNum > 0 && (hostFreq[profileSize * i + profileSize - 1]) / refNum > ref_gap_threshold) {
-            if (start == -1) {
-                start = i; // new region starts
-                length = 1;
+        // Reference
+        for (int i = 0; i < lens.first; ++i) {
+            if (refNum > 0 && (hostFreq[profileSize * i + profileSize - 1]) / refNum > ref_gap_threshold) {
+                if (start == -1) {
+                    start = i; // new region starts
+                    length = 1;
+                }
+                else {
+                    ++length; // continue region
+                }
             }
-            else {
-                ++length; // continue region
+            else if (start != -1) {
+                gappyColumns.first.push_back({start, length});
+                start = -1;
+                length = 0;
             }
         }
-        else if (start != -1) {
+        if (start != -1) { // handle case where sequence ends inside a region
             gappyColumns.first.push_back({start, length});
-            start = -1;
-            length = 0;
         }
-    }
-    if (start != -1) { // handle case where sequence ends inside a region
-        gappyColumns.first.push_back({start, length});
     }
 
     // --- Query Profile Threshold ---
     float qry_gap_threshold = option->gappyVertical;
-    if (option->autoGappyK > 0.0f && lens.second > 1 && qryNum > 0) {
+    if (option->autoGappyK > 0.0f && lens.second > 1 && qryNum >= minProfileSize4Removal) {
         // --- Pass 1: Collect non-extreme gap ratios ---
         std::vector<float> clean_gap_ratios;
         clean_gap_ratios.reserve(lens.second);
@@ -199,30 +198,31 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
         // if (option->printDetail && option->cpuNum == 1) {
         //     std::cout << "Robust adaptive gappy threshold for qry profile: " << std::fixed << std::setprecision(3) << qry_gap_threshold << "\n";
         // }
+        // Query
+        start = -1, length = 0;
+        for (int i = 0; i < lens.second; ++i) {
+            if (qryNum > 0 && (hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > qry_gap_threshold)
+            {
+                if (start == -1) {
+                    start = i; // new region starts
+                    length = 1;
+                }
+                else {
+                    ++length; // continue region
+                }
+            }
+            else if (start != -1) {
+                gappyColumns.second.push_back({start, length});
+                start = -1;
+                length = 0;
+            }
+        }
+        if (start != -1) {
+            gappyColumns.second.push_back({start, length});
+        }
     }
 
-    // Query
-    start = -1, length = 0;
-    for (int i = 0; i < lens.second; ++i) {
-        if (qryNum > 0 && (hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > qry_gap_threshold)
-        {
-            if (start == -1) {
-                start = i; // new region starts
-                length = 1;
-            }
-            else {
-                ++length; // continue region
-            }
-        }
-        else if (start != -1) {
-            gappyColumns.second.push_back({start, length});
-            start = -1;
-            length = 0;
-        }
-    }
-    if (start != -1) {
-        gappyColumns.second.push_back({start, length});
-    }
+    
     // Remove gappy columns
     int orgIdx = 0, newIdx = 0, gapIdx = 0, orgLen = lens.first;
     if (!gappyColumns.first.empty()) {

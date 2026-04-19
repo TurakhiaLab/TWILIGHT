@@ -393,7 +393,7 @@ void Talco_xdrop::Tile (
                     const float* qryColumns = query[query_idx + i].data();
                     if (type == 0) {
                         #if defined(TALCO_SIMD)
-                        __m256i mask = _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0); // first 5 valid
+                        __m256i mask = _mm256_setr_epi32(-1, -1, -1, -1, -1, 0, 0, 0); // Only the first 5 are valid
                         for (int l = 0; l < 5; ++l) {
                             __m256 sumvec = _mm256_setzero_ps();
                             float ref_l = refColumns[l];
