@@ -77,18 +77,16 @@ msa::Option::Option(po::variables_map& vm) {
         exit(1);
     }
 
-    if ((vm.count("min-len") || vm.count("max-len")) && vm.count("length-deviation")) {
-        std::cerr << "ERROR: Invalid arguments. --length-deviation cannot be used together with --min-len or --max-len.\n";
-        exit(1);
-    }
+    // if ((vm.count("min-len") || vm.count("max-len")) && vm.count("length-deviation")) {
+    //     std::cerr << "ERROR: Invalid arguments. --length-deviation cannot be used together with --min-len or --max-len.\n";
+    //     exit(1);
+    // }
 
     this->gappyVertical = vm["remove-gappy"].as<float>();
-    if (this->gappyVertical > 1 || this->gappyVertical <= 0) {
-        std::cerr << "ERROR: Invalid value for --remove-gappy. The value of --remove-gappy should be in (0,1]\n";
+    if (this->gappyVertical > 1 || this->gappyVertical < 0) {
+        std::cerr << "ERROR: Invalid value for --remove-gappy. The value of --remove-gappy should be in [0,1]\n";
         exit(1);
     }
-    this->autoGappyK = vm["auto-gappy-k"].as<float>();
-
 
     
     this->reroot = !vm.count("rooted");
@@ -110,7 +108,7 @@ msa::Option::Option(po::variables_map& vm) {
             std::cerr << "ERROR: --accurate is currently supported only for guide-tree alignment from unaligned sequences.\n";
             exit(1);
         }
-        if (!(vm.count("max-subtree"))) this->maxSubtree = 200;
+        if (!(vm.count("max-subtree"))) this->maxSubtree = 1000;
     }
     // -------
 
@@ -261,14 +259,16 @@ msa::Option::Option(po::variables_map& vm) {
     // -------
     if (this->maxSubtree != INT32_MAX) 
     std::cerr << "Max-subtree: " << this->maxSubtree << '\n';
-    if (this->autoGappyK > 0.0f) {
-        std::cerr << "Adaptive gappy column removal enabled with k=" << this->autoGappyK << " (overrides --remove-gappy).\n";
-    } else {
-        if (this->gappyVertical == 1) std::cerr << "Disable removing gappy columns.\n";
-        else std::cerr << "Threshold for removing gappy columns: " << this->gappyVertical << '\n';
+    if (this->gappyVertical == 1) std::cerr << "Disable removing gappy columns.\n";
+    else if (this->gappyVertical == 0) std::cerr << "Enable automatic selection for removing gappy column threshold.\n";
+    else std::cerr << "Threshold for removing gappy columns: " << this->gappyVertical << '\n';
+    
+    if (this->minLen > 0 || this->maxLen < INT32_MAX) std::cerr << "Allowed sequence length range: [" << this->minLen << ", " << this->maxLen << "]\n";
+    else if (this->lenDev > 0) {
+        std::cerr << "Allowed length range around median: ["
+                  << (1 - this->lenDev) * 100 << "%, "
+                  << (1 + this->lenDev) * 100 << "%] of median\n";
     }
-    if (this->lenDev > 0)   std::cerr << "Allowed deviation from the median length: " << (this->lenDev * 100) << "%\n";
-    else if (this->minLen > 0 || this->maxLen < INT32_MAX) std::cerr << "Allowed sequence length range: [" << this->minLen << ", " << this->maxLen << "]\n";
     if (this->maxAmbig < 1) std::cerr << "Allowed proportion of ambiguous characters: " << (this->maxAmbig * 100) << "%\n";
     fprintf(stderr, "Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
 }

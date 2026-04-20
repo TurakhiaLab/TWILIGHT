@@ -725,7 +725,7 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
     int totalSeqLen = 0;
 
     for (std::size_t seqIdx = 0; seqIdx < sequences.size(); ++seqIdx) {
-        if (!sequences[seqIdx]->lowQuality) {
+        if (!sequences[seqIdx]->lowQuality || option->noFilter) {
             auto seq = std::string(sequences[seqIdx]->alnStorage[sequences[seqIdx]->storage], sequences[seqIdx]->len);
             currentSequences.push_back(seq);
             seqIDs.push_back(static_cast<int>(sequences[seqIdx]->id));

@@ -51,7 +51,7 @@ void parseArguments(int argc, char** argv)
 
     po::options_description seqFilterDesc("Sequence Filtering Options");
     seqFilterDesc.add_options()
-        ("length-deviation", po::value<float>(), "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.")
+        ("length-deviation,l", po::value<float>(), "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.")
         ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
         ("max-len", po::value<int>(), "Sequences longer than max-len will be deferred or excluded.")
         ("min-len", po::value<int>(), "Sequences shorter than min-len will be deferred or excluded.") 

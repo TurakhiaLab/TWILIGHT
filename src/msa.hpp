@@ -194,7 +194,6 @@ namespace msa
         // Alignment Options
         int maxSubtree;
         float gappyVertical;
-        float autoGappyK;
         float lenDev;
         float maxAmbig;
         int maxLen;

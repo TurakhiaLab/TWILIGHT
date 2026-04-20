@@ -190,7 +190,7 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
     std::vector<std::size_t> activeSeqIdx;
     activeSeqIdx.reserve(sequences.size());
     for (std::size_t seqIdx = 0; seqIdx < sequences.size(); ++seqIdx) {
-        if (!sequences[seqIdx]->lowQuality) activeSeqIdx.push_back(seqIdx);
+        if (!sequences[seqIdx]->lowQuality || option->noFilter) activeSeqIdx.push_back(seqIdx);
     }
 
     // activeSeqIdx: vectorIdx -> seqIdx

@@ -96,55 +96,51 @@ void msa::alignment_helper::extractColumnProvenance(Node* node, SequenceDB* data
 
 void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask)
 {
-    // Exit early if no removal is needed (fixed threshold at 1.0 and adaptive mode is off)
-    if (option->autoGappyK <= 0.0f && option->gappyVertical == 1.0) return;
 
-    const int minProfileSize4Removal = 1000;
-
+    if (option->gappyVertical == 1.0) return;
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
     int refLen = nodes.first->getAlnLen(currentTask), qryLen = nodes.second->getAlnLen(currentTask);
     int refNum = nodes.first->getAlnNum(currentTask), qryNum = nodes.second->getAlnNum(currentTask);
     int start = -1, length = 0;
 
-    // --- Reference Profile Threshold ---
-    float ref_gap_threshold = option->gappyVertical;
-    if (option->autoGappyK > 0.0f && lens.first > 1 && refNum >= minProfileSize4Removal) {
-        // --- Pass 1: Collect non-extreme gap ratios for robust statistics ---
-        std::vector<float> clean_gap_ratios;
-        clean_gap_ratios.reserve(lens.first);
-        const float extreme_threshold = 0.995f; // Exclude near-100% gappy columns from stats
+    int minProfileSize = (option->type == 'n') ? 20 : 1000;
 
-        for (int i = 0; i < lens.first; ++i) {
-            float ratio = static_cast<float>(hostFreq[profileSize * i + profileSize - 1]) / refNum;
-            if (ratio < extreme_threshold) {
-                clean_gap_ratios.push_back(ratio);
+
+    // TrimAl Method
+    auto getTrimAlThreshold = [](std::vector<float>& ratios) -> float {
+        int n = ratios.size();
+        if (n < 6) return 1.0f; 
+        std::sort(ratios.begin(), ratios.end());
+        float best_threshold = 1.0f;
+        double max_deceleration = -1.0; 
+        const int step = 2; 
+        for (int i = step; i < n - (step * 2); ++i) {
+            double slope1 = ratios[i + step] - ratios[i - step];
+            double slope2 = ratios[i + step * 2] - ratios[i];
+            double deceleration = slope1 - slope2; 
+            if (deceleration > max_deceleration) {
+                max_deceleration = deceleration;
+                best_threshold = ratios[i + step]; 
             }
         }
-
-        // --- Pass 2: Calculate adaptive threshold on the cleaner data ---
-        if (!clean_gap_ratios.empty()) {
-            double sum = 0.0;
-            for (float ratio : clean_gap_ratios) {
-                sum += ratio;
+        return std::max(0.90f, best_threshold); 
+    };
+    
+    if (refNum >= minProfileSize) {
+        float gap_threshold = option->gappyVertical;
+        // Implement trimAl method on reference
+        if (gap_threshold == 0.0) {
+            std::vector<float> gapScores;
+            gapScores.reserve(refLen);
+            for (int i = 0; i < lens.first; ++i) {
+                gapScores.push_back((hostFreq[profileSize * i + profileSize - 1] / refNum));
             }
-            double mean = sum / clean_gap_ratios.size();
+            gap_threshold = getTrimAlThreshold(gapScores);
             
-            double sq_sum = 0.0;
-            for(float ratio : clean_gap_ratios) {
-                sq_sum += (ratio - mean) * (ratio - mean);
-            }
-            double stdev = std::sqrt(sq_sum / clean_gap_ratios.size());
-            
-            float adaptive_threshold = static_cast<float>(mean + option->autoGappyK * stdev);
-            ref_gap_threshold = std::min(option->gappyVertical, adaptive_threshold);
         }
-        
-        ref_gap_threshold = std::max(0.50f, ref_gap_threshold);
-        
-
         // Reference
         for (int i = 0; i < lens.first; ++i) {
-            if (refNum > 0 && (hostFreq[profileSize * i + profileSize - 1]) / refNum > ref_gap_threshold) {
+            if ((hostFreq[profileSize * i + profileSize - 1]) / refNum > gap_threshold) {
                 if (start == -1) {
                     start = i; // new region starts
                     length = 1;
@@ -163,45 +159,22 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
             gappyColumns.first.push_back({start, length});
         }
     }
-
-    // --- Query Profile Threshold ---
-    float qry_gap_threshold = option->gappyVertical;
-    if (option->autoGappyK > 0.0f && lens.second > 1 && qryNum >= minProfileSize4Removal) {
-        // --- Pass 1: Collect non-extreme gap ratios ---
-        std::vector<float> clean_gap_ratios;
-        clean_gap_ratios.reserve(lens.second);
-        const float extreme_threshold = 0.99f;
-
-        for (int i = 0; i < lens.second; ++i) {
-            float ratio = static_cast<float>(hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum;
-            if (ratio < extreme_threshold) {
-                clean_gap_ratios.push_back(ratio);
+    
+    if (qryNum >= minProfileSize) {
+        float gap_threshold = option->gappyVertical;
+        // Implement trimAl method on query
+        if (gap_threshold == 0.0) {
+            std::vector<float> gapScores;
+            gapScores.reserve(refLen);
+            for (int i = 0; i < lens.second; ++i) {
+                gapScores.push_back(((hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum));
             }
+            gap_threshold = getTrimAlThreshold(gapScores);
         }
-
-        // --- Pass 2: Calculate adaptive threshold on the cleaner data ---
-        if (!clean_gap_ratios.empty()) {
-            double sum = 0.0;
-            for (float ratio : clean_gap_ratios) {
-                sum += ratio;
-            }
-            double mean = sum / clean_gap_ratios.size();
-            double sq_sum = 0.0;
-            for(float ratio : clean_gap_ratios) {
-                sq_sum += (ratio - mean) * (ratio - mean);
-            }
-            double stdev = std::sqrt(sq_sum / clean_gap_ratios.size());
-            float adaptive_threshold = static_cast<float>(mean + option->autoGappyK * stdev);
-            qry_gap_threshold = std::min(option->gappyVertical, adaptive_threshold);
-        }
-        qry_gap_threshold = std::max(0.50f, qry_gap_threshold);
-        // if (option->printDetail && option->cpuNum == 1) {
-        //     std::cout << "Robust adaptive gappy threshold for qry profile: " << std::fixed << std::setprecision(3) << qry_gap_threshold << "\n";
-        // }
         // Query
         start = -1, length = 0;
         for (int i = 0; i < lens.second; ++i) {
-            if (qryNum > 0 && (hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > qry_gap_threshold)
+            if ((hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > gap_threshold)
             {
                 if (start == -1) {
                     start = i; // new region starts
@@ -222,7 +195,6 @@ void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes,
         }
     }
 
-    
     // Remove gappy columns
     int orgIdx = 0, newIdx = 0, gapIdx = 0, orgLen = lens.first;
     if (!gappyColumns.first.empty()) {
@@ -278,7 +250,8 @@ void msa::alignment_helper::calculatePSGP(float *hostFreq, float *hostGapOp, flo
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
 
     // Clustalw's method
-    float scale = (option->type == 'n') ? 0.5 : 1.0;
+    // float scale = (option->type == 'n') ? 0.5 : 1.0;
+    const float scale = 0.5;
     float min_gapExtend = param.gapExtend * 0.2;
     float min_gapOpen = param.gapOpen * 0.1;
     tbb::this_task_arena::isolate([&]  { 

@@ -128,8 +128,11 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
 
     uint32_t avgLen = totalLen/(seqNum - seqNum_init);
     uint32_t medLen = seqsLens[(seqNum - seqNum_init)/2];
-    int minLenTh = (option->lenDev > 0) ? static_cast<int>(medLen*(1-option->lenDev)) : option->minLen;
-    int maxLenTh = (option->lenDev > 0) ? static_cast<int>(medLen*(1+option->lenDev)) : option->maxLen;
+
+    bool min_max = (option->minLen > 0 || option->maxLen < INT32_MAX);
+
+    int minLenTh = (min_max) ? option->minLen : (option->lenDev > 0) ? static_cast<int>(medLen*(1-option->lenDev)) : option->minLen;
+    int maxLenTh = (min_max) ? option->maxLen : (option->lenDev > 0) ? static_cast<int>(medLen*(1+option->lenDev)) : option->maxLen;
     std::atomic<int> numLowQ;
     tbb::spin_rw_mutex lowQMutex;
     stringPairVec lowQSeqs;
