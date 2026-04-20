@@ -486,6 +486,11 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen) {
         std::vector<std::pair<std::string,std::string>> seqs;
         std::cerr << "Final Alignment Length: " << alnLen << '\n';
         writeAlignment(fileName, database, alnLen, option->compressed);
+        if (option->deleteTemp && option->tempDir != "") {
+            std::string command = "rm -rf " + option->tempDir;
+            int delResult = system(command.c_str());
+            if (delResult != 0) std::cerr << "ERROR: Unable to delete temporary files.\n";
+        }
     }
     return;
 }
