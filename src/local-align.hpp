@@ -32,6 +32,7 @@ public:
     virtual ~LocalAligner() = default;
     virtual LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params) const = 0;
     virtual LocalAlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params) const = 0;
+    virtual LocalAlignmentResult align_affine_local(const std::string& reference, const std::string& query, char type, Params& params) const = 0;
 };
 
 std::shared_ptr<LocalAligner> makeDefaultLocalAligner();

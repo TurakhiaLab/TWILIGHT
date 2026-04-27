@@ -104,6 +104,7 @@ namespace phylogeny {
 
     void pruneTree(Tree*& T, std::unordered_set<std::string>& seqs);
     Tree* constructTreeFromPartitions(Node* root, PartitionInfo* P);
+    Tree* constructTreeFromPartitions_new(Node* root, PartitionInfo* P);
     void updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx);
     Tree* getPlacementTree(Tree*);
     void updateLevels(Node* node, size_t currentLevel);

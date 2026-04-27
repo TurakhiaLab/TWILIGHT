@@ -127,7 +127,8 @@ int main(int argc, char** argv) {
         }
         phylogeny::PartitionInfo * P = new phylogeny::PartitionInfo(option->maxSubtree, 0, 0); 
         P->partitionTree(T->root);
-        phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions(T->root, P);
+        // phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions(T->root, P);
+        phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions_new(T->root, P);
         if (P->partitionsRoot.size() > 1) {
             std::cerr << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
             msa::io::writeSubtrees(T, P, option);

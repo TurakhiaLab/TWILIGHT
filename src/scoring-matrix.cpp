@@ -200,6 +200,8 @@ msa::Params::Params(po::variables_map& vm, char type) {
     else {
         letterMap = {{'A',0}, {'C',1}, {'D',2}, {'E',3}, {'F',4}, {'G',5}, {'H',6}, {'I',7}, {'K',8}, {'L',9}, {'M',10}, {'N',11}, {'P',12}, {'Q',13}, {'R',14}, {'S',15}, {'T',16}, {'V',17}, {'W',18}, {'Y',19}, {'-',21}}; // 20 for all other characters (ambiguous)
     }
+
+    this->gapTerminal = this->gapExtend / 2.0f;
     
     if (vm.count("verbose")) {
         std::cerr << "======== Parameters ========\n";
@@ -228,10 +230,10 @@ msa::Params::Params(po::variables_map& vm, char type) {
             }
             std::cerr << "\n";
         }
-        std::cerr << "Gap-Open:   " << this->gapOpen << "\n"
-                  << "Gap-Extend: " << this->gapExtend << "\n"
-                  << "Gap-Ends:   " << this->gapBoundary << "\n"
-                  << "Xdrop:      " << this->xdrop << '\n';
+        std::cerr << "Gap-Open:       " << this->gapOpen << "\n"
+                  << "Gap-Extend:     " << this->gapExtend << "\n"
+                  << "Gap-Terminal:   " << this->gapTerminal << "\n"
+                  << "Xdrop:          " << this->xdrop << '\n';
     }
 }
 

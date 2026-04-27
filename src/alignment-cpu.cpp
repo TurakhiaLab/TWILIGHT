@@ -135,30 +135,30 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 int16_t errorType = 0;
                 aln_wo_gc.clear();
                 // if (num.first > 1 && num.second > 1) std::cout << nIdx << ": " << freqRef.size() << " " << freqQry.size() << "\n";
-                Talco_xdrop::Align_freq (
-                    talco_params,
-                    freqRef,
-                    freqQry,
-                    gapOp,
-                    gapEx,
-                    num,
-                    // -------
-                    (option->accurate && database->currentTask == 0 && database->accurateState && !consistencyTable.empty()) ? &consistencyTable : nullptr,
-                    (option->accurate && database->currentTask == 0 && database->accurateState) ? option->consistencyWeight : 0.0f,
-                    // -------
-                    aln_wo_gc,
-                    errorType
-                );
-                // aln_wo_gc = alignProfile (
+                // Talco_xdrop::Align_freq (
+                //     talco_params,
                 //     freqRef,
                 //     freqQry,
                 //     gapOp,
                 //     gapEx,
                 //     num,
-                //     param,
+                //     // -------
                 //     (option->accurate && database->currentTask == 0 && database->accurateState && !consistencyTable.empty()) ? &consistencyTable : nullptr,
-                //     (option->accurate && database->currentTask == 0 && database->accurateState) ? option->consistencyWeight : 0.0f                
+                //     (option->accurate && database->currentTask == 0 && database->accurateState) ? option->consistencyWeight : 0.0f,
+                //     // -------
+                //     aln_wo_gc,
+                //     errorType
                 // );
+                aln_wo_gc = alignProfile_global (
+                    freqRef,
+                    freqQry,
+                    gapOp,
+                    gapEx,
+                    num,
+                    param,
+                    (option->accurate && database->currentTask == 0 && database->accurateState && !consistencyTable.empty()) ? &consistencyTable : nullptr,
+                    (option->accurate && database->currentTask == 0 && database->accurateState) ? option->consistencyWeight : 0.0f                
+                );
                 // if (freqRef.size() == 430 && freqQry.size() == 1238) {
                 //     for (auto& a: aln_wo_gc) std::cout << (a & 0xFFFF);
                 //     std::cout << std::endl;

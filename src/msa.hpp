@@ -84,6 +84,7 @@ namespace msa
         public:
             LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params) const;
             LocalAlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params) const;
+            LocalAlignmentResult align_affine_local(const std::string& reference, const std::string& query, char type, Params& params) const;
         };
 
         // --- From consistency_v2.hpp ---
@@ -233,6 +234,7 @@ namespace msa
         float gapOpen;
         float gapExtend;   // for gap-affine
         float gapBoundary; // gap penalty at ends
+        float gapTerminal;
         float xdrop;       // optional for now
         float scaleFactor;
         float **scoringMatrix;
@@ -336,7 +338,18 @@ namespace msa
         
     }
 
-    std::vector<int8_t> alignProfile(
+    std::vector<int8_t> alignProfile_semi_global(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
+
+    std::vector<int8_t> alignProfile_global(
         const std::vector<std::vector<float>>& refProfile,
         const std::vector<std::vector<float>>& qryProfile,
         const std::vector<std::vector<float>>& gapOp,

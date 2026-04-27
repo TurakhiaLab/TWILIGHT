@@ -347,6 +347,9 @@ void phylogeny::Tree::showTree() {
                   << std::setw(10) << (node->parent ? node->parent->identifier : "ROOT")  // Parent or ROOT
                   << std::setw(8)  << node->level
                   << std::setw(8)  << node->grpID
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnNum
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnLen
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnWeight
                   << std::setw(10) << std::fixed << std::setprecision(3) << node->weight
                   << '\n';
         for (auto& c : node->children) {
@@ -355,10 +358,13 @@ void phylogeny::Tree::showTree() {
     };
     std::cerr << std::left << std::setw(12) << "Identifier"
               << std::right << std::setw(10) << "Length"
-              << std::setw(10) << "Parent"
-              << std::setw(8)  << "Level"
-              << std::setw(8)  << "Group"
-              << std::setw(10) << "Weight" << '\n';
+              << std::setw(12) << "Parent"
+              << std::setw(12)  << "Level"
+              << std::setw(12)  << "Group"
+              << std::setw(12)  << "alnNum"
+              << std::setw(12)  << "alnLen"
+              << std::setw(12)  << "alnWeight"
+              << std::setw(12) << "Weight" << '\n';
     std::cerr << std::string(50, '-') << '\n';
     if (this->root) showTreeImpl(this->root);
 }
@@ -519,7 +525,7 @@ std::string phylogeny::Tree::getNewickString() {
 void phylogeny::updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx) {
     subroot->seqsIncluded.push_back(subtreeIdx);
     subroot->alnLen = subT->root->alnLen;
-    subroot->alnNum = subT->root->seqsIncluded.size();
+    subroot->alnNum = subT->root->alnNum;
     subroot->msaFreq = subT->root->msaFreq;
     subroot->alnWeight = subT->root->alnWeight;
     return;
