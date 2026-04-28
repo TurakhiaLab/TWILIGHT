@@ -133,9 +133,9 @@ else()
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -march=native")
 			set(SRC_FILES src/cuda/twilight-main.cu
 					      src/cuda/gpu-info.cu
-				              src/cuda/alignment-gpu.cu
-				              src/cuda/device-function.cu
-					      src/cuda/consistency.cu
+				          src/cuda/alignment-gpu.cu
+				          src/cuda/device-function.cu
+					      src/cuda/consistency_v2.cu
 					      src/phylogeny.cpp
 					      src/tree.cpp
 					      src/partitionInfo.cpp

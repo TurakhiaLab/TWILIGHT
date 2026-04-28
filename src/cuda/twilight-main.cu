@@ -145,8 +145,9 @@ int main(int argc, char** argv) {
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, option->reroot);
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
             if (option->accurate) {
-                if (option->cpuOnly)database->accurateState = msa::accurate::buildSubtreeAccurateState(database, option, subtree, *param);
-                else                database->accurateState = msa::accurate::gpu::buildSubtreeAccurateState_GPU(database, option, subtree, *param);
+                if (option->cpuOnly)database->accurateState = msa::accurate::buildSubtreeAccurateState(database, option, subT, subtree, *param);
+                else                database->accurateState = msa::accurate::gpu::buildSubtreeAccurateState_GPU(database, option, subT, subtree, *param);
+                // database->accurateState = msa::accurate::buildSubtreeAccurateState(database, option, subT, subtree, *param);
             }
             // Progressive alignment on each subtree
             msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::gpu::alignmentKernel_GPU, subtree);

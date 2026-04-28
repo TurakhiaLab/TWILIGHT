@@ -16,7 +16,7 @@ static int residueScore(char referenceBase, char queryBase, char type, Params& p
     return params.scoringMatrix[refIndex][qryIndex];
 }
 
-LocalAlignmentResult SmithWatermanAligner::align_affine (const std::string& reference, const std::string& query, char type, msa::Params& params) const
+AlignmentResult Aligner::align_affine (const std::string& reference, const std::string& query, char type, msa::Params& params)
 {
     const int gOpen = static_cast<int>(params.gapOpen);
     const int gExt  = static_cast<int>(params.gapExtend);
@@ -221,7 +221,7 @@ LocalAlignmentResult SmithWatermanAligner::align_affine (const std::string& refe
         else last_max_state = 0;
     }
 
-    LocalAlignmentResult result;
+    AlignmentResult result;
     result.score = final_alignment_score;
 
     int identicalPairs = 0;
@@ -239,7 +239,137 @@ LocalAlignmentResult SmithWatermanAligner::align_affine (const std::string& refe
     return result;
 }
 
-LocalAlignmentResult SmithWatermanAligner::align_affine_local (const std::string& reference, const std::string& query, char type, msa::Params& params) const
+AlignmentResult Aligner::align_affine_local (const std::string& reference, const std::string& query, char type, msa::Params& params)
+{
+    const int gOpen = static_cast<int>(params.gapOpen);
+    const int gExt  = static_cast<int>(params.gapExtend);
+    const int MIN_INF = -100000000; 
+
+    const int totalRef = static_cast<int>(reference.size());
+    const int totalQry = static_cast<int>(query.size());
+
+    // 建立 Full-Matrix
+    std::vector<std::vector<int>> score(totalRef + 1, std::vector<int>(totalQry + 1, 0));
+    std::vector<std::vector<uint8_t>> traceback(totalRef + 1, std::vector<uint8_t>(totalQry + 1, 0));
+    
+    // E 用於記錄 Query 的 gap (對應 Up 方向)
+    std::vector<int> E(totalQry + 1, MIN_INF);
+
+    int max_score = 0;
+    int max_i = 0;
+    int max_j = 0;
+
+    // 填表 (DP)
+    for (int i = 1; i <= totalRef; ++i) {
+        int F_val = MIN_INF; // F 用於記錄 Reference 的 gap (對應 Left 方向)
+        for (int j = 1; j <= totalQry; ++j) {
+            uint8_t tb = 0;
+
+            // 計算 E (Up - Delete in query)
+            int e_open = score[i - 1][j] + gOpen; 
+            int e_ext  = E[j] + gExt;
+            if (e_open >= e_ext) {
+                E[j] = e_open;
+            } else {
+                E[j] = e_ext;
+                tb |= 0x04; // affine gap extension flag for E
+            }
+
+            // 計算 F (Left - Insert in query)
+            int f_open = score[i][j - 1] + gOpen;
+            int f_ext  = F_val + gExt;
+            if (f_open >= f_ext) {
+                F_val = f_open;
+            } else {
+                F_val = f_ext;
+                tb |= 0x08; // affine gap extension flag for F
+            }
+
+            // 計算 Diagonal (Match/Mismatch)
+            int diag = score[i - 1][j - 1] + residueScore(reference[i - 1], query[j - 1], type, params);
+
+            // Local alignment: 分數下限為 0
+            int best = 0; 
+            uint8_t h_src = 0;
+
+            if (diag > best) { best = diag; h_src = 1; }
+            if (E[j] > best) { best = E[j]; h_src = 2; }
+            if (F_val > best) { best = F_val; h_src = 3; }
+
+            score[i][j] = best;
+            tb |= h_src;
+            traceback[i][j] = tb;
+
+            // 記錄全域最高分作為 traceback 起點
+            if (best > max_score) {
+                max_score = best;
+                max_i = i;
+                max_j = j;
+            }
+        }
+    }
+
+    // Traceback 階段
+    int i = max_i;
+    int j = max_j;
+    int currentState = 0;
+    std::vector<std::pair<int, int>> aligned_pairs;
+
+    while (i > 0 && j > 0) {
+        // Local alignment 遇到 0 就停止 (只有在一般狀態下才檢查，若正在處理 gap 則需先回到 match 狀態)
+        if (score[i][j] <= 0 && currentState == 0) break; 
+        
+        uint8_t tb = traceback[i][j];
+        
+        if (currentState == 0) { 
+            uint8_t h_src = tb & 0x03;
+            if (h_src == 1) { // 來自 Diagonal
+                aligned_pairs.push_back({i - 1, j - 1});
+                --i; --j;
+            } else if (h_src == 2) { // 來自 Up (E)
+                currentState = 1; 
+            } else if (h_src == 3) { // 來自 Left (F)
+                currentState = 2;
+            } else { 
+                break; // 遇到 0 (沒有來源)
+            }
+        } 
+        else if (currentState == 1) { // 處理 Up (E) 狀態
+            bool e_from_e = (tb & 0x04) != 0; 
+            --i; 
+            if (!e_from_e) currentState = 0; // 回到 Match 狀態
+        } 
+        else if (currentState == 2) { // 處理 Left (F) 狀態
+            bool f_from_f = (tb & 0x08) != 0; 
+            --j; 
+            if (!f_from_f) currentState = 0; // 回到 Match 狀態
+        }
+    }
+
+    // 因為是從尾巴往前找，需要反轉
+    std::reverse(aligned_pairs.begin(), aligned_pairs.end());
+
+    // 計算結果
+    AlignmentResult result;
+    result.score = max_score;
+
+    int identicalPairs = 0;
+    for (const auto& alignedPair : aligned_pairs) {
+        result.alignedPairs.push_back({alignedPair.first, alignedPair.second});
+        const char ref_c = static_cast<char>(std::toupper(static_cast<unsigned char>(reference[alignedPair.first])));
+        const char qry_c = static_cast<char>(std::toupper(static_cast<unsigned char>(query[alignedPair.second])));
+        if (ref_c == qry_c) ++identicalPairs;
+    }
+    
+    if (!result.alignedPairs.empty()) {
+        result.identity = static_cast<float>(identicalPairs) / static_cast<float>(result.alignedPairs.size());
+    }
+    
+    return result;
+}
+/*
+// Tiling Local (Not good)
+AlignmentResult Aligner::align_affine_local (const std::string& reference, const std::string& query, char type, msa::Params& params)
 {
     const int gOpen = static_cast<int>(params.gapOpen);
     const int gExt  = static_cast<int>(params.gapExtend);
@@ -276,7 +406,6 @@ LocalAlignmentResult SmithWatermanAligner::align_affine_local (const std::string
         std::fill(E.begin(), E.end(), MIN_INF);
 
         if (ref_idx == 0 && qry_idx == 0) {
-            // 對於第一個 tile，邊界初始化為 0 即可符合 Local Alignment 邏輯
             for (int i = 0; i <= refLen; ++i) { score[i][0] = 0; traceback[i][0] = 0; }
             for (int j = 0; j <= qryLen; ++j) { score[0][j] = 0; traceback[0][j] = 0; }
         } else {
@@ -322,7 +451,6 @@ LocalAlignmentResult SmithWatermanAligner::align_affine_local (const std::string
 
                 int diag = score[i - 1][j - 1] + residueScore(reference[ref_idx + i - 1], query[qry_idx + j - 1], type, params);
 
-                // 【改動 1】Local Alignment 的分數下限為 0 (原為 MIN_INF)
                 int best = 0; 
                 uint8_t h_src = 0;
 
@@ -346,7 +474,6 @@ LocalAlignmentResult SmithWatermanAligner::align_affine_local (const std::string
         uint8_t best_tb = 0;
 
         if (is_last_tile) {
-            // 【改動 2】Local Alignment 需要在最後一個 Tile 的「整個矩陣」尋找最高分，而非只找邊緣
             for (int i = 0; i <= refLen; ++i) {
                 for (int j = 0; j <= qryLen; ++j) {
                     if (score[i][j] > max_score) {
@@ -390,7 +517,6 @@ LocalAlignmentResult SmithWatermanAligner::align_affine_local (const std::string
         std::vector<std::pair<int, int>> local_pairs;
 
         while (i > 0 || j > 0) {
-            // 【改動 3】Local Alignment 回溯時遇到分數歸零即停止
             if (score[i][j] <= 0) break; 
             if (ref_idx == 0 && qry_idx == 0 && score[i][j] == 0 && traceback[i][j] == 0) break;
             
@@ -439,7 +565,7 @@ LocalAlignmentResult SmithWatermanAligner::align_affine_local (const std::string
         else last_max_state = 0;
     }
 
-    LocalAlignmentResult result;
+    AlignmentResult result;
     result.score = final_alignment_score;
 
     int identicalPairs = 0;
@@ -456,6 +582,7 @@ LocalAlignmentResult SmithWatermanAligner::align_affine_local (const std::string
     
     return result;
 }
+*/
 
 } // namespace accurate
 } // namespace msa
@@ -483,7 +610,7 @@ std::vector<int8_t> msa::alignProfile_semi_global(
     const std::vector<std::vector<float>>& gapEx, 
     const std::pair<float, float>& num,           
     msa::Params& param,
-    const std::vector<std::vector<float>>* consistencyTable, // 允許為空指標
+    const std::vector<std::vector<float>>* consistencyTable,
     float consistencyWeight)
 {
     const int N = static_cast<int>(reference.size());

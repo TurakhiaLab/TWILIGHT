@@ -60,60 +60,28 @@ namespace msa
     using alnPath = std::vector<int8_t>;
     using alnPathVec = std::vector<alnPath>;
     using Profile = std::vector<std::vector<float>>;
-    // -------
 
     namespace accurate
     {
-        // --- From local-align.hpp ---
         struct AlignedResiduePair
         {
             int refIndex;
             int qryIndex;
         };
 
-        struct LocalAlignmentResult
+        struct AlignmentResult
         {
             int score = 0;
             float identity = 0.0f;
             std::vector<AlignedResiduePair> alignedPairs;
         };
 
-        // --- Concrete class replacing LocalAligner ---
-        class SmithWatermanAligner
+        class Aligner
         {
         public:
-            LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params) const;
-            LocalAlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params) const;
-            LocalAlignmentResult align_affine_local(const std::string& reference, const std::string& query, char type, Params& params) const;
-        };
-
-        // --- From consistency_v2.hpp ---
-        struct ResidueKey
-        {
-            int seqId;
-            int pos;
-            bool operator==(const ResidueKey& other) const;
-        };
-
-        struct ResidueKeyHash
-        {
-            std::size_t operator()(const ResidueKey& key) const;
-        };
-
-        struct ResiduePairKey
-        {
-            int seqA;
-            int posA;
-            int seqB;
-            int posB;
-
-            ResiduePairKey(int firstSeq, int firstPos, int secondSeq, int secondPos);
-            bool operator==(const ResiduePairKey& other) const;
-        };
-
-        struct ResiduePairKeyHash
-        {
-            std::size_t operator()(const ResiduePairKey& key) const;
+            AlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params);
+            AlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params);
+            AlignmentResult align_affine_local(const std::string& reference, const std::string& query, char type, Params& params);
         };
 
         struct ResidueInstance
@@ -123,46 +91,80 @@ namespace msa
             float weight;
         };
 
-        struct DirectPairLibrary
-        {
-            // --- Constructor ---
-            DirectPairLibrary() {};
-            DirectPairLibrary(int sequenceCount, int length);
+        struct ExtendedWeight {
+            int32_t targetPos;
+            float weight;
+        };
 
-            // --- Getters ---
-            int getSequence();
-            int getPairs();
-            inline uint64_t getOffset(int i, int j);
+        struct SparseAlignmentRecord {
+            float weight = 0.0f;
+            std::vector<int32_t> forward;  
+            std::vector<int32_t> backward; 
+
+            std::vector<std::vector<ExtendedWeight>> extendedForward;  // posU -> list of (posV, weight)
+            std::vector<std::vector<ExtendedWeight>> extendedBackward; // posV -> list of (posU, weight)
+        };
+
+        struct DirectPairLibrary {
+
+            DirectPairLibrary(){};
+            void init (int sequenceCount, std::vector<int>& activeSeqIdx, std::vector<int>& seqLengths);
+            // DirectPairLibrary(){};
+            
+            int totalSequence;
+            int totalPairs; // N * (N-1) / 2
+            std::vector<std::vector<float>> residueSupport;
+            std::vector<int> active_seqs; 
+            std::vector<int> global_to_local;
+
+            static constexpr int DENSE_LIMIT = 100;
+            static constexpr int TARGET_CLUSTERS = 100;
+            static constexpr int REPS_PER_CLUSTER = 3;
+        
+            // Lookup Table
+            // index: idx(refID, qryID), value: recordIndex
+            std::vector<int32_t> pair_to_record_idx;
+            std::vector<SparseAlignmentRecord> records;
+
+            std::vector<int> seq_to_cluster;               // Local ID -> Cluster ID
+            std::vector<bool> is_rep;                      // Local ID -> is Rep or not
+            std::vector<std::vector<int>> cluster_reps;    // Cluster ID -> Reps (Global ID)
+            std::vector<std::vector<int>> cluster_members; // Cluster ID -> Members (Global ID)
+            std::vector<int> all_reps;                     // Reps -> Global ID
+
+            // DirectPairLibrary(int sequenceCount, std::vector<int>& seqLengths);
+
+            // --- Mapping function ---
+            inline int idx(int global_i, int global_j) const {
+                int u = global_to_local[global_i];
+                int v = global_to_local[global_j];
+                if (u == -1 || v == -1 || u == v) return -1; 
+                if (u > v) std::swap(u, v);
+                return u * totalSequence - u * (u + 1) / 2 + (v - u - 1);
+            }
 
             // --- Modifiers ---
-            void addLocalAlignmentResult(int refID, int qryID, LocalAlignmentResult& result);
-
-            // --- Lookups ---
-            float getWeight(int refIdx, int qryIdx);
-            bool is_aligned(int refIdx, int qryIdx, int refPos, int qryPos);
-            int getAlignedPos(int baseIdx, int alnIdx, int basePos);
-            float getPairWeight(int refIdx, int qryIdx, int refPos);
-            
-            // --- Mapping function ---
-            inline int idx(int i, int j);
-
-            std::vector<float> weights;
-            std::vector<int32_t> forward;
-            std::vector<int32_t> backward;
-            std::vector<float> pairWeight;
-            int totalSequence;
-            int totalPairs;
-            int length;
-            
-            // --- Pre-computation ---
-            std::vector<float> residueSupport;
+            int createRecord(int refID, int qryID, int refLen, int qryLen);
+            void addLocalAlignmentResult(int refID, int qryID, AlignmentResult& result);
             void computeResidueSupport();
             void computePairWeights();
+
+
+            // --- Lookups ---
+            int getSequence();
+            int getPairs();
+            inline float getWeight(int refID, int qryID) const;
+            inline int getAlignedPos(int refID, int qryID, int refPos) const;
         };
 
         struct SubtreeAccurateState
         {
-            int subtreeIdx = -1;
+            SubtreeAccurateState (int idx, int sequenceCount, std::vector<int>& activeSeqIdx, std::vector<int>& seqLengths) {
+                subtreeIdx = idx;
+                directLib.init(sequenceCount, activeSeqIdx, seqLengths);
+            };
+
+            int subtreeIdx;
             DirectPairLibrary directLib;
         };
         
@@ -171,14 +173,15 @@ namespace msa
 
         void removeColumns(ColumnProvenance& provenance, const IntPairVec& removedColumns);
         std::vector<std::vector<float>> buildConsistencyTable( const ColumnProvenance& refProvenance, const ColumnProvenance& qryProvenance, msa::accurate::SubtreeAccurateState& accurateState);    
-        std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, int subtreeIdx, Params& params);
-        float getOrComputePairNew(msa::accurate::SubtreeAccurateState& accurateState, int seqA, int posA, int seqB, int posB);
-
+        std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, Tree* tree, int subtreeIdx, Params& params);
+        std::vector<int> gatherClustersFromTree(Node* node, SequenceDB* database, std::size_t targetSize, std::vector<std::vector<int>>& clusters);
 
         namespace gpu {
-            std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_GPU(SequenceDB* database, Option* option, int subtreeIdx, Params& params);
+            std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_GPU(SequenceDB* database, Option* option, Tree* tree, int subtreeIdx, Params& params);
         }
     }
+
+
 
     
 
@@ -338,28 +341,6 @@ namespace msa
         
     }
 
-    std::vector<int8_t> alignProfile_semi_global(
-        const std::vector<std::vector<float>>& refProfile,
-        const std::vector<std::vector<float>>& qryProfile,
-        const std::vector<std::vector<float>>& gapOp,
-        const std::vector<std::vector<float>>& gapEx,
-        const std::pair<float, float>& num,
-        msa::Params& param,
-        const std::vector<std::vector<float>>* consistencyTable = nullptr,
-        float consistencyWeight = 0.0f
-    );
-
-    std::vector<int8_t> alignProfile_global(
-        const std::vector<std::vector<float>>& refProfile,
-        const std::vector<std::vector<float>>& qryProfile,
-        const std::vector<std::vector<float>>& gapOp,
-        const std::vector<std::vector<float>>& gapEx,
-        const std::pair<float, float>& num,
-        msa::Params& param,
-        const std::vector<std::vector<float>>* consistencyTable = nullptr,
-        float consistencyWeight = 0.0f
-    );
-
     namespace progressive
     {
         void getProgressivePairs(std::vector<std::pair<NodePair, int>> &alnOrder, std::stack<Node *> postStack, int grpID, int currentTask);
@@ -443,9 +424,33 @@ namespace msa
         const std::vector<std::vector<float>>& gapEx,
         const std::pair<float, float>& num,
         msa::Params& param,
-        const std::vector<std::vector<float>>* consistencyTable, // 允許為空指標
+        const std::vector<std::vector<float>>* consistencyTable,
         float consistencyWeight
     );
+
+    std::vector<int8_t> alignProfile_semi_global(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
+
+    std::vector<int8_t> alignProfile_global(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
+
+    std::string getCurrentSequence(const SequenceDB::SequenceInfo* sequence);
 }
 
 

@@ -19,35 +19,6 @@ struct SequenceDB;
 
 namespace accurate {
 
-struct ResidueKey
-{
-    int seqId;
-    int pos;
-
-    bool operator==(const ResidueKey& other) const;
-};
-
-struct ResidueKeyHash
-{
-    std::size_t operator()(const ResidueKey& key) const;
-};
-
-struct ResiduePairKey
-{
-    int seqA;
-    int posA;
-    int seqB;
-    int posB;
-
-    ResiduePairKey(int firstSeq, int firstPos, int secondSeq, int secondPos);
-    bool operator==(const ResiduePairKey& other) const;
-};
-
-struct ResiduePairKeyHash
-{
-    std::size_t operator()(const ResiduePairKey& key) const;
-};
-
 struct DirectPairLibrary
 {
     // --- Constructor ---

@@ -19,37 +19,24 @@ struct AlignedResiduePair
     int qryIndex;
 };
 
-struct LocalAlignmentResult
+struct AlignmentResult
 {
     int score = 0;
     float identity = 0.0f;
     std::vector<AlignedResiduePair> alignedPairs;
 };
 
-class LocalAligner
+struct Aligner
 {
-public:
-    virtual ~LocalAligner() = default;
-    virtual LocalAlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params) const = 0;
-    virtual LocalAlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params) const = 0;
-    virtual LocalAlignmentResult align_affine_local(const std::string& reference, const std::string& query, char type, Params& params) const = 0;
+    AlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params);
+    AlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params);
+    AlignmentResult align_affine_local(const std::string& reference, const std::string& query, char type, Params& params);
 };
-
-std::shared_ptr<LocalAligner> makeDefaultLocalAligner();
 
 } // namespace accurate
 } // namespace msa
 
-std::vector<int8_t> alignProfile(
-    const std::vector<std::vector<float>>& refProfile,
-    const std::vector<std::vector<float>>& qryProfile,
-    const std::vector<std::vector<float>>& gapOp,
-    const std::vector<std::vector<float>>& gapEx,
-    const std::pair<float, float>& num,
-    msa::Params& param,
-    const std::vector<std::vector<float>>* consistencyTable, // 允許為空指標
-    float consistencyWeight
-);
+
 
 
 #endif

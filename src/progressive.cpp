@@ -322,6 +322,7 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
         else std::cerr<< "Alignment on " << T->allNodes.size() << " subalignments (length: " << T->root->getAlnLen(database->currentTask) << ") in " << progressiveTime.count() / 1000000 << " ms\n";
     }
     if (database->fallback_nodes.empty()) {
+        database->accurateState.reset();
         return;
     }
         
