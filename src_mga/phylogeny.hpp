@@ -83,10 +83,12 @@ namespace phylogeny {
         void calLeafNum();
         void calSeqWeight();
         void parseNewick(std::string& newickString);
-        void showTree();
+        void print(std::ostream& os = std::cout);
         void reroot(bool placement=false);
         void convert2binaryTree();
         void extractResult(Tree* placementT);
+        void collectLeaves(const Node* n, std::unordered_set<std::string>& leavesOut);
+        void getSubLineages(const Node* node, int targetDepth, int currentDepth, std::vector<std::unordered_set<std::string>>& setsOut);
         std::string getNewickString();
         Tree* prune(std::unordered_set<std::string>& seqs);
         // Empty tree, used for align alignments
@@ -99,6 +101,9 @@ namespace phylogeny {
         Tree(std::unordered_set<std::string>& seqNames);
 
         ~Tree() = default;
+
+        private:
+            void printHelper(const Node* node, std::string prefix, bool isLast, std::ostream& os = std::cout) const;
     };
 
     void pruneTree(Tree*& T, std::unordered_set<std::string>& seqs);
@@ -106,6 +111,8 @@ namespace phylogeny {
     void updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx);
     Tree* getPlacementTree(Tree*);
     void updateLevels(Node* node, size_t currentLevel);
+
+    
 }
 
 

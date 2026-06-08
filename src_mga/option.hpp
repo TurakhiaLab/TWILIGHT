@@ -33,6 +33,8 @@ struct Option {
     bool cpuOnly;
     bool verbose;
     bool quite;
+    bool circular;
+    bool writeOriented;
     // File Names
     std::string treeFile;
     std::string seqFile;
@@ -42,6 +44,12 @@ struct Option {
     Option(po::variables_map &vm);
     // Only used in GPU version
     void getGpuInfo(po::variables_map &vm);
+    // Timer
+    uint64_t minimap2_time;
+    uint64_t refineBlockSet_time;
+    uint64_t refineBlock_time;
+    uint64_t merge_time;
+    uint64_t debug_time;
 };
 
 

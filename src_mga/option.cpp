@@ -35,6 +35,8 @@ Option::Option(po::variables_map& vm) {
     this->verbose = (vm.count("verbose"));
     this->quite = (vm.count("quiet"));
     this->cpuOnly = (vm.count("cpu-only"));
+    this->circular = (vm.count("circular"));
+    this->writeOriented = (vm.count("write-oriented"));
 
     // Create Temp-Dir
     std::string tempDir;
@@ -66,5 +68,11 @@ Option::Option(po::variables_map& vm) {
     }
     std::cout << tempDir << " created for storing temporary alignments\n";
     this->tempDir = tempDir;
+    
+    this->minimap2_time = 0;
+    this->refineBlockSet_time = 0;
+    this->refineBlock_time = 0;
+    this->merge_time = 0;
+    this->debug_time = 0;
     
 }

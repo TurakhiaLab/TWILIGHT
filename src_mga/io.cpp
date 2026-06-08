@@ -96,12 +96,12 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
                 totalLen += seqLen;
                 
                 BlockSet* blockSet = blockManager->createBlockSet(seqNode->identifier);
-                blockSet->addSequence(seqName);
+                blockSet->addSequenceName(seqName);
                 
                 std::shared_ptr<Block> newBlock = blockSet->createBlock(seqContent);
 
-                SequenceInfo info(seqName);
-                info.addSegments(0, seqLen);
+                Sequence info(seqName);
+                info.addSegment(0, seqLen);
 
                 // Add sequence to block. CIGAR is empty, so no variations will be generated.
                 newBlock->addSequence(info);
@@ -127,7 +127,7 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
 
     uint32_t avgLen = (seqNum > 0) ? totalLen / seqNum : 0;
 
-    blockManager->updateLongestSequences();
+    // blockManager->updateLongestSequences();
 
     std::cerr << "===== Sequence Summary =====\n";
     std::cerr << "Number of sequences read and found in tree: " << seqNum << '\n';
@@ -140,7 +140,7 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
 }
 
 
-void mga::io::writeAlignment(std::string fileName, stringPairVec& seqs, bool compressed, bool append) {
+void mga::io::writeAlignment(std::string fileName, StringPairs& seqs, bool compressed, bool append) {
     if (compressed) {
         fileName += ".gz";
         std::vector<std::string> compressed_chunks(seqs.size());
@@ -176,4 +176,113 @@ void mga::io::writeAlignment(std::string fileName, stringPairVec& seqs, bool com
         outFile.close();
     }
     return;
+}
+
+
+std::string generateAlignmentString(const std::string& consensus, Variants& variations) {
+    std::string aliSeq = consensus;
+    
+    for (auto& var : variations) {
+        if (var.getType() == VariantType::SNV) {
+            int pos = var.getStart();
+            if (pos >= 0 && pos < aliSeq.length()) {
+                aliSeq[pos] = var.getAlt();
+            }
+        } else if (var.getType() == VariantType::GAP) {
+            for (int i = var.getStart(); i < var.getEnd(); ++i) {
+                if (i >= 0 && i < aliSeq.length()) {
+                    aliSeq[i] = '-';
+                }
+            }
+        }
+    }
+    
+    return aliSeq;
+}
+
+void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName) {
+    std::ofstream mafFile(outputFileName);
+    if (!mafFile.is_open()) {
+        std::cerr << "Error: Could not open file " << outputFileName << " for writing MAF.\n";
+        return;
+    }
+
+    // 1. MAF Header
+    mafFile << "##maf version=1\n";
+    mafFile << "# Generated from BlockSet ID: " << blockSet->getId() << "\n\n";
+    BlockWeakPtrs blocks_;
+    
+    auto blocks_ids = blockSet->getLinearizeBlocks();
+
+    for (auto& id : blocks_ids) blocks_.push_back(blockSet->getBlock(id));
+    
+    // 🚨 新增：用來追蹤每個 BlockID 寫入的次數 (Occurrence tracker)
+    std::unordered_map<BlockID, int> blockCounter; 
+
+    // 2. Blocks
+    for (auto& block_ptr : blocks_) {
+        auto blk = block_ptr.lock();
+        if (!blk) continue; // 防呆：如果弱指標失效則跳過
+
+        BlockID currentBlockId = blk->getId();
+        const std::string& consensus = blk->getConsensus();
+        int consLen = consensus.length();
+        
+        int segmentCount = 0;
+        int totalVarLen = 0;
+        
+        for (auto& seqEntry : blk->getSequences()) {
+            for (auto& segPair : seqEntry.second.getSegments()) {
+                segmentCount++;
+                for (auto& var : segPair.second.getVariants()) {
+                    totalVarLen += (var.getEnd() - var.getStart());
+                }
+            }
+        }
+        
+        if (segmentCount == 0) continue;
+
+        double score = static_cast<double>(consLen * segmentCount - totalVarLen);
+
+        // 🚨 新增：取得並增加這個 BlockID 的出現次數
+        int currentCount = blockCounter[currentBlockId]++;
+        
+        // 組合成你要的 extension 格式，例如 "3_0", "3_1"
+        std::string customBlockID = std::to_string(currentBlockId) + "_" + std::to_string(currentCount);
+
+        // 3. 'a' line (加上自訂的 blockID)
+        mafFile << "a score=" << std::fixed << std::setprecision(1) << score 
+                << " blockID=" << customBlockID << "\n";
+
+        // 4. 輸出各個 Segment 的 's' 行
+        for (auto& seqEntry : blk->getSequences()) {
+            std::string seqID = seqEntry.first;
+            
+            for (auto& segPair : seqEntry.second.getSegments()) {
+                Segment& seg = segPair.second;
+                
+                // 產生包含 SNV 與 Gap 的比對序列字串
+                std::string aliString = generateAlignmentString(consensus, seg.getVariants());
+                
+                // 準備 s 行參數
+                int start = seg.getStart();
+                int size = std::abs(seg.getEnd() - seg.getStart()); // 實際佔用的鹼基數量
+                char strand = seg.isReverse() ? '-' : '+';
+                
+                // 由於目前的資料結構未直接存放整條 src 染色體的總長度，這裡先填 0 (這不影響純序列分析，但若是上傳 genome browser 需後處理修正)
+                long srcSize = 0; 
+
+                // 格式化輸出以保持整齊
+                mafFile << "s " << std::left << std::setw(20) << seqID << " "
+                        << std::right << std::setw(10) << start << " "
+                        << std::right << std::setw(8) << size << " "
+                        << strand << " "
+                        << std::right << std::setw(10) << srcSize << " "
+                        << aliString << "\n";
+            }
+        }
+        mafFile << "\n"; // 每個 Block 結束後空一行
+    }
+
+    mafFile.close();
 }

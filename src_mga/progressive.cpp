@@ -1,6 +1,7 @@
-#ifndef MGA_HPP
+
 #include "mga.hpp"
-#endif
+#include "type.hpp"
+#include "block.hpp"
 
 #include <chrono>
 #include <functional>
@@ -111,8 +112,7 @@ void getProgressivePairs(std::vector<std::pair<NodePair, int>>& alnOrder, std::s
     }
 }
 
-
-void scheduling(Node* root, std::vector<NodePairVec>& levels, int mode) {
+void scheduling(Node* root, std::vector<NodePairs>& levels, int mode) {
     levels.clear();
     std::stack<Node*> msaStack;
     if (root) {
@@ -129,7 +129,7 @@ void scheduling(Node* root, std::vector<NodePairVec>& levels, int mode) {
     }
 }
 
-void updateNode(NodePairVec& nodes, BlockManager* blockManager) {
+void updateNode(NodePairs& nodes, BlockManager* blockManager) {
     for (auto& n : nodes) {
         for (int i = 0; i < 2; ++i) {
             Node* currentNode = (i == 0) ? n.first : n.second;
@@ -146,8 +146,7 @@ void updateNode(NodePairVec& nodes, BlockManager* blockManager) {
     }
 }
 
-
-void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairVec>& alnPairsPerLevel, BlockManager* blockManager) {
+void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairs>& alnPairsPerLevel, BlockManager* blockManager) {
     int level = 0;
     if (option.verbose) {
         std::cerr << "Total " << alnPairsPerLevel.size() << " levels.\n";
@@ -157,25 +156,25 @@ void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairVec>& aln
         
         updateNode(m, blockManager);
 
-        alignmentKernel(m, blockManager, option);
+        alignmentKernel(m, blockManager, option, T);
         
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> alnTime = alnEnd - alnStart;
-        
+        ++level;
         if (option.verbose) {
-            std::cerr << "Level " << ++level << ", aligned " << m.size() 
+            std::cerr << "Level " << level << ", aligned " << m.size() 
                       << " pair(s) in " << alnTime.count() << " ms\n";
         }
+    
     }
 }
-
 
 void msaOnSubtree(Tree& T, Option& option, BlockManager* blockManager, int subtree) {
 
     auto progressiveStart = std::chrono::high_resolution_clock::now();
     std::cerr << "============================\n";
 
-    std::vector<NodePairVec> alnPairsPerLevel;
+    std::vector<NodePairs> alnPairsPerLevel;
     
     int mode = 0;
     scheduling(T.root.get(), alnPairsPerLevel, mode);

@@ -186,21 +186,46 @@ else()
 	endif()
 endif()
 
+# add_executable (twilight_mga
+# 				src_mga/twilight_mga-main.cpp
+# 				src_mga/alignment_new.cpp
+# 				src_mga/option.cpp
+# 				src_mga/tree.cpp
+# 				src_mga/node.cpp
+# 				src_mga/block.cpp
+# 				src_mga/io.cpp
+# 				src_mga/progressive.cpp
+# 				src_mga/alignment_kernel_new.cpp
+# 				src_mga/blockManager.cpp
+# 				src_mga/blockSet.cpp
+# 				src_mga/blockMerger.cpp
+# 				src_mga/SequenceInfo.cpp
+# 				src_mga/selfmapping.cpp
+# 				src_mga/validate.cpp
+# 				src_mga/global_alignment.cpp
+# 				src_mga/realignShallowBlocks.cpp
+# 				src_mga/refine.cpp)
+
 add_executable (twilight_mga
 				src_mga/twilight_mga-main.cpp
-				src_mga/parser.cpp
-				src_mga/alignment.cpp
 				src_mga/option.cpp
 				src_mga/tree.cpp
 				src_mga/node.cpp
-				src_mga/block.cpp
 				src_mga/io.cpp
 				src_mga/progressive.cpp
+				src_mga/alignment.cpp
+				src_mga/alignment_util.cpp
 				src_mga/alignment_kernel.cpp
+				src_mga/block.cpp
 				src_mga/blockManager.cpp
 				src_mga/blockSet.cpp
 				src_mga/blockMerger.cpp
-				src_mga/SequenceInfo.cpp)
+				src_mga/merge.cpp
+				src_mga/Sequence.cpp
+				src_mga/validate.cpp
+				src_mga/refine.cpp
+				src_mga/global_alignment.cpp
+				)
 
 find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -209,3 +234,13 @@ find_package(TBB REQUIRED CONFIG)
 # add_executable (twilight ${SRC_FILES})
 # target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
 target_link_libraries(twilight_mga PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
+
+
+# =========================================================================
+# 🌟 加入 AddressSanitizer (ASan) 進行記憶體除錯
+# =========================================================================
+# 1. 加入編譯標記 (-g 保留除錯資訊，-fno-omit-frame-pointer 讓 Stack Trace 更完整)
+target_compile_options(twilight_mga PRIVATE -fsanitize=address -g -fno-omit-frame-pointer)
+
+# 2. 加入連結標記 (ASan 必須在連結期綁定特殊的記憶體管理函式庫)
+target_link_options(twilight_mga PRIVATE -fsanitize=address)

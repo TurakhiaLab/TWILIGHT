@@ -121,14 +121,13 @@ mga::alnVec mga::parser::parseMinimap2PAF(const std::string& filename) {
             }
         }
 
+        aln.alnLength = totLen;
         aln.alnScore = score;
         aln.ins = ins;
         aln.del = del;
         aln.mis = (numEdits - ins - del);
 
         alignments.push_back(aln);
-
-        // if (aln.inverse) std::cerr << "Inverse alignment: " <<aln.qryIdx.first << ',' << aln.qryIdx.second << '\n';
     }
 
     // Sort alignments: Group by RefStart, then by QryStart

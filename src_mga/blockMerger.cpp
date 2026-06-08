@@ -1,4 +1,5 @@
-#include "mga.hpp"
+#include "type.hpp"
+#include "block.hpp"
 
 
 #include <vector>
@@ -7,169 +8,22 @@
 #include <cmath>
 #include <numeric> // for std::iota
 #include <tuple>
+#include <chrono>
+#include <tbb/parallel_invoke.h>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
+#include <tbb/parallel_reduce.h>
 
-std::vector<mga::Alignment> mga::splitSingleAlignment(const mga::Alignment& aln,const std::set<int>& refCuts,const std::set<int>& qryCuts)  {
-    std::vector<mga::Alignment> frags; // 用來裝切碎的子片段
-
-    // 1. 篩選並排序切點
-    std::vector<int> rCuts;
-    for (int c : refCuts) {
-        if (c > aln.refIdx.first && c < aln.refIdx.second) rCuts.push_back(c);
-    }
-
-    std::vector<int> qCuts;
-    for (int c : qryCuts) {
-        if (c > aln.qryIdx.first && c < aln.qryIdx.second) qCuts.push_back(c);
-    }
-
-    if (aln.inverse) {
-        std::sort(qCuts.rbegin(), qCuts.rend());
-    } else {
-        std::sort(qCuts.begin(), qCuts.end());
-    }
-
-    if (rCuts.empty() && qCuts.empty()) {
-        frags.push_back(aln);
-        return frags;
-    }
-
-    // 2. 準備走訪 CIGAR 進行動態切割
-    int rCutIdx = 0;
-    int qCutIdx = 0;
-
-    int rPos = aln.refIdx.first;
-    int qPos = aln.inverse ? aln.qryIdx.second : aln.qryIdx.first; 
-    int qDir = aln.inverse ? -1 : 1;
-
-    int currRStart = rPos;
-    int currQStart = qPos;
-
-    mga::Alignment currAln = aln;
-    currAln.CIGAR.clear(); 
-
-    // 3. 逐一消耗 CIGAR Operations
-    for (const auto& op : aln.CIGAR) {
-        int len = op.first;
-        char type = op.second;
-
-        while (len > 0) {
-            bool consumesRef = (type == 'M' || type == '=' || type == 'X' || type == 'D');
-            bool consumesQry = (type == 'M' || type == '=' || type == 'X' || type == 'I');
-
-            int step = len;
-
-            if (consumesRef && rCutIdx < rCuts.size()) {
-                int distR = rCuts[rCutIdx] - rPos;
-                if (distR > 0 && distR < step) step = distR;
-            }
-
-            if (consumesQry && qCutIdx < qCuts.size()) {
-                int distQ = std::abs(qCuts[qCutIdx] - qPos);
-                if (distQ > 0 && distQ < step) step = distQ;
-            }
-
-            if (!currAln.CIGAR.empty() && currAln.CIGAR.back().second == type) {
-                currAln.CIGAR.back().first += step; 
-            } else {
-                currAln.CIGAR.push_back({step, type});
-            }
-
-            if (consumesRef) rPos += step;
-            if (consumesQry) qPos += step * qDir;
-            len -= step;
-
-            // 4. 檢查是否精準踩到切點
-            bool hitRef = (consumesRef && rCutIdx < rCuts.size() && rPos == rCuts[rCutIdx]);
-            bool hitQry = (consumesQry && qCutIdx < qCuts.size() && qPos == qCuts[qCutIdx]);
-
-            if (hitRef || hitQry) {
-                currAln.refIdx.first = currRStart;
-                currAln.refIdx.second = rPos;
-
-                if (aln.inverse) {
-                    currAln.qryIdx.first = qPos;        
-                    currAln.qryIdx.second = currQStart; 
-                } else {
-                    currAln.qryIdx.first = currQStart;  
-                    currAln.qryIdx.second = qPos;       
-                }
-
-                if (!currAln.CIGAR.empty()) {
-                    frags.push_back(currAln); // 改存進 frags
-                }
-
-                currRStart = rPos;
-                currQStart = qPos;
-                currAln = aln; 
-                currAln.CIGAR.clear();
-
-                if (hitRef) rCutIdx++;
-                if (hitQry) qCutIdx++;
-            }
-        }
-    }
-
-    // 5. 收尾
-    if (!currAln.CIGAR.empty()) {
-        currAln.refIdx.first = currRStart;
-        currAln.refIdx.second = rPos;
-
-        if (aln.inverse) {
-            currAln.qryIdx.first = qPos;
-            currAln.qryIdx.second = currQStart;
-        } else {
-            currAln.qryIdx.first = currQStart;
-            currAln.qryIdx.second = qPos;
-        }
-        frags.push_back(currAln); // 改存進 frags
-    }
-
-    return frags;
-}
-
-std::vector<mga::Alignment> mga::splitAlignmentsByCuts( const std::vector<mga::Alignment>& alignments, const std::set<int>& refCuts, const std::set<int>& qryCuts) 
-{
-    std::vector<mga::Alignment> newAlignments;
-
-    for (const auto& aln : alignments) {
-        // 保留你原本的過濾邏輯
-        if (!aln.valid || (aln.type != mga::PRIMARY && aln.type != mga::SECONDARY)) {
-            newAlignments.push_back(aln);
-            continue;
-        }
-
-        // 直接呼叫單一處理函數！
-        auto frags = splitSingleAlignment(aln, refCuts, qryCuts);
-        
-        // 將切碎的片段接上 newAlignments 的尾端
-        newAlignments.insert(newAlignments.end(), frags.begin(), frags.end());
-    }
-
-    return newAlignments;
-}
-
-
-
-// 輔助結構：Disjoint Set Union (用於 Grouping)
-struct UnionFind {
-    std::map<Block::ID, Block::ID> parent;
-    Block::ID find(Block::ID i) {
-        if (parent.find(i) == parent.end()) parent[i] = i;
-        if (parent[i] == i) return i;
-        return parent[i] = find(parent[i]);
-    }
-    void unite(Block::ID i, Block::ID j) {
-        Block::ID rootI = find(i);
-        Block::ID rootJ = find(j);
-        if (rootI != rootJ) parent[rootI] = rootJ;
-    }
-};
 
 // ==========================================
-// Helper 1: 根據 Map 動態補償 Gap (絕對數學嚴謹版)
+// Helper 1: 根據 Map 動態補償 Gap (統一為 Target -> New 視角)
 // ==========================================
-mga::Cigar adjustCigarWithMap(const mga::Cigar& origCigar, const std::vector<int>& coordMap, int superBaseLen) {
-    mga::Cigar adjCigar;
+// 🚨 移除了 isRefTarget！因為丟入此函數的 coordMap 永遠代表 Target，Gap 永遠是 'D'
+// ==========================================
+// Helper 1: 根據 Map 動態補償 Gap (含頭尾 Padding 完美版)
+// ==========================================
+CigarString adjustCigarWithMap(const CigarString& origCigar, const std::vector<int>& coordMap, int superBaseLen) {
+    CigarString adjCigar;
     int origRefPos = 0; 
 
     auto addOp = [&](int len, char op) {
@@ -178,48 +32,41 @@ mga::Cigar adjustCigarWithMap(const mga::Cigar& origCigar, const std::vector<int
         else adjCigar.push_back({len, op});
     };
 
-    // 1. 補齊 Prefix Gaps (在 Member Block 之前的 SuperBase 序列)
-    if (coordMap.size() > 0 && coordMap[0] > 0) {
+    // 1. 補齊前端缺失的 Gaps (Front Padding)
+    if (!coordMap.empty() && coordMap[0] > 0) {
         addOp(coordMap[0], 'D');
     }
 
-    // 2. 走訪並轉換原始 CIGAR
-    for (auto op : origCigar) {
+    // 2. 轉換原本的 CIGAR
+    for (const auto& op : origCigar) {
         int len = op.first; char type = op.second;
 
-        if (type == 'I' || type == 'S' || type == 'H') {
-            addOp(len, 'I'); // 純 Qry 消耗
-        }
-        else if (type == 'M' || type == '=' || type == 'X') {
+        if (type == 'S' || type == 'H') continue; 
+        
+        if (type == 'I') {
+            addOp(len, 'I'); 
+        } 
+        else if (type == 'M' || type == '=' || type == 'X' || type == 'D') {
             for (int i = 0; i < len; ++i) {
-                if (origRefPos + 1 < coordMap.size()) {
+                if (origRefPos + 1 < (int)coordMap.size()) {
                     int p1 = coordMap[origRefPos];
                     int p2 = coordMap[origRefPos + 1];
 
                     if (p2 == p1) {
-                        // 座標重疊：代表這個鹼基在 SuperBase 中不存在，轉為 Insertion
-                        addOp(1, 'I');
+                        // 如果是 D，代表 New 沒有鹼基，絕對不能新增 'I'
+                        if (type != 'D') addOp(1, 'I'); 
                     } else {
-                        // 正常匹配
                         addOp(1, type);
-                        // 補齊兩點之間的 Gap (SuperBase 中多出來的序列)
                         int gaps = p2 - p1 - 1;
-                        if (gaps > 0) addOp(gaps, 'D');
+                        if (gaps > 0) addOp(gaps, 'D'); 
                     }
                     origRefPos++;
-                }
-            }
-        }
-        else if (type == 'D') {
-            for (int i = 0; i < len; ++i) {
-                if (origRefPos + 1 < coordMap.size()) {
-                    int p1 = coordMap[origRefPos];
-                    int p2 = coordMap[origRefPos + 1];
-
-                    if (p2 > p1) {
-                        addOp(1, 'D'); // Qry 本來就沒有，SuperBase 有，所以是 D
-                        int gaps = p2 - p1 - 1;
-                        if (gaps > 0) addOp(gaps, 'D');
+                } else {
+                    // 處理 coordMap 的最後一個元素
+                    if (origRefPos > 0 && coordMap[origRefPos] == coordMap[origRefPos - 1]) {
+                        if (type != 'D') addOp(1, 'I');
+                    } else {
+                        addOp(1, type);
                     }
                     origRefPos++;
                 }
@@ -227,585 +74,1272 @@ mga::Cigar adjustCigarWithMap(const mga::Cigar& origCigar, const std::vector<int
         }
     }
 
-    // 3. 補齊 Suffix Gaps (在 Member Block 之後的 SuperBase 序列)
-    int currentEnd = coordMap.empty() ? 0 : coordMap.back();
-    if (superBaseLen > currentEnd) {
-        addOp(superBaseLen - currentEnd, 'D');
+    // ========================================================
+    // 🚨 終極修復：補齊尾端缺失的 Gaps (Tail Padding)
+    // 當 Block 沒有被切斷，但 Mapping 提早結束時，用 'D' 把剩下的長度填滿
+    // ========================================================
+    int currentEnd = coordMap.empty() ? -1 : coordMap.back();
+    if (superBaseLen > currentEnd + 1) {
+        addOp(superBaseLen - (currentEnd + 1), 'D');
     }
 
     return adjCigar;
 }
 
 // ==========================================
-// Helper 2: 根據 Consensus 座標裁切 Sub-CIGAR 並強制對齊
+// 輔助函數：從 SuperBlock 物理切出指定座標的積木 (基於 Segment::split)
 // ==========================================
-std::tuple<bool, mga::Cigar, bool> extractSubCigar(
-    Block::ID baseId, Block::ID memId, 
-    const std::vector<mga::Alignment>& alignments,
-    const std::map<Block::ID, std::pair<int, int>>& blockConsensusCoords,
-    const std::map<Block::ID, bool>& isRefBlockMap) 
-{
-    bool baseFromRef = isRefBlockMap.at(baseId);
-    bool memFromRef  = isRefBlockMap.at(memId);
-
-    int tgtRStart = baseFromRef ? blockConsensusCoords.at(baseId).first  : blockConsensusCoords.at(memId).first;
-    int tgtREnd   = baseFromRef ? blockConsensusCoords.at(baseId).second : blockConsensusCoords.at(memId).second;
-    int tgtQStart = !baseFromRef ? blockConsensusCoords.at(baseId).first  : blockConsensusCoords.at(memId).first;
-    int tgtQEnd   = !baseFromRef ? blockConsensusCoords.at(baseId).second : blockConsensusCoords.at(memId).second;
-
-    int targetBaseLen = blockConsensusCoords.at(baseId).second - blockConsensusCoords.at(baseId).first;
-    int targetMemLen  = blockConsensusCoords.at(memId).second - blockConsensusCoords.at(memId).first;
-
-    for (const auto& aln : alignments) {
-        if (!aln.valid || (aln.type != mga::PRIMARY && aln.type != mga::SECONDARY)) continue;
-
-        int rMin = std::min(aln.refIdx.first, aln.refIdx.second);
-        int rMax = std::max(aln.refIdx.first, aln.refIdx.second);
-        int qMin = std::min(aln.qryIdx.first, aln.qryIdx.second);
-        int qMax = std::max(aln.qryIdx.first, aln.qryIdx.second);
-
-        if (tgtRStart >= rMax || tgtREnd <= rMin) continue;
-        if (tgtQStart >= qMax || tgtQEnd <= qMin) continue;
-
-        mga::Cigar subCigar;
-        int currR = rMin;
-
-        for (auto op : aln.CIGAR) {
-            int len = op.first; char type = op.second;
-            bool consumesRef = (type == 'M' || type == '=' || type == 'X' || type == 'D');
-            if (!consumesRef) {
-                if (currR >= tgtRStart && currR <= tgtREnd) subCigar.push_back(op);
+std::shared_ptr<Block> extractBlockFromSuper(BlockSet* bSet, std::shared_ptr<Block> superBlock, int start, int end) {
+    int target_len = end - start;
+    std::string subCons = superBlock->getConsensus().substr(start, target_len);
+    auto newBlock = bSet->createBlock(subCons); 
+    
+    for (auto& seqPair : superBlock->getSequences()) {
+        Sequence newSeqInfo(seqPair.first); 
+        
+        for (auto& segPair : seqPair.second.getSegments()) {
+            Segment oldSeg = segPair.second; // 拷貝出來處理
+            
+            // ==========================================
+            // 第一刀：切掉前綴 [0, start)
+            // ==========================================
+            auto split1 = oldSeg.split(start);
+            Segment& right_of_start = split1.second; 
+            
+            // 防呆：如果切完 start 後，右邊完全沒有物理序列 (純粹是 Consensus 上的 Gap)，就提早結束
+            if (right_of_start.getStart() == right_of_start.getEnd()) {
                 continue;
             }
-            if (currR >= tgtREnd) break; 
-
-            int overlapStart = std::max(tgtRStart, currR);
-            int overlapEnd = std::min(tgtREnd, currR + len);
-            if (overlapStart < overlapEnd) {
-                subCigar.push_back({overlapEnd - overlapStart, type});
-            }
-            currR += len;
-        }
-
-        // 翻轉方向
-        if (!baseFromRef) {
-            for (auto& op : subCigar) {
-                if (op.second == 'I') op.second = 'D';
-                else if (op.second == 'D') op.second = 'I';
-            }
-        }
-
-        // 【核心修復】：1-bp 微步進對齊引擎，強制讓 CIGAR 貼合真實長度！
-        mga::Cigar finalCigar;
-        int curBase = 0, curMem = 0;
-
-        auto addOp = [&](char t) {
-            if (!finalCigar.empty() && finalCigar.back().second == t) finalCigar.back().first++;
-            else finalCigar.push_back({1, t});
-        };
-
-        for (auto op : subCigar) {
-            int l = op.first; char t = op.second;
-            if (t == 'S' || t == 'H') t = 'I';
-
-            bool bCons = (t == 'M' || t == '=' || t == 'X' || t == 'D');
-            bool mCons = (t == 'M' || t == '=' || t == 'X' || t == 'I');
-
-            for (int i = 0; i < l; ++i) {
-                bool useB = false, useM = false;
+            
+            // ==========================================
+            // 第二刀：切掉後綴 [end, total_len)
+            // ==========================================
+            // 注意：經過第一刀後，right_of_start 的 Variant 相對座標已經被 shift 歸零
+            // 所以第二刀的相對切點必須是 target_len (即 end - start)
+            auto split2 = right_of_start.split(target_len);
+            Segment& target_seg = split2.first;
+            
+            // ==========================================
+            // 驗證與裝載
+            // ==========================================
+            // 檢查夾在中間的這段目標區塊，是否真實擁有物理序列
+            if (target_seg.getStart() != target_seg.getEnd()) {
                 
-                // 走訪並控制不超出上限
-                if (bCons && curBase < targetBaseLen) { useB = true; curBase++; }
-                if (mCons && curMem < targetMemLen) { useM = true; curMem++; }
-
-                if (useB && useM) addOp((t == 'M' || t == '=' || t == 'X') ? t : 'M');
-                else if (useB) addOp('D');
-                else if (useM) addOp('I');
+                // 清除殘留的拓撲連線，因為 extract 出來的新積木，其指針會在 Phase 5 重新建立
+                target_seg.setPrevBlock(std::shared_ptr<Block>(nullptr));
+                target_seg.setNextBlock(std::shared_ptr<Block>(nullptr));
+                
+                // 此時 target_seg 的 getStart() 已經被 split() 完美映射回真實的 Whole Sequence 座標了
+                newSeqInfo.getSegments()[target_seg.getStart()] = std::move(target_seg);
             }
         }
-
-        // 如果不足，強制補尾刀 Gap
-        if (curBase < targetBaseLen) {
-            addOp('D'); finalCigar.back().first += (targetBaseLen - curBase - 1);
+        
+        if (newSeqInfo.getSegments().size() > 0) {
+            newBlock->addSequence(std::move(newSeqInfo));
         }
-        if (curMem < targetMemLen) {
-            addOp('I'); finalCigar.back().first += (targetMemLen - curMem - 1);
-        }
-
-        return {true, finalCigar, aln.inverse};
     }
-    
-    return {false, {}, false};
+    return newBlock;
 }
 
 // ==========================================
-// 主函數：Graph Merge
+// 主函數：Greedy Dynamic Graph Merge
 // ==========================================
-BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, std::vector<mga::Alignment>& alignments) {
-    bool DEBUG_MODE = false;
 
+/*
+BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, BlockBoundaries& refBounds, BlockBoundaries& qryBounds, AlignmentCollection& alnCollection, int L_min) {
+    bool DEBUG_MODE = true;
+    auto time0 = std::chrono::high_resolution_clock::now();
     if (DEBUG_MODE) std::cout << "\n========================================================\n"
-                              << "=== GRAPH MERGE START: " << refSet->getId() << " + " << qrySet->getId() << " ===\n"
+                              << "=== TWILIGHT-MGA DYNAMIC MERGE: " << refSet->getId() << " + " << qrySet->getId() << " ===\n"
                               << "========================================================\n";
 
     // ==========================================
-    // Phase 0: 串接 Consensus Blocks (加入 Debug 驗證)
+    // Phase 1: 建立 Super Blocks
     // ==========================================
-    if (DEBUG_MODE) std::cout << "[Phase 0] Concatenating Involved Blocks into Super-Blocks...\n";
+    if (DEBUG_MODE) std::cout << "[Phase 1] Concatenating Super-Blocks...\n";
     
     auto refSuperBlock = refSet->concatenateBlocks(9999991); 
     auto qrySuperBlock = qrySet->concatenateBlocks(9999992);
-    BlockSet refSuperSet ("ref_super");
-    BlockSet qrySuperSet ("qry_super");
-    refSuperBlock = refSuperSet.addBlock(refSuperBlock);
-    qrySuperBlock = qrySuperSet.addBlock(qrySuperBlock);
+
+    std::string newID = "Merged_" + refSet->getId() + "_" + qrySet->getId();
+    BlockSet* mergedSet = createBlockSet(newID); 
+
+    int refSuperLen = refSuperBlock->getConsensus().length();
+    int qrySuperLen = qrySuperBlock->getConsensus().length();
+
+    if (DEBUG_MODE) std::cout << "  -> Ref SuperBlock Len: " << refSuperLen << ", Qry SuperBlock Len: " << qrySuperLen << "\n";
 
     // ==========================================
-    // Phase 1: 使用 Dictionary + splitSingleBlock 切割
+    // Phase 2: 全域座標映射系統
     // ==========================================
-    if (DEBUG_MODE) std::cout << "\n[Phase 1] Extracting Cuts and Splitting SuperBlocks...\n";
-    
-    std::set<int> refCuts, qryCuts;
-    std::vector<mga::Alignment> validAlignments; // [新增] 用來取代原本的 alignments
+    struct CoordTracker { 
+        BlockID blkId = 0; 
+        int localPos = -1; 
+    };
+    std::vector<CoordTracker> refGlobalMap(refSuperLen + 1);
+    std::vector<CoordTracker> qryGlobalMap(qrySuperLen + 1);
 
-    for (auto& aln : alignments) {
-        if (!aln.valid || (aln.type != mga::PRIMARY && aln.type != mga::SECONDARY)) continue;
+    auto buildCoordMaps = [&](const CigarString& adjustedCigar, int qLen, int rLen, 
+                              std::vector<int>& uCoordMap, std::vector<int>& stepCoordMap) {
+        uCoordMap.assign(qLen + 1, 0);
+        stepCoordMap.assign(rLen + 1, 0);
         
-        // 【新增條件】：如果 ref 端或 qry 端小於 100 base，直接丟棄這個 Alignment
-        int rLen = std::abs(aln.refIdx.second - aln.refIdx.first);
-        int qLen = std::abs(aln.qryIdx.second - aln.qryIdx.first);
-        if (rLen < 100 || qLen < 100) {
-            aln.setValid2False();
-            continue;
-        }
-
-        refCuts.insert(aln.refIdx.first); refCuts.insert(aln.refIdx.second);
-        qryCuts.insert(aln.qryIdx.first); qryCuts.insert(aln.qryIdx.second);
+        int rPos = 0, qPos = 0, consPos = 0;
         
-        validAlignments.push_back(aln); // 保留合格的 Alignment
-    }
-
-    if (DEBUG_MODE) {
-        std::cout << "Reference Cut Points: \n";
-        for (auto cut: refCuts) std::cout << cut << " "; std::cout << "\n";
-        std::cout << "Query Cut Points: \n";
-        for (auto cut: qryCuts) std::cout << cut << " "; std::cout << "\n";
-    }
-    
-    std::map<int, BlockSet::SegNode> refDict;
-    refDict[0] = {0, (int)refSuperBlock->getConsensus().length(), refSuperBlock->getId()};
-
-    std::map<int, BlockSet::SegNode> qryDict;
-    qryDict[0] = {0, (int)qrySuperBlock->getConsensus().length(), qrySuperBlock->getId()};
-
-    auto splitDictBlock = [&](std::map<int, BlockSet::SegNode>& dict, BlockSet* bSet, int cutPos) {
-        if (DEBUG_MODE) std::cout << "  [DEBUG-SPLIT] Requested cut at " << cutPos << " -> ";
+        for (auto op : adjustedCigar) {
+            int len = op.first; char type = op.second;
+            
+            if (type == 'M' || type == '=' || type == 'X') {
+                for (int i = 0; i < len; ++i) {
+                    if (qPos < qLen) uCoordMap[qPos++] = consPos;
+                    if (rPos < rLen) stepCoordMap[rPos++] = consPos;
+                    consPos++; // Consensus 前進
+                }
+            } else if (type == 'D') {
+                for (int i = 0; i < len; ++i) {
+                    if (rPos < rLen) stepCoordMap[rPos++] = consPos;
+                    consPos++; // Consensus 前進
+                }
+            } else if (type == 'I') {
+                for (int i = 0; i < len; ++i) {
+                    if (qPos < qLen) uCoordMap[qPos++] = consPos;
+                    consPos++; // 🚨 核心修復：遇到 'I'，Consensus 也要前進！
+                }
+            } else if (type == 'S' || type == 'H') {
+                for (int i = 0; i < len; ++i) {
+                    qPos++; // Soft/hard clipping 消耗 Qry 但不消耗 Consensus
+                }
+            }
+        }
         
-        auto it = dict.upper_bound(cutPos);
-        if (it == dict.begin()) {
-            if (DEBUG_MODE) std::cout << "Ignored (Out of lower bounds)\n";
-            return; 
-        }
-        it--;
-        
-        if (it->first == cutPos) {
-            if (DEBUG_MODE) std::cout << "Ignored (Already a boundary)\n";
-            return; 
-        }
-
-        int start = it->second.start;
-        int end = it->second.end;
-        Block::ID targetBlkId = it->second.blkId;
-        std::shared_ptr<Block> targetBlk = bSet->getBlock(targetBlkId);
-        
-        if (!targetBlk) {
-            if (DEBUG_MODE) std::cout << "Failed (Target Block ID " << targetBlkId << " not found)\n";
-            return;
-        }
-
-        int localCut = cutPos - start;
-
-        if (localCut <= 0 || localCut >= targetBlk->getConsensus().length()) {
-            if (DEBUG_MODE) std::cout << "Ignored (Invalid localCut: " << localCut << " for Block " << targetBlkId << " length " << targetBlk->getConsensus().length() << ")\n";
-            return; 
-        }
-
-        if (DEBUG_MODE) std::cout << "Cutting Block " << targetBlkId << " [" << start << ", " << end << "] at local idx " << localCut << " ... ";
-
-        auto parts = bSet->splitSingleBlock(targetBlkId, localCut);
-        if (parts.first == (uint64_t)-1) {
-            if (DEBUG_MODE) std::cout << "Failed (splitSingleBlock returned -1)\n";
-            return; 
-        }
-
-        if (DEBUG_MODE) std::cout << "Success! New Blocks: " << parts.first << " & " << parts.second << "\n";
-
-        dict.erase(it);
-        dict[start] = {start, cutPos, parts.first};
-        dict[cutPos] = {cutPos, end, parts.second};
+        // 收尾：補上陣列的最後一個元素
+        if (qPos <= qLen) uCoordMap[qPos] = consPos;
+        if (rPos <= rLen) stepCoordMap[rPos] = consPos;
     };
 
-    for (int cut : refCuts) splitDictBlock(refDict, &refSuperSet, cut);
-    for (int cut : qryCuts) splitDictBlock(qryDict, &qrySuperSet, cut);
-
-    if (DEBUG_MODE) {
-        std::cout << "  -> Ref SuperBlock split into " << refDict.size() << " atomic blocks.\n";
-        std::cout << "  -> Qry SuperBlock split into " << qryDict.size() << " atomic blocks.\n";
-    }
-
-    refSuperSet.debugValidateSegments(false);
-    qrySuperSet.debugValidateSegments(false);
-
-
-
-    std::map<int, Block::ID> refBlocksMap;
-    for (auto& kv : refDict) {
-        refBlocksMap[kv.first] = kv.second.blkId;
-    }
-
-    std::map<int, Block::ID> qryBlocksMap;
-    // 遍歷 qryDict，把切好的 qry block 逐一加進 refSuperSet
-    for (auto& kv : qryDict) {
-        int qryStart = kv.first;              // Qry 的 Genomic Coordinate
-        Block::ID oldQryId = kv.second.blkId; // 在 qrySuperSet 裡的舊 ID
-
-        // 從 qrySuperSet 拿出切好的 Block
-        std::shared_ptr<Block> qryBlock = qrySuperSet.getBlock(oldQryId);
-
-        if (qryBlock) {
-            // 搬家：加進 refSuperSet，取得全新 ID
-            auto newUnifiedBlock = refSuperSet.addBlock(qryBlock);
-
-            // 1. 記錄到供 Grouping 使用的快速查詢表
-            qryBlocksMap[qryStart] = newUnifiedBlock->getId();
-
-            // 2. 【關鍵新增】：直接更新 qryDict 本身裡面的記錄！
-            // 因為 kv 是 auto& (參照)，所以這裡改了，map 裡面的值就會跟著改
-            kv.second.blkId = newUnifiedBlock->getId();
-        }
-    }
-
-    // 建立全局 Block 查找池
-    std::map<Block::ID, std::shared_ptr<Block>> globalBlockPool;
-    
-    for (const auto& kv : refBlocksMap) {
-        globalBlockPool[kv.second] = refSuperSet.getBlock(kv.second);
-    }
-    
-    for (const auto& kv : qryBlocksMap) {
-        // 【注意】：因為 Qry 已經搬家了，所以這裡也是從 refSuperSet 拿積木！
-        globalBlockPool[kv.second] = refSuperSet.getBlock(kv.second); 
-    }
-    
     // ==========================================
-    // Phase 2: Grouping Homologous Blocks
+    // Phase 3: 核心 Greedy 迴圈 (Linear Block Logic)
     // ==========================================
-    if (DEBUG_MODE) std::cout << "\n[Phase 2] Grouping Homologous Blocks (Primary & Secondary)...\n";
-    UnionFind uf; 
-    for (const auto& kv : globalBlockPool) uf.find(kv.first); 
+    if (DEBUG_MODE) std::cout << "\n[Phase 3] Processing Alignments Dynamically...\n";
+    int mergeCounter = 0;
 
-    int matchCount = 0;
-    int alnCounter = 0;
-    for (const auto& aln : alignments) {
-        if (!aln.valid || (aln.type != mga::PRIMARY && aln.type != mga::SECONDARY)) continue;
-        alnCounter++;
+    // =========================================================
+    // 輔助工具 1：支援 [start, end) 半開區間的完美切割，告別 +- 1
+    // =========================================================
+    auto splitBlockSafely = [&](BlockID targetMId, int localStart, int localEnd, BlockID& outMiddleId) {
+        auto updateMap = [&](std::vector<CoordTracker>& globalMap, BlockID oldID, BlockID leftID, BlockID rightID, int cutPos) {
+            for (auto& tracker : globalMap) {
+                if (tracker.blkId == oldID) {
+                    if (tracker.localPos < cutPos) tracker.blkId = leftID;
+                    else { tracker.blkId = rightID; tracker.localPos -= cutPos; }
+                }
+            }
+        };
 
-        int rMin = std::min(aln.refIdx.first, aln.refIdx.second);
-        int rMax = std::max(aln.refIdx.first, aln.refIdx.second);
-        int qMin = std::min(aln.qryIdx.first, aln.qryIdx.second);
-        int qMax = std::max(aln.qryIdx.first, aln.qryIdx.second);
+        BlockID currentId = targetMId;
+        auto blk = mergedSet->getBlock(currentId);
+        int currentLen = blk->getConsensus().length();
 
-        if (DEBUG_MODE) {
-            std::cout << "  [DEBUG-GROUP] Aln #" << alnCounter << " (Type " << aln.type << ") | Ref: [" << rMin << ", " << rMax << "] | Qry: [" << qMin << ", " << qMax << "]\n";
+        // 如果範圍剛好涵蓋整個 Block [0, currentLen)，一刀都不用切！
+        if (localStart <= 0 && localEnd >= currentLen) {
+            outMiddleId = currentId;
+            return blk;
         }
 
-        // 【修復核心】：抓取此 Alignment 範圍內涵蓋到的 所有 Ref 與 Qry 積木
-        std::vector<Block::ID> rBlocks;
-        auto rIt = refDict.upper_bound(rMin); 
-        if (rIt != refDict.begin()) rIt--;
-        while (rIt != refDict.end() && rIt->second.start < rMax) {
-            rBlocks.push_back(rIt->second.blkId);
-            rIt++;
+        // 第一刀：切掉前面的不要的部分 [0, localStart)
+        if (localStart > 0) {
+            auto parts = mergedSet->splitSingleBlock(currentId, localStart);
+            updateMap(refGlobalMap, currentId, parts.first, parts.second, localStart);
+            updateMap(qryGlobalMap, currentId, parts.first, parts.second, localStart);
+            currentId = parts.second; 
+            localEnd -= localStart; // 座標平移
         }
 
-        std::vector<Block::ID> qBlocks;
-        auto qIt = qryDict.upper_bound(qMin); 
-        if (qIt != qryDict.begin()) qIt--;
-        while (qIt != qryDict.end() && qIt->second.start < qMax) {
-            qBlocks.push_back(qIt->second.blkId);
-            qIt++;
+        // 第二刀：精準切掉後面的不要的部分
+        int lenAfterFirstCut = mergedSet->getBlock(currentId)->getConsensus().length();
+        if (localEnd < lenAfterFirstCut) { 
+            // 🚨 這裡直接用 localEnd 切！因為 splitSingleBlock 切 localEnd，剛好代表左半邊是 [0, localEnd)
+            auto parts = mergedSet->splitSingleBlock(currentId, localEnd); 
+            updateMap(refGlobalMap, currentId, parts.first, parts.second, localEnd);
+            updateMap(qryGlobalMap, currentId, parts.first, parts.second, localEnd);
+            currentId = parts.first; 
         }
 
-        // 把這個範圍內的所有 Ref 積木與 Qry 積木，全部拉進同一個 UnionFind 群組！
-        for (Block::ID rId : rBlocks) {
-            for (Block::ID qId : qBlocks) {
-                uf.unite(rId, qId);
-                matchCount++;
+        outMiddleId = currentId;
+        return mergedSet->getBlock(currentId);
+    };
+
+    // =========================================================
+    // 輔助工具 2：智慧邊界探測器，轉化為半開區間 [local_s, local_e)
+    // =========================================================
+    auto getSafeLocalBounds = [&](const std::vector<CoordTracker>& globalMap, int start, int end, BlockID targetMId) {
+        int pos1 = globalMap[start].localPos;
+        int pos2 = globalMap[end - 1].localPos; // 讀取最後一個有效 index
+
+        int local_s = std::min(pos1, pos2);
+        int local_e = std::max(pos1, pos2) + 1; // 🚨 轉化為半開區間
+
+        bool isReversed = (pos1 > pos2);
+        bool isStartBoundary = (start == 0 || globalMap[start].blkId != globalMap[start - 1].blkId);
+        bool isEndBoundary   = (end >= globalMap.size() || globalMap[end].blkId != targetMId);
+
+        int blockLen = mergedSet->getBlock(targetMId)->getConsensus().length();
+
+        // 如果對齊到邊界，強制定錨到 Block 頭尾
+        if (isReversed) {
+            if (isStartBoundary) local_e = blockLen;
+            if (isEndBoundary)   local_s = 0;
+        } else {
+            if (isStartBoundary) local_s = 0;
+            if (isEndBoundary)   local_e = blockLen;
+        }
+
+        return std::make_pair(local_s, local_e);
+    };
+
+    // =========================================================
+    // 輔助工具 3：根據最新的 GlobalMap，重建 CoverageTracker 的雷達
+    // =========================================================
+    auto syncTrackersFromMap = [&](std::vector<CoordTracker>& globalMap, CoverageTracker& tracker) {
+        // 🌟 1. 直接清空，保證不會有舊的殘留或交界處的髒資料
+        tracker.intervals.clear(); 
+        
+        BlockID currentId = 0;
+        int startPos = -1;
+        for (int i = 0; i < globalMap.size(); ++i) {
+            if (globalMap[i].blkId != currentId) {
+                if (currentId != 0 && startPos != -1) {
+                    // 🚨 2. 直接使用 i，因為半開區間 [start, i) 剛好完美涵蓋到 i - 1
+                    tracker.intervals[startPos] = {i, currentId}; 
+                }
+                currentId = globalMap[i].blkId;
+                startPos = i;
             }
         }
-    }
-    
-    if (DEBUG_MODE) std::cout << "  -> Grouped " << matchCount << " homologous pairs.\n";
-
-
-
-    // ==========================================
-    // 建立供 Phase 4 提取 CIGAR 使用的座標與來源查詢表
-    // ==========================================
-    std::map<Block::ID, std::pair<int, int>> blockConsensusCoords;
-    std::map<Block::ID, bool> isRefBlockMap;
-
-    for (const auto& kv : refDict) {
-        blockConsensusCoords[kv.second.blkId] = {kv.second.start, kv.second.end};
-        isRefBlockMap[kv.second.blkId] = true; 
-    }
-    for (const auto& kv : qryDict) {
-        blockConsensusCoords[kv.second.blkId] = {kv.second.start, kv.second.end};
-        isRefBlockMap[kv.second.blkId] = false; 
-    }
-
-    // ==========================================
-    // Phase 4: Iterative Spanning-Tree Merging per Group
-    // ==========================================
-    if (DEBUG_MODE) std::cout << "\n[Phase 4] Iterative Spanning-Tree Merging within Groups...\n";
-    
-    std::string newID = "Merged_" + refSet->getId() + "_" + qrySet->getId();
-    BlockSet* resultSet = createBlockSet(newID); 
-
-    std::map<Block::ID, std::vector<Block::ID>> groupedBlocks;
-    for (auto& kv : uf.parent) {
-        groupedBlocks[uf.find(kv.first)].push_back(kv.first);
-    }
-
-    if (DEBUG_MODE) std::cout << "  -> Total unique groups to process: " << groupedBlocks.size() << "\n\n";
-
-    std::set<std::shared_ptr<Block>> workingPool;
-    std::map<Block::ID, std::shared_ptr<Block>> oldToNewBlockMap;
-    int groupCounter = 1;
-
-    for (const auto& group : groupedBlocks) {
-        const auto& members = group.second;
-        if (members.empty()) continue;
-
-        if (members.size() == 1) {
-            workingPool.insert(globalBlockPool[members[0]]);
-            oldToNewBlockMap[members[0]] = globalBlockPool[members[0]];
-            continue;
+        if (currentId != 0 && startPos != -1) {
+            // 🚨 3. 同理，使用 size() 而不是 size() - 1
+            tracker.intervals[startPos] = {static_cast<int>(globalMap.size()), currentId};
         }
+    };
 
-        if (DEBUG_MODE) std::cout << "[Group " << groupCounter++ << "] Members: " << members.size() << "\n";
+    auto cigarToStr = [](const CigarString& c) {
+        std::string s = "";
+        for (auto& op : c) s += std::to_string(op.first) + op.second;
+        return s;
+    };
 
-        // 1. 決定群組的 起始 Hub (優先選擇來自 Ref 或是 _main 的積木)
-        Block::ID origBaseId = members[0];
-        for (Block::ID id : members) {
-            if (isRefBlockMap[id]) { origBaseId = id; break; }
-        }
+   while (true) {
+        // 1. 改成接收 vector
+        Alignments bestAlns = alnCollection.getBestAlignments(refSet, qrySet, refBounds, qryBounds, L_min);
+        if (bestAlns.empty()) break;
 
-        std::shared_ptr<Block> baseBlock = globalBlockPool[origBaseId];
+        // 2. 把底下整坨 A, B, C, D 的邏輯包進 for 迴圈
+        for (Alignment& bestAln : bestAlns) {
+            if (!bestAln.valid) break;
 
-        if (DEBUG_MODE) std::cout << "  ├─ Initial Hub Block ID: " << origBaseId 
-                                  << " (Initial Len: " << baseBlock->getConsensus().length() << " bp)\n";
+            bestAln.CIGAR = compressCigar(bestAln.CIGAR);
 
-        // ==========================================
-        // 2. 初始化群組的 Spanning Tree 狀態
-        // ==========================================
-        std::map<Block::ID, std::vector<int>> coordMaps; // 記錄每一個 Original Member 的座標變化
-        coordMaps[origBaseId] = std::vector<int>(baseBlock->getConsensus().length() + 1);
-        std::iota(coordMaps[origBaseId].begin(), coordMaps[origBaseId].end(), 0);
+            std::cout << "CIGAR: " << cigarToStr(bestAln.CIGAR) << "\n";
+            // [start, end)
+            int r_start = bestAln.refIdx.first, r_end = bestAln.refIdx.second;
+            int q_start = std::min(bestAln.qryIdx.first, bestAln.qryIdx.second); 
+            int q_end   = std::max(bestAln.qryIdx.first, bestAln.qryIdx.second);
 
-        std::set<Block::ID> mergedMembers = {origBaseId};
-        std::set<Block::ID> unmergedMembers;
-        for (Block::ID id : members) {
-            if (id != origBaseId) unmergedMembers.insert(id);
-        }
+            
 
-        // 【新增】：追蹤每個積木加入 Hub 時的「絕對反轉狀態」
-        std::map<Block::ID, bool> isReversedInHub;
-        isReversedInHub[origBaseId] = false;
+            auto r_overlaps = alnCollection.ref_coverageTracker.getOverlappingIds(r_start, r_end);
+            auto q_overlaps = alnCollection.qry_coverageTracker.getOverlappingIds(q_start, q_end);
+            
+            bool r_merged = !r_overlaps.empty();
+            bool q_merged = !q_overlaps.empty();
 
-        // 3. 核心迴圈：利用圖的邊緣 (Valid Alignments) 依序拉攏未合併的積木
-        while (!unmergedMembers.empty()) {
-            bool foundEdge = false;
-            Block::ID targetMergedId = 0;
-            Block::ID targetUnmergedId = 0;
-            mga::Cigar bestOrigCigar;
-            bool bestInverse = false;
+            mergeCounter++;
 
-            // 尋找任一個 "已合併積木" 與 "未合併積木" 之間的合法 Alignment
-            for (Block::ID u : unmergedMembers) {
-                for (Block::ID m : mergedMembers) {
-                    auto alnData = extractSubCigar(m, u, alignments, blockConsensusCoords, isRefBlockMap);
-                    if (std::get<0>(alnData) == true) { // 如果找到有效的 Alignment
-                        targetMergedId = m;
-                        targetUnmergedId = u;
-                        bestOrigCigar = std::get<1>(alnData);
-                        bestInverse = std::get<2>(alnData);
-                        foundEdge = true;
-                        break;
+            // ---------------------------------------------------------
+            // 情境 A：兩端全新
+            // ---------------------------------------------------------
+            if (!r_merged && !q_merged) {
+                if (DEBUG_MODE) std::cout << "  [SCENARIO A] Both ends are new. Extracting blocks...\n";
+                bool isCrossing = false;
+                bool circularPardoned = false;
+
+                // Check Translocation
+                // 1. 收集前後已經存在的 Block ID
+                std::set<BlockID> ref_before, ref_after, qry_before, qry_after;
+                for(int i = 0; i < r_start; ++i) if (refGlobalMap[i].blkId != 0) ref_before.insert(refGlobalMap[i].blkId);
+                for(int i = r_end; i < refGlobalMap.size(); ++i) if (refGlobalMap[i].blkId != 0) ref_after.insert(refGlobalMap[i].blkId);
+                for(int i = 0; i < q_start; ++i) if (qryGlobalMap[i].blkId != 0) qry_before.insert(qryGlobalMap[i].blkId);
+                for(int i = q_end; i < qryGlobalMap.size(); ++i) if (qryGlobalMap[i].blkId != 0) qry_after.insert(qryGlobalMap[i].blkId);
+                // 2. 傳統的易位 (Translocation) 交叉檢測
+                for(BlockID id : qry_before) {
+                    if (ref_after.count(id)) { isCrossing = true; break; }
+                }
+                if (!isCrossing) {
+                    for(BlockID id : qry_after) {
+                        if (ref_before.count(id)) { isCrossing = true; break; }
                     }
                 }
-                if (foundEdge) break;
+                // =======================================================
+                // 🌟 3. 環狀基因體特赦 (Circular Wrap-around Exemption)
+                // =======================================================
+                if (isCrossing) {
+                    // 情境 1：Ref 的尾巴 (後面沒積木了) 接上 Qry 的頭 (前面沒積木了)
+                    bool isRefTail_QryHead = ref_after.empty() && qry_before.empty();
+
+                    // 情境 2：Ref 的頭 (前面沒積木了) 接上 Qry 的尾巴 (後面沒積木了)
+                    bool isRefHead_QryTail = ref_before.empty() && qry_after.empty();
+                    if (isRefTail_QryHead || isRefHead_QryTail) {
+                        isCrossing = false; // 取消 Crossing 判定，允許 Merge！
+                        circularPardoned = true;
+                    }
+                }
+                if (DEBUG_MODE && circularPardoned) {
+                    std::cout << "    -> ⭕ [CIRCULAR EXEMPTION] Wrap-around detected! Pardoning the crossing to maintain circular topology.\n";
+                }
+                auto rBlk = extractBlockFromSuper(mergedSet, refSuperBlock, r_start, r_end);
+                auto qBlk = extractBlockFromSuper(mergedSet, qrySuperBlock, q_start, q_end);
+                int rLen = rBlk->getConsensus().length(), qLen = qBlk->getConsensus().length();
+
+                std::vector<int> uCoordMap, stepCoordMap;
+                buildCoordMaps(bestAln.CIGAR, qLen, rLen, uCoordMap, stepCoordMap);
+
+                if (!isCrossing) {
+                    // ---------------------------------------------------------
+                    // 情境 A1：完美共線性 -> Merge (壓縮成同一個 Block)
+                    // ---------------------------------------------------------
+                    if (DEBUG_MODE) std::cout << "  [SCENARIO A1] Collinear paths. Extracting and Merging...\n";
+
+                    auto mBlk = mergedSet->mergeTwoBlocks(rBlk, qBlk, bestAln.CIGAR, bestAln.inverse);
+                    BlockID rootMId = mBlk->getId();
+                    int totalConsLen = mBlk->getConsensus().length();
+
+                    // 先行註冊全域地圖
+                    for (int i = 0; i < rLen; ++i) refGlobalMap[r_start + i] = {rootMId, stepCoordMap[i]};
+                    for (int i = 0; i < qLen; ++i) qryGlobalMap[q_start + i] = {rootMId, uCoordMap[i]};
+
+                } else {
+                    // ---------------------------------------------------------
+                    // 情境 A2：偵測到跨越 -> Link (保留線性結構 A -> B1 -> C -> B2)
+                    // ---------------------------------------------------------
+                    if (DEBUG_MODE) std::cout << "  [SCENARIO A2] Crossing/Inversion detected! Linking instead of Merging to prevent loops.\n";
+
+                    mergedSet->linkTwoBlocks(rBlk, qBlk, bestAln.CIGAR, bestAln.inverse);
+
+                    BlockID rBlkId = rBlk->getId();
+                    BlockID qBlkId = qBlk->getId();
+                    int totalConsLen = rBlk->getConsensus().length();
+
+                    for (int i = 0; i < rLen; ++i) refGlobalMap[r_start + i] = {rBlkId, stepCoordMap[i]};
+                    for (int i = 0; i < qLen; ++i) qryGlobalMap[q_start + i] = {qBlkId, uCoordMap[i]};
+                }
             }
 
-            if (!foundEdge) {
-                if (DEBUG_MODE) std::cout << "  │  [WARNING] Group disconnected! Dropping " << unmergedMembers.size() << " orphaned members.\n";
-                break; // 斷圖，結束此 Group
+            // ---------------------------------------------------------
+            // 情境 B：Ref 已存在，Qry 是新的
+            // ---------------------------------------------------------
+            else if (r_merged && !q_merged) {
+                BlockID targetMId = *r_overlaps.begin(); 
+                auto bounds = getSafeLocalBounds(refGlobalMap, r_start, r_end, targetMId);
+                int localStart = bounds.first, localEnd = bounds.second;
+
+                if (DEBUG_MODE) std::cout << "  [SCENARIO B] Ref exists in Block " << targetMId 
+                                          << " | Safe Bounds: [" << localStart << ", " << localEnd << ")\n";
+
+                BlockID coreMId;
+                auto targetMBlk = splitBlockSafely(targetMId, localStart, localEnd, coreMId);
+                int newSuperLen = targetMBlk->getConsensus().length();
+
+                auto qBlk = extractBlockFromSuper(mergedSet, qrySuperBlock, q_start, q_end);
+                BlockID qBlkId = qBlk->getId();
+                int qLen = qBlk->getConsensus().length();
+
+                if (DEBUG_MODE) std::cout << "    -> Split resulting Core Block ID: " << coreMId << " (Len: " << newSuperLen << ")\n"
+                                          << "    -> Extracted Qry Block ID: " << qBlkId << " (Len: " << qLen << ")\n";
+
+                std::vector<int> targetCoordMap; 
+                for (int i = r_start; i < r_end; ++i) targetCoordMap.push_back(refGlobalMap[i].localPos);
+
+                bool isTargetReversed = (targetCoordMap.size() > 1 && targetCoordMap.front() > targetCoordMap.back());
+                if (isTargetReversed) std::reverse(targetCoordMap.begin(), targetCoordMap.end());
+
+                CigarString linkingCigar = bestAln.CIGAR;
+                if (isTargetReversed) std::reverse(linkingCigar.begin(), linkingCigar.end());
+                bool finalInverse = bestAln.inverse ^ isTargetReversed;
+
+                CigarString adjustedCigar = adjustCigarWithMap(linkingCigar, targetCoordMap, newSuperLen);
+
+                if (DEBUG_MODE) {
+                    std::cout << "    -> Direction: isTargetReversed=" << (isTargetReversed?"YES":"NO") 
+                              << ", finalInverse=" << (finalInverse?"YES":"NO") << "\n"
+                              << "    -> Orig CIGAR: " << cigarToStr(bestAln.CIGAR) << "\n"
+                              << "    -> Adj  CIGAR: " << cigarToStr(adjustedCigar) << "\n";
+                }
+
+                std::vector<int> uCoordMap, stepCoordMap;
+                buildCoordMaps(adjustedCigar, qLen, newSuperLen, uCoordMap, stepCoordMap);
+
+                mergedSet->linkTwoBlocks(targetMBlk, qBlk, adjustedCigar, finalInverse);
+
+                for (auto& tracker : refGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (auto& tracker : qryGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (int i = 0; i < qLen; ++i) qryGlobalMap[q_start + i] = {qBlkId, uCoordMap[i]};
+
+                // syncTrackersFromMap(refGlobalMap, alnCollection.ref_coverageTracker);
+                // alnCollection.qry_coverageTracker.overwrite(q_start, q_end, qBlkId);
             }
 
-            auto memberBlock = globalBlockPool[targetUnmergedId];
-            if (DEBUG_MODE) std::cout << "  ├─ Merging Member " << targetUnmergedId << " (via edge from " << targetMergedId << ")\n";
+            // ---------------------------------------------------------
+            // 情境 C：Qry 已存在，Ref 是新的
+            // ---------------------------------------------------------
+            else if (!r_merged && q_merged) {
+                BlockID targetMId = *q_overlaps.begin(); 
+                auto bounds = getSafeLocalBounds(qryGlobalMap, q_start, q_end, targetMId);
+                int localStart = bounds.first, localEnd = bounds.second;
 
-            // ==========================================
-            // A. 處理 Inverse 邏輯與 CIGAR 方向性 (負正得負)
-            // ==========================================
-            // 1. 取得橋樑積木 (M) 當初加入 Hub 時的方向狀態
-            bool mIsRev = isReversedInHub[targetMergedId];
+                if (DEBUG_MODE) std::cout << "  [SCENARIO C] Qry exists in Block " << targetMId 
+                                          << " | Safe Bounds: [" << localStart << ", " << localEnd << ")\n";
+
+                BlockID coreMId;
+                auto targetMBlk = splitBlockSafely(targetMId, localStart, localEnd, coreMId);
+                int newSuperLen = targetMBlk->getConsensus().length();
+
+                auto rBlk = extractBlockFromSuper(mergedSet, refSuperBlock, r_start, r_end);
+                BlockID rBlkId = rBlk->getId();
+                int rLen = rBlk->getConsensus().length();
+
+                if (DEBUG_MODE) std::cout << "    -> Split resulting Core Block ID: " << coreMId << " (Len: " << newSuperLen << ")\n"
+                                          << "    -> Extracted Ref Block ID: " << rBlkId << " (Len: " << rLen << ")\n";
+
+                std::vector<int> targetCoordMap; 
+                for (int i = q_start; i < q_end; ++i) targetCoordMap.push_back(qryGlobalMap[i].localPos);
+
+                bool isTargetReversed = (targetCoordMap.size() > 1 && targetCoordMap.front() > targetCoordMap.back());
+                if (isTargetReversed) std::reverse(targetCoordMap.begin(), targetCoordMap.end());
+
+                // 🚨 Scenario C 是 Qry -> Ref，必須手動倒轉 CIGAR 的 I 和 D！
+                CigarString invertedCigar = bestAln.CIGAR;
+                for (auto& op : invertedCigar) {
+                    if (op.second == 'I') op.second = 'D';
+                    else if (op.second == 'D') op.second = 'I';
+                }
+                if (isTargetReversed) std::reverse(invertedCigar.begin(), invertedCigar.end());
+                bool finalInverse = bestAln.inverse ^ isTargetReversed;
+
+                CigarString adjustedCigar = adjustCigarWithMap(invertedCigar, targetCoordMap, newSuperLen);
+
+                if (DEBUG_MODE) {
+                    std::cout << "    -> Direction: isTargetReversed=" << (isTargetReversed?"YES":"NO") 
+                              << ", finalInverse=" << (finalInverse?"YES":"NO") << "\n"
+                              << "    -> Orig CIGAR: " << cigarToStr(bestAln.CIGAR) << "\n"
+                              << "    -> Inv  CIGAR: " << cigarToStr(invertedCigar) << "\n"
+                              << "    -> Adj  CIGAR: " << cigarToStr(adjustedCigar) << "\n";
+                }
+
+                std::vector<int> uCoordMap, stepCoordMap;
+                buildCoordMaps(adjustedCigar, rLen, newSuperLen, uCoordMap, stepCoordMap);
+
+                mergedSet->linkTwoBlocks(targetMBlk, rBlk, adjustedCigar, finalInverse);
+
+                for (auto& tracker : refGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (auto& tracker : qryGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (int i = 0; i < rLen; ++i) refGlobalMap[r_start + i] = {rBlkId, uCoordMap[i]};
+
+                // syncTrackersFromMap(qryGlobalMap, alnCollection.qry_coverageTracker);
+                // alnCollection.ref_coverageTracker.overwrite(r_start, r_end, rBlkId);
+            }
+
+            // ---------------------------------------------------------
+            // 情境 D：兩端都已存在
+            // ---------------------------------------------------------
+            else {
+                BlockID mIdR = *r_overlaps.begin();
+                BlockID mIdQ = *q_overlaps.begin();
+
+                if (DEBUG_MODE) std::cout << "  [SCENARIO D] Both exist. Ref Block " << mIdR << ", Qry Block " << mIdQ << "\n";
+
+                if (mIdR == mIdQ) {
+                    if (DEBUG_MODE) std::cout << "    -> [SKIP] Internal repeat within the same Block.\n";
+                    continue; 
+                }
+
+                // 1. 處理 Ref 端
+                auto boundsR = getSafeLocalBounds(refGlobalMap, r_start, r_end, mIdR);
+                int localStartR = boundsR.first, localEndR = boundsR.second;
+                bool isReversedR = (localStartR > localEndR);
+                if (isReversedR) std::swap(localStartR, localEndR);
+
+                BlockID coreMIdR;
+                auto targetMBlkR = splitBlockSafely(mIdR, localStartR, localEndR, coreMIdR);
+                int lenR = targetMBlkR->getConsensus().length();
+                std::vector<int> targetCoordMapR;
+                for (int i = r_start; i < r_end; ++i) targetCoordMapR.push_back(refGlobalMap[i].localPos);
+
+                if (DEBUG_MODE) std::cout << "    -> Ref Split bounds: [" << localStartR << ", " << localEndR << ") "
+                                          << "-> Core Block ID: " << coreMIdR << " (isReversed: " << (isReversedR?"YES":"NO") << ")\n";
+
+                // 2. 處理 Qry 端
+                BlockID currentMIdQ = qryGlobalMap[q_start].blkId;
+                if (coreMIdR == currentMIdQ) {
+                    if (DEBUG_MODE) std::cout << "    -> [SKIP] Ended up in the same Block after Ref split.\n";
+                    continue;
+                }
+
+                auto boundsQ = getSafeLocalBounds(qryGlobalMap, q_start, q_end, currentMIdQ);
+                int localStartQ = boundsQ.first, localEndQ = boundsQ.second;
+                bool isReversedQ = (localStartQ > localEndQ);
+                if (isReversedQ) std::swap(localStartQ, localEndQ);
+
+                BlockID coreMIdQ;
+                auto targetMBlkQ = splitBlockSafely(currentMIdQ, localStartQ, localEndQ, coreMIdQ);
+                int lenQ = targetMBlkQ->getConsensus().length();
+                std::vector<int> targetCoordMapQ;
+                for (int i = q_start; i < q_end; ++i) targetCoordMapQ.push_back(qryGlobalMap[i].localPos);
+
+                if (DEBUG_MODE) std::cout << "    -> Qry Split bounds: [" << localStartQ << ", " << localEndQ << ") "
+                                          << "-> Core Block ID: " << coreMIdQ << " (isReversed: " << (isReversedQ?"YES":"NO") << ")\n";
+
+                // 3. 雙向 CIGAR 映射與反轉
+                if (isReversedR) std::reverse(targetCoordMapR.begin(), targetCoordMapR.end());
+                if (isReversedQ) std::reverse(targetCoordMapQ.begin(), targetCoordMapQ.end());
+
+                CigarString linkingCigar = bestAln.CIGAR;
+                if (isReversedR) std::reverse(linkingCigar.begin(), linkingCigar.end());
+                bool finalInverseR = bestAln.inverse ^ isReversedR;
+
+                CigarString cigarR = adjustCigarWithMap(linkingCigar, targetCoordMapR, lenR);
+                CigarString cigarR_inv;
+                for (auto op : cigarR) {
+                    if (op.second == 'I') cigarR_inv.push_back({op.first, 'D'});
+                    else if (op.second == 'D') cigarR_inv.push_back({op.first, 'I'});
+                    else cigarR_inv.push_back(op);
+                }
+                if (isReversedQ) std::reverse(cigarR_inv.begin(), cigarR_inv.end());
+                bool finalInverseQ = finalInverseR ^ isReversedQ;
+
+                CigarString cigarQ = adjustCigarWithMap(cigarR_inv, targetCoordMapQ, lenQ);
+                CigarString finalCigar;
+                for (auto op : cigarQ) {
+                    if (op.second == 'I') finalCigar.push_back({op.first, 'D'});
+                    else if (op.second == 'D') finalCigar.push_back({op.first, 'I'});
+                    else finalCigar.push_back(op);
+                }
+
+                if (DEBUG_MODE) {
+                    std::cout << "    -> Final Link Direction: finalInverseQ=" << (finalInverseQ?"YES":"NO") << "\n"
+                              << "    -> Orig CIGAR:  " << cigarToStr(bestAln.CIGAR) << "\n"
+                              << "    -> Final CIGAR: " << cigarToStr(finalCigar) << "\n";
+                }
+
+                std::vector<int> uCoordMap, stepCoordMap;
+                buildCoordMaps(finalCigar, lenQ, lenR, uCoordMap, stepCoordMap);
+
+                mergedSet->linkTwoBlocks(targetMBlkR, targetMBlkQ, finalCigar, finalInverseQ);
+
+                for (auto& tracker : refGlobalMap) {
+                    if (tracker.blkId == coreMIdR && tracker.localPos < stepCoordMap.size()) 
+                        tracker.localPos = stepCoordMap[tracker.localPos];
+                    if (tracker.blkId == coreMIdQ && tracker.localPos < uCoordMap.size()) {
+                        tracker.blkId = coreMIdR;
+                        tracker.localPos = uCoordMap[tracker.localPos];
+                    }
+                }
+                for (auto& tracker : qryGlobalMap) {
+                    if (tracker.blkId == coreMIdR && tracker.localPos < stepCoordMap.size()) 
+                        tracker.localPos = stepCoordMap[tracker.localPos];
+                    if (tracker.blkId == coreMIdQ && tracker.localPos < uCoordMap.size()) {
+                        tracker.blkId = coreMIdR;
+                        tracker.localPos = uCoordMap[tracker.localPos];
+                    }
+                }
+                // syncTrackersFromMap(refGlobalMap, alnCollection.ref_coverageTracker);
+                // syncTrackersFromMap(qryGlobalMap, alnCollection.qry_coverageTracker);
+            }
+            syncTrackersFromMap(refGlobalMap, alnCollection.ref_coverageTracker);
+            syncTrackersFromMap(qryGlobalMap, alnCollection.qry_coverageTracker);
+            // mergedSet->debugValidateSegments(true);
+        }   
+    }
+    
+
+    if (DEBUG_MODE) std::cout << "\n  -> Processed " << mergeCounter << " valid alignments.\n";
+
+    // ==========================================
+    // Phase 4: 提取未覆蓋的邊角料 (Unused Regions)
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "\n[Phase 4] Extracting Unmapped Regions to preserve all sequences...\n";
+    int unmappedCount = 0;
+
+    auto extractUnusedRegions = [&](const CoverageTracker& tracker, std::shared_ptr<Block> superBlock, int superLen, const std::string& label) {
+        int currentPos = 0;
+        for (auto const& [start, info] : tracker.intervals) {
+            if (currentPos < start) {
+                auto unmappedBlk = extractBlockFromSuper(mergedSet, superBlock, currentPos, start);
+                if (mergedSet->getBlock(unmappedBlk->getId()) == nullptr) {
+                    mergedSet->addBlock(unmappedBlk);
+                    unmappedCount++;
+                    if (DEBUG_MODE) std::cout << "  -> Extracted " << label << " Gap [" << currentPos << ", " << start << "] as Block ID: " << unmappedBlk->getId() << "\n";
+                }
+            }
+            currentPos = std::max(currentPos, info.end);
+        }
+        if (currentPos < superLen) {
+            auto unmappedBlk = extractBlockFromSuper(mergedSet, superBlock, currentPos, superLen);
+            if (mergedSet->getBlock(unmappedBlk->getId()) == nullptr) {
+                mergedSet->addBlock(unmappedBlk);
+                unmappedCount++;
+                if (DEBUG_MODE) std::cout << "  -> Extracted " << label << " Tail [" << currentPos << ", " << superLen << "] as Block ID: " << unmappedBlk->getId() << "\n";
+            }
+        }
+    };
+
+    extractUnusedRegions(alnCollection.ref_coverageTracker, refSuperBlock, refSuperLen, "Ref");
+    extractUnusedRegions(alnCollection.qry_coverageTracker, qrySuperBlock, qrySuperLen, "Qry");
+
+    if (DEBUG_MODE) std::cout << "  -> Total " << unmappedCount << " unmapped fragments successfully integrated into Graph.\n";
+
+    // ==========================================
+    // Phase 5: 拓撲重建 (Linear Topology Reconstruction)
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "\n[Phase 5] Re-wiring Linear Pangenome Graph Edges...\n";
+
+    for (auto& block: mergedSet->getAllBlocks()) {
+        auto blk = block.lock();
+        if (!blk) continue;
+        blk->normalizeStrand();
+    }
+    
+    mergedSet->rebuildAllPointers();
+    for (auto& seq: refSet->getSequences()) mergedSet->addSequenceName(seq);
+    for (auto& seq: qrySet->getSequences()) mergedSet->addSequenceName(seq);
+
+    // Add distant blocks back to the merged blockset
+    for (auto& blk: refSet->getAllBlocks()) {
+        if (blk.lock()->isDistant()) {
+            mergedSet->addBlock(blk.lock());
+        }
+    }
+    for (auto& blk: qrySet->getAllBlocks()) {
+        if (blk.lock()->isDistant()) {
+            mergedSet->addBlock(blk.lock());
+        }
+    }
+
+    
+    auto timeEnd = std::chrono::high_resolution_clock::now();
+    if (DEBUG_MODE) {
+        std::cout << "\n========================================================\n"
+                  << "=== GRAPH MERGE COMPLETED SUCCESSFULLY ===\n"
+                  << "Total Execution Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(timeEnd - time0).count() << " ms\n"
+                  << "========================================================\n\n";
+    }
+
+    return mergedSet;
+}
+*/
+
+
+// ==========================================
+// 主函數：Greedy Dynamic Graph Merge
+// ==========================================
+BlockSet* BlockManager::merge(BlockSet* refSet, BlockSet* qrySet, BlockBoundaries& refBounds, BlockBoundaries& qryBounds, AlignmentCollection& alnCollection, int L_min) {
+    bool DEBUG_MODE = true;
+    auto time0 = std::chrono::high_resolution_clock::now();
+    if (DEBUG_MODE) std::cout << "\n========================================================\n"
+                              << "=== TWILIGHT-MGA DYNAMIC MERGE: " << refSet->getId() << " + " << qrySet->getId() << " ===\n"
+                              << "========================================================\n";
+
+    // ==========================================
+    // Phase 1: 建立 Super Blocks
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "[Phase 1] Concatenating Super-Blocks...\n";
+    
+    auto refSuperBlock = refSet->concatenateBlocks(9999991); 
+    auto qrySuperBlock = qrySet->concatenateBlocks(9999992);
+
+    std::string newID = "Merged_" + refSet->getId() + "_" + qrySet->getId();
+    BlockSet* mergedSet = createBlockSet(newID); 
+
+    int refSuperLen = refSuperBlock->getConsensus().length();
+    int qrySuperLen = qrySuperBlock->getConsensus().length();
+
+    if (DEBUG_MODE) std::cout << "  -> Ref SuperBlock Len: " << refSuperLen << ", Qry SuperBlock Len: " << qrySuperLen << "\n";
+
+    // ==========================================
+    // 🌟 Phase 1.5: 家族同源並查集 (Family Union-Find Ledger)
+    // ==========================================
+    std::map<int, int> familyAliases;
+    int nextFamId = 10000; // 從 10000 開始分配新家族
+
+    auto getTrueFam = [&](int id) {
+        if (id == 0) return 0;
+        int root = id;
+        while (familyAliases.count(root) && familyAliases[root] != root) root = familyAliases[root];
+        int curr = id;
+        while (curr != root) { int nxt = familyAliases[curr]; familyAliases[curr] = root; curr = nxt; }
+        return root;
+    };
+
+    auto unifyFam = [&](int id1, int id2) {
+        int r1 = getTrueFam(id1), r2 = getTrueFam(id2);
+        if (r1 == 0 && r2 == 0) { r1 = ++nextFamId; familyAliases[r1] = r1; return r1; }
+        if (r1 == 0) return r2;
+        if (r2 == 0) return r1;
+        if (r1 != r2) familyAliases[r2] = r1; 
+        return r1;
+    };
+
+    auto getFamFromBlock = [&](BlockID blkId) {
+        auto blk = mergedSet->getBlock(blkId);
+        if (!blk) return 0;
+        return getTrueFam(blk->getFamilyId());
+    };
+
+    // ==========================================
+    // Phase 2: 全域座標映射系統
+    // ==========================================
+    struct CoordTracker { 
+        BlockID blkId = 0; 
+        int localPos = -1; 
+    };
+    std::vector<CoordTracker> refGlobalMap(refSuperLen + 1);
+    std::vector<CoordTracker> qryGlobalMap(qrySuperLen + 1);
+
+    auto buildCoordMaps = [&](const CigarString& adjustedCigar, int qLen, int rLen, 
+                              std::vector<int>& uCoordMap, std::vector<int>& stepCoordMap) {
+        uCoordMap.assign(qLen + 1, 0);
+        stepCoordMap.assign(rLen + 1, 0);
+        
+        int rPos = 0, qPos = 0, consPos = 0;
+        
+        for (auto op : adjustedCigar) {
+            int len = op.first; char type = op.second;
+            if (type == 'M' || type == '=' || type == 'X') {
+                for (int i = 0; i < len; ++i) {
+                    if (qPos < qLen) uCoordMap[qPos++] = consPos;
+                    if (rPos < rLen) stepCoordMap[rPos++] = consPos;
+                    consPos++;
+                }
+            } else if (type == 'D') {
+                for (int i = 0; i < len; ++i) {
+                    if (rPos < rLen) stepCoordMap[rPos++] = consPos;
+                    consPos++;
+                }
+            } else if (type == 'I') {
+                for (int i = 0; i < len; ++i) {
+                    if (qPos < qLen) uCoordMap[qPos++] = consPos;
+                    consPos++; 
+                }
+            } else if (type == 'S' || type == 'H') {
+                for (int i = 0; i < len; ++i) qPos++;
+            }
+        }
+        if (qPos <= qLen) uCoordMap[qPos] = consPos;
+        if (rPos <= rLen) stepCoordMap[rPos] = consPos;
+    };
+
+    // ==========================================
+    // Phase 3: 核心 Greedy 迴圈 (Linear Block Logic)
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "\n[Phase 3] Processing Alignments Dynamically...\n";
+    int mergeCounter = 0;
+
+    auto splitBlockSafely = [&](BlockID targetMId, int localStart, int localEnd, BlockID& outMiddleId) {
+        auto updateMap = [&](std::vector<CoordTracker>& globalMap, BlockID oldID, BlockID leftID, BlockID rightID, int cutPos) {
+            bool found = false;
+            for (auto& tracker : globalMap) {
+                if (tracker.blkId == oldID) {
+                    found = true;
+                    if (tracker.localPos < cutPos) tracker.blkId = leftID;
+                    else { tracker.blkId = rightID; tracker.localPos -= cutPos; }
+                } else if (found) {
+                    break; 
+                }
+            }
+        };
+
+        BlockID currentId = targetMId;
+        auto blk = mergedSet->getBlock(currentId);
+        int currentLen = blk->getConsensus().length();
+
+        if (localStart <= 0 && localEnd >= currentLen) {
+            outMiddleId = currentId;
+            return blk;
+        }
+
+        if (localStart > 0) {
+            auto parts = mergedSet->splitSingleBlock(currentId, localStart);
+            updateMap(refGlobalMap, currentId, parts.first, parts.second, localStart);
+            updateMap(qryGlobalMap, currentId, parts.first, parts.second, localStart);
+            currentId = parts.second; 
+            localEnd -= localStart; 
+        }
+
+        int lenAfterFirstCut = mergedSet->getBlock(currentId)->getConsensus().length();
+        if (localEnd < lenAfterFirstCut) { 
+            auto parts = mergedSet->splitSingleBlock(currentId, localEnd); 
+            updateMap(refGlobalMap, currentId, parts.first, parts.second, localEnd);
+            updateMap(qryGlobalMap, currentId, parts.first, parts.second, localEnd);
+            currentId = parts.first; 
+        }
+
+        outMiddleId = currentId;
+        return mergedSet->getBlock(currentId);
+    };
+
+    auto getSafeLocalBounds = [&](const std::vector<CoordTracker>& globalMap, int start, int end, BlockID targetMId) {
+        int pos1 = globalMap[start].localPos;
+        int pos2 = globalMap[end - 1].localPos; 
+
+        int local_s = std::min(pos1, pos2);
+        int local_e = std::max(pos1, pos2) + 1; 
+
+        bool isReversed = (pos1 > pos2);
+        bool isStartBoundary = (start == 0 || globalMap[start].blkId != globalMap[start - 1].blkId);
+        bool isEndBoundary   = (end >= globalMap.size() || globalMap[end].blkId != targetMId);
+
+        int blockLen = mergedSet->getBlock(targetMId)->getConsensus().length();
+
+        if (isReversed) {
+            if (isStartBoundary) local_e = blockLen;
+            if (isEndBoundary)   local_s = 0;
+        } else {
+            if (isStartBoundary) local_s = 0;
+            if (isEndBoundary)   local_e = blockLen;
+        }
+        return std::make_pair(local_s, local_e);
+    };
+
+    auto syncTrackersFromMap = [&](std::vector<CoordTracker>& globalMap, CoverageTracker& tracker) {
+        tracker.intervals.clear(); 
+        BlockID currentId = 0;
+        int startPos = -1;
+        for (int i = 0; i < globalMap.size(); ++i) {
+            if (globalMap[i].blkId != currentId) {
+                if (currentId != 0 && startPos != -1) tracker.intervals[startPos] = {i, currentId}; 
+                currentId = globalMap[i].blkId;
+                startPos = i;
+            }
+        }
+        if (currentId != 0 && startPos != -1) tracker.intervals[startPos] = {static_cast<int>(globalMap.size()), currentId};
+    };
+
+    auto cigarToStr = [](const CigarString& c) {
+        std::string s = "";
+        for (auto& op : c) s += std::to_string(op.first) + op.second;
+        return s;
+    };
+
+    uint64_t findBest = 0, merge_time = 0, extract_time = 0;
+
+    
+
+    while (true) {
+        auto best_1 = std::chrono::high_resolution_clock::now();
+        Alignments bestAlns = alnCollection.getBestAlignments(refSet, qrySet, refSuperBlock, qrySuperBlock, refBounds, qryBounds);
+        auto best_2 = std::chrono::high_resolution_clock::now();
+        findBest += std::chrono::duration_cast<std::chrono::milliseconds>(best_2 - best_1).count();
+
+
+
+        if (bestAlns.empty()) break;
+
+        for (Alignment& bestAln : bestAlns) {
+            if (!bestAln.valid) break;
+
+            bestAln.CIGAR = compressCigar(bestAln.CIGAR);
+
+            std::cout << "CIGAR: " << cigarToStr(bestAln.CIGAR) << "\n";
+            int r_start = bestAln.refIdx.first, r_end = bestAln.refIdx.second;
+            int q_start = std::min(bestAln.qryIdx.first, bestAln.qryIdx.second); 
+            int q_end   = std::max(bestAln.qryIdx.first, bestAln.qryIdx.second);
+
+            std::cout << "Ref: (" << r_start << ", " << r_end << "), Qry: (" << q_start << ", " << q_end << ")\n";
             
-            // 2. 計算新積木 (U) 應該套用的真實反轉狀態
-            bool effectiveInverse = mIsRev ^ bestInverse;
 
-            // 3. 【核心修復】：原本的 bestOrigCigar 是基於原始 M 到原始 U。
-            // 如果 M 已經在 Hub 中反轉，我們必須將 CIGAR 左右對調，才能讓 coordMaps 正確映射！
-            mga::Cigar inputCigar = bestOrigCigar;
-            if (mIsRev) {
-                std::reverse(inputCigar.begin(), inputCigar.end());
+            auto r_overlaps = alnCollection.ref_coverageTracker.getOverlappingIds(r_start, r_end);
+            auto q_overlaps = alnCollection.qry_coverageTracker.getOverlappingIds(q_start, q_end);
+            
+            bool r_merged = !r_overlaps.empty();
+            bool q_merged = !q_overlaps.empty();
+
+            if (r_merged && DEBUG_MODE) {
+                std::cout << "Ref Overlap: ";
+                for (auto& id : r_overlaps) std::cout << id << ", ";
+                std::cout << "\n";
             }
-
-            // 4. 將 CIGAR 補償為指向「當前 SuperBase 的 Consensus」
-            int superBaseLen = baseBlock->getConsensus().length();
-            mga::Cigar adjustedCigar = adjustCigarWithMap(inputCigar, coordMaps[targetMergedId], superBaseLen);
-
-            if (DEBUG_MODE) {
-                std::cout << "  │    - Orig CIGAR: ";
-                for (auto op : bestOrigCigar) std::cout << op.first << op.second;
-                std::cout << "\n  │    - Adj. CIGAR: ";
-                for (auto op : adjustedCigar) std::cout << op.first << op.second;
+            if (q_merged && DEBUG_MODE) { 
+                std::cout << "Qry Overlap: ";
+                for (auto& id : q_overlaps) std::cout << id << ", ";
                 std::cout << "\n";
             }
             
-            // B. 建立即將加入的 Member 的專屬 coordMap
-            int uLen = memberBlock->getConsensus().length();
-            std::vector<int> uCoordMap(uLen + 1, 0);
-            int tmpR = 0, tmpQ = 0;
-            for (auto op : adjustedCigar) {
-                int len = op.first; char type = op.second;
-                if (type == 'M' || type == '=' || type == 'X') {
-                    for(int i=0; i<len; ++i) { if (tmpQ < uLen) uCoordMap[tmpQ++] = tmpR++; else tmpR++; }
-                } else if (type == 'D') {
-                    tmpR += len;
-                } else if (type == 'I') {
-                    for(int i=0; i<len; ++i) { if (tmpQ < uLen) uCoordMap[tmpQ++] = tmpR; }
-                } else if (type == 'S' || type == 'H') {
-                    tmpQ += len;
+
+            mergeCounter++;
+
+            // ---------------------------------------------------------
+            // 情境 A：兩端全新
+            // ---------------------------------------------------------
+            if (!r_merged && !q_merged) {
+                if (DEBUG_MODE) std::cout << "  [SCENARIO A] Both ends are new. Extracting blocks...\n";
+
+                auto getIdsBefore = [&](const CoverageTracker& ct, int pos) {
+                    std::set<BlockID> res;
+                    for (auto const& [s, info] : ct.intervals) if (info.end <= pos) res.insert(info.blockId);
+                    return res;
+                };
+                auto getIdsAfter = [&](const CoverageTracker& ct, int pos) {
+                    std::set<BlockID> res;
+                    for (auto const& [s, info] : ct.intervals) if (s >= pos) res.insert(info.blockId);
+                    return res;
+                };
+
+                std::set<BlockID> ref_before = getIdsBefore(alnCollection.ref_coverageTracker, r_start);
+                std::set<BlockID> ref_after  = getIdsAfter(alnCollection.ref_coverageTracker, r_end);
+                std::set<BlockID> qry_before = getIdsBefore(alnCollection.qry_coverageTracker, q_start);
+                std::set<BlockID> qry_after  = getIdsAfter(alnCollection.qry_coverageTracker, q_end);
+
+                // =======================================================
+                // 🌟 2. 判定 Crossing (移除所有環狀特赦邏輯)
+                // 因為序列已在預處理階段對齊 0 座標，任何拓撲交叉皆視為真實變異！
+                // =======================================================
+                bool isCrossing = false;
+                
+                // 只要 Qry 過去的積木出現在 Ref 未來，或 Qry 未來的積木出現在 Ref 過去，就是交叉！
+                for(BlockID id : qry_before) {
+                    if (ref_after.count(id)) { isCrossing = true; break; }
                 }
-            }
-            uCoordMap[uLen] = tmpR;
-            coordMaps[targetUnmergedId] = uCoordMap; // 加入追蹤池
-
-            // C. 準備 stepCoordMap 計算即將發生的共識長胖
-            int adjRefLen = 0;
-            for (auto op : adjustedCigar) {
-                if (op.second == 'M' || op.second == '=' || op.second == 'X' || op.second == 'D') adjRefLen += op.first;
-            }
-            std::vector<int> stepCoordMap(adjRefLen + 1, 0);
-            tmpR = 0; int mPos = 0;
-            for (auto op : adjustedCigar) {
-                int len = op.first; char type = op.second;
-                if (type == 'M' || type == '=' || type == 'X' || type == 'D') {
-                    for (int i=0; i<len; ++i) { if (tmpR < stepCoordMap.size()) stepCoordMap[tmpR++] = mPos++; }
-                } else if (type == 'I') {
-                    mPos += len;
-                }
-            }
-            if (tmpR < stepCoordMap.size()) stepCoordMap[tmpR] = mPos;
-
-            // D. 執行真實的物理合併 (傳入算好的 effectiveInverse)
-            baseBlock = refSuperSet.mergeTwoBlocks(baseBlock, memberBlock, adjustedCigar, effectiveInverse); 
-
-            // E. 聯動更新【所有】已在池內的 Member 的座標系！
-            for (auto& kv : coordMaps) {
-                for (size_t i = 0; i < kv.second.size(); ++i) {
-                    if (kv.second[i] < stepCoordMap.size()) {
-                        kv.second[i] = stepCoordMap[kv.second[i]];
+                if (!isCrossing) {
+                    for(BlockID id : qry_after) {
+                        if (ref_before.count(id)) { isCrossing = true; break; }
                     }
                 }
-            }
 
-            // F. 狀態更新
-            mergedMembers.insert(targetUnmergedId);
-            unmergedMembers.erase(targetUnmergedId);
-            isReversedInHub[targetUnmergedId] = effectiveInverse; // 【新增】：記錄這塊積木的最終反轉狀態
-        }
+                // 🌟 extractBlockFromSuper 底層已自動 addBlock
+                auto rBlk = extractBlockFromSuper(mergedSet, refSuperBlock, r_start, r_end);
+                auto qBlk = extractBlockFromSuper(mergedSet, qrySuperBlock, q_start, q_end);
+                int rLen = rBlk->getConsensus().length(), qLen = qBlk->getConsensus().length();
 
-        if (DEBUG_MODE) std::cout << "  └─ Final Merged Block ID: " << baseBlock->getId() << "\n\n";
-
-        workingPool.insert(baseBlock);
-        for (Block::ID memberId : mergedMembers) {
-            oldToNewBlockMap[memberId] = baseBlock;
-        }
-    }
-
-
-    // ==========================================
-    // Phase 5: 拓撲重建 (Topology Reconstruction)
-    // ==========================================
-    if (DEBUG_MODE) std::cout << "[Phase 5] Rewiring Graph Edges and Finalizing...\n";
-    
-    // ==========================================
-    // Phase 5: 基於生物座標的自動拓撲重建 
-    // ==========================================
-    if (DEBUG_MODE) std::cout << "[Phase 5] Re-wiring Pangenome Graph Edges based on genomic coordinates...\n";
-    
-    for (auto& blk : workingPool) {
-        resultSet->addBlock(blk);
-        blk->clearLinkages(); 
-    }
-
-    // 【修改點 3】：利用真實序列座標排序來重建圖拓撲
-    struct SegRef { Segment* seg; std::shared_ptr<Block> blk; };
-    std::map<std::string, std::vector<SegRef>> seqTracks;
-    
-    auto allBlocks = resultSet->getAllBlocks();
-    for (auto& blk : allBlocks) {
-        for (auto& seqPair : blk->getSequences()) {
-            for (auto& segPair : seqPair.second.getSegments()) {
-                seqTracks[seqPair.first].push_back({ &segPair.second, blk });
-            }
-        }
-    }
-
-    for (auto& trackPair : seqTracks) {
-        auto& track = trackPair.second;
-        
-        // 依照原始基因體座標排序
-        std::sort(track.begin(), track.end(), [](const SegRef& a, const SegRef& b) {
-            return std::min(a.seg->getStart(), a.seg->getEnd()) < std::min(b.seg->getStart(), b.seg->getEnd());
-        });
-        
-        for (size_t i = 0; i < track.size(); ++i) {
-            track[i].seg->setPrevBlock(nullptr);
-            track[i].seg->setNextBlock(nullptr);
-            
-            if (i > 0) {
-                auto& prevRef = track[i-1];
-                auto& currRef = track[i];
+                std::vector<int> uCoordMap, stepCoordMap;
+                buildCoordMaps(bestAln.CIGAR, qLen, rLen, uCoordMap, stepCoordMap);
                 
-                if (!prevRef.seg->isReverse()) prevRef.seg->setNextBlock(currRef.blk);
-                else prevRef.seg->setPrevBlock(currRef.blk); 
-                
-                if (!currRef.seg->isReverse()) currRef.seg->setPrevBlock(prevRef.blk);
-                else currRef.seg->setNextBlock(prevRef.blk); 
+                // (處理反向對照表的翻轉，如我們先前討論的)
+                if (bestAln.inverse) std::reverse(uCoordMap.begin(), uCoordMap.end());
+
+                if (!isCrossing) {
+                    // 🌟 A1: 完美共線性 -> Merge
+                    if (DEBUG_MODE) std::cout << "      [SCENARIO A1] Collinear paths. Merging...";
+
+                    int finalFam = 0;
+                    if (bestAln.refFamilyId != 0 || bestAln.qryFamilyId != 0) {
+                        finalFam = unifyFam(bestAln.refFamilyId, bestAln.qryFamilyId);
+                    }
+
+                    auto merge_1 = std::chrono::high_resolution_clock::now();
+                    auto mBlk = mergedSet->mergeTwoBlocks(rBlk, qBlk, bestAln.CIGAR, bestAln.inverse);
+                    auto merge_2 = std::chrono::high_resolution_clock::now();
+                    merge_time += std::chrono::duration_cast<std::chrono::milliseconds>(merge_2 - merge_1).count();
+
+                    mBlk->setFamilyId(getTrueFam(finalFam)); 
+
+                    if (DEBUG_MODE) std::cout << " -> Block " << mBlk->getId() << " (Length: " << mBlk->getConsensus().length() << ")\n";
+
+                    BlockID rootMId = mBlk->getId();
+                    for (int i = 0; i < rLen; ++i) refGlobalMap[r_start + i] = {rootMId, stepCoordMap[i]};
+                    for (int i = 0; i < qLen; ++i) qryGlobalMap[q_start + i] = {rootMId, uCoordMap[i]};
+                } else {
+                    // 🌟 A2: 真正的 Crossing -> Link
+                    if (DEBUG_MODE) std::cout << "      [SCENARIO A2] Crossing detected! Tying family knot.\n";
+
+                    int finalFam = unifyFam(bestAln.refFamilyId, bestAln.qryFamilyId); 
+                    rBlk->setFamilyId(getTrueFam(finalFam));
+                    qBlk->setFamilyId(getTrueFam(finalFam));
+
+                    BlockID rBlkId = rBlk->getId();
+                    BlockID qBlkId = qBlk->getId();
+                    for (int i = 0; i < rLen; ++i) refGlobalMap[r_start + i] = {rBlkId, stepCoordMap[i]};
+                    for (int i = 0; i < qLen; ++i) qryGlobalMap[q_start + i] = {qBlkId, uCoordMap[i]};
+                }
             }
-        }
+
+            // ---------------------------------------------------------
+            // 情境 B：Ref 已存在，Qry 是新的
+            // ---------------------------------------------------------
+            else if (r_merged && !q_merged) {
+                BlockID targetMId = *r_overlaps.begin(); 
+                auto bounds = getSafeLocalBounds(refGlobalMap, r_start, r_end, targetMId);
+                int localStart = bounds.first, localEnd = bounds.second;
+
+                if (DEBUG_MODE) std::cout << "  [SCENARIO B] Ref exists in Block " << targetMId 
+                                          << " | Safe Bounds: [" << localStart << ", " << localEnd << ")\n";
+                if (DEBUG_MODE && (localEnd-localStart) < L_min) {
+                    std::cout << "    SKIP. (" << (localEnd-localStart) << " < " << L_min << ")\n";
+                    continue;
+                }
+                if (DEBUG_MODE) {
+                    std::cout << "    SKIP for now.\n";
+                    continue;
+                }
+
+
+                BlockID coreMId;
+                auto targetMBlk = splitBlockSafely(targetMId, localStart, localEnd, coreMId);
+                int newSuperLen = targetMBlk->getConsensus().length();
+
+                // 🌟 發配家族牽線！
+                int refFam = getFamFromBlock(coreMId);
+                int finalFam = unifyFam(refFam, bestAln.qryFamilyId);
+                targetMBlk->setFamilyId(getTrueFam(finalFam));
+
+                // 🌟 extractBlockFromSuper 底層已自動 addBlock
+                auto qBlk = extractBlockFromSuper(mergedSet, qrySuperBlock, q_start, q_end);
+                BlockID qBlkId = qBlk->getId();
+                int qLen = qBlk->getConsensus().length();
+
+                qBlk->setFamilyId(getTrueFam(finalFam)); 
+
+                std::vector<int> targetCoordMap; 
+                for (int i = r_start; i < r_end; ++i) targetCoordMap.push_back(refGlobalMap[i].localPos);
+
+                bool isTargetReversed = (targetCoordMap.size() > 1 && targetCoordMap.front() > targetCoordMap.back());
+                if (isTargetReversed) std::reverse(targetCoordMap.begin(), targetCoordMap.end());
+
+                CigarString linkingCigar = bestAln.CIGAR;
+                if (isTargetReversed) std::reverse(linkingCigar.begin(), linkingCigar.end());
+
+                CigarString adjustedCigar = adjustCigarWithMap(linkingCigar, targetCoordMap, newSuperLen);
+                std::vector<int> uCoordMap, stepCoordMap;
+                buildCoordMaps(adjustedCigar, qLen, newSuperLen, uCoordMap, stepCoordMap);
+
+                for (auto& tracker : refGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (auto& tracker : qryGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (int i = 0; i < qLen; ++i) qryGlobalMap[q_start + i] = {qBlkId, uCoordMap[i]};
+            }
+
+            // ---------------------------------------------------------
+            // 情境 C：Qry 已存在，Ref 是新的
+            // ---------------------------------------------------------
+            else if (!r_merged && q_merged) {
+                BlockID targetMId = *q_overlaps.begin(); 
+                auto bounds = getSafeLocalBounds(qryGlobalMap, q_start, q_end, targetMId);
+                int localStart = bounds.first, localEnd = bounds.second;
+
+                if (DEBUG_MODE) std::cout << "  [SCENARIO C] Qry exists in Block " << targetMId 
+                                          << " | Safe Bounds: [" << localStart << ", " << localEnd << ")\n";
+                if (DEBUG_MODE && (localEnd-localStart) < L_min) {
+                    std::cout << "    SKIP. (" << (localEnd-localStart) << " < " << L_min << ")\n";
+                    continue;
+                }
+                if (DEBUG_MODE) {
+                    std::cout << "    SKIP for now.\n";
+                    continue;
+                }
+
+                BlockID coreMId;
+                auto targetMBlk = splitBlockSafely(targetMId, localStart, localEnd, coreMId);
+                int newSuperLen = targetMBlk->getConsensus().length();
+
+                // 🌟 發配家族牽線！
+                int qryFam = getFamFromBlock(coreMId);
+                int finalFam = unifyFam(bestAln.refFamilyId, qryFam);
+                targetMBlk->setFamilyId(getTrueFam(finalFam));
+
+                // 🌟 extractBlockFromSuper 底層已自動 addBlock
+                auto rBlk = extractBlockFromSuper(mergedSet, refSuperBlock, r_start, r_end);
+                BlockID rBlkId = rBlk->getId();
+                int rLen = rBlk->getConsensus().length();
+
+                rBlk->setFamilyId(getTrueFam(finalFam)); 
+
+                std::vector<int> targetCoordMap; 
+                for (int i = q_start; i < q_end; ++i) targetCoordMap.push_back(qryGlobalMap[i].localPos);
+
+                bool isTargetReversed = (targetCoordMap.size() > 1 && targetCoordMap.front() > targetCoordMap.back());
+                if (isTargetReversed) std::reverse(targetCoordMap.begin(), targetCoordMap.end());
+
+                CigarString invertedCigar = bestAln.CIGAR;
+                for (auto& op : invertedCigar) {
+                    if (op.second == 'I') op.second = 'D';
+                    else if (op.second == 'D') op.second = 'I';
+                }
+                if (isTargetReversed) std::reverse(invertedCigar.begin(), invertedCigar.end());
+
+                CigarString adjustedCigar = adjustCigarWithMap(invertedCigar, targetCoordMap, newSuperLen);
+                std::vector<int> uCoordMap, stepCoordMap;
+                buildCoordMaps(adjustedCigar, rLen, newSuperLen, uCoordMap, stepCoordMap);
+
+                for (auto& tracker : refGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (auto& tracker : qryGlobalMap) {
+                    if (tracker.blkId == coreMId && tracker.localPos < stepCoordMap.size()) tracker.localPos = stepCoordMap[tracker.localPos];
+                }
+                for (int i = 0; i < rLen; ++i) refGlobalMap[r_start + i] = {rBlkId, uCoordMap[i]};
+            }
+
+            // ---------------------------------------------------------
+            // 🌟 情境 D：兩端都已存在 (純粹的家族牽線與積木切斷)
+            // ---------------------------------------------------------
+            else {
+                BlockID mIdR = *r_overlaps.begin();
+                BlockID mIdQ = *q_overlaps.begin();
+
+                if (DEBUG_MODE) std::cout << "  [SCENARIO D] Both exist. Ref Block " << mIdR << ", Qry Block " << mIdQ << "\n";
+                if (DEBUG_MODE) {
+                    std::cout << "    SKIP for now.\n";
+                    continue;
+                }
+                if (mIdR == mIdQ) continue; 
+
+                auto boundsR = getSafeLocalBounds(refGlobalMap, r_start, r_end, mIdR);
+                int localStartR = boundsR.first, localEndR = boundsR.second;
+                bool isReversedR = (localStartR > localEndR);
+                if (isReversedR) std::swap(localStartR, localEndR);
+
+                BlockID coreMIdR;
+                auto targetMBlkR = splitBlockSafely(mIdR, localStartR, localEndR, coreMIdR);
+
+                BlockID currentMIdQ = qryGlobalMap[q_start].blkId;
+                if (coreMIdR == currentMIdQ) continue;
+
+                auto boundsQ = getSafeLocalBounds(qryGlobalMap, q_start, q_end, currentMIdQ);
+                int localStartQ = boundsQ.first, localEndQ = boundsQ.second;
+                bool isReversedQ = (localStartQ > localEndQ);
+                if (isReversedQ) std::swap(localStartQ, localEndQ);
+
+                BlockID coreMIdQ;
+                auto targetMBlkQ = splitBlockSafely(currentMIdQ, localStartQ, localEndQ, coreMIdQ);
+
+                // 🌟 發配家族牽線！
+                int famR = getFamFromBlock(coreMIdR);
+                int famQ = getFamFromBlock(coreMIdQ);
+                int finalFam = unifyFam(famR, famQ);
+                
+                targetMBlkR->setFamilyId(getTrueFam(finalFam));
+                targetMBlkQ->setFamilyId(getTrueFam(finalFam));
+            }
+            syncTrackersFromMap(refGlobalMap, alnCollection.ref_coverageTracker);
+            syncTrackersFromMap(qryGlobalMap, alnCollection.qry_coverageTracker);
+        }   
     }
 
-    for (auto& seq: refSet->getSequences()) resultSet->addSequence(seq);
-    for (auto& seq: qrySet->getSequences()) resultSet->addSequence(seq);
+    if (DEBUG_MODE) std::cout << "\n  -> Processed " << mergeCounter << " valid alignments.\n";
 
+    // ==========================================
+    // 🌟 Phase 4: 提取未覆蓋的邊角料 (Unused Regions) - 拓撲邊界感知版
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "\n[Phase 4] Extracting Unmapped Regions with Boundary Awareness...\n";
+    int unmappedCount = 0;
 
-    if (DEBUG_MODE) std::cout << "========================================================\n"
-                              << "=== GRAPH MERGE COMPLETED SUCCESSFULLY ===\n"
-                              << "========================================================\n\n";
+    // 傳入 tracker, superBlock, 長度, 該軸的邊界 (bounds) 以及 label
+    auto extractUnusedRegions = [&](const CoverageTracker& tracker, std::shared_ptr<Block> superBlock, int superLen, const std::map<int, BlockBoundary>& bounds, const std::string& label) {
+        
+        // 🌟 核心子函數：給定一個 Unmapped 區間，根據內部邊界把它切成多塊再萃取
+        auto extractWithBounds = [&](int gapStart, int gapEnd) {
+            if (gapStart >= gapEnd) return;
 
-    return resultSet;
+            int chunkStart = gapStart;
+            // 找出第一個「嚴格大於」chunkStart 的邊界
+            auto it = bounds.upper_bound(chunkStart);
+
+            while (it != bounds.end() && it->first < gapEnd) {
+                int bndPos = it->first;
+                
+                // 抽出從 chunkStart 到 bndPos 的這一段
+                if (bndPos > chunkStart) {
+                    auto unmappedBlk = extractBlockFromSuper(mergedSet, superBlock, chunkStart, bndPos);
+                    unmappedCount++;
+                    if (DEBUG_MODE) {
+                        std::cout << "  -> ✂️ Extracted " << label << " Chunk [" << chunkStart << ", " << bndPos 
+                                  << "] (Len: " << (bndPos - chunkStart) << ") at OLD BOUNDARY as Block ID: " << unmappedBlk->getId() << "\n";
+                    }
+                    chunkStart = bndPos; // 更新下一個切塊的起點
+                }
+                ++it;
+            }
+
+            // 抽出最後剩下的尾巴 (從最後一個邊界到 gapEnd)
+            if (chunkStart < gapEnd) {
+                auto unmappedBlk = extractBlockFromSuper(mergedSet, superBlock, chunkStart, gapEnd);
+                unmappedCount++;
+                if (DEBUG_MODE) {
+                    std::cout << "  -> 🧩 Extracted " << label << " Chunk [" << chunkStart << ", " << gapEnd 
+                              << "] (Len: " << (gapEnd - chunkStart) << ") as Block ID: " << unmappedBlk->getId() << "\n";
+                }
+            }
+        };
+
+        int currentPos = 0;
+        for (auto const& [start, info] : tracker.intervals) {
+            if (currentPos < start) {
+                // 原本直接呼叫 extractBlockFromSuper，現在改呼叫邊界切分器
+                extractWithBounds(currentPos, start);
+            }
+            // 推進到目前 Coverage 的終點
+            currentPos = std::max(currentPos, info.end);
+        }
+        
+        // 處理 SuperBlock 尾部尚未掃描到的區域
+        if (currentPos < superLen) {
+            extractWithBounds(currentPos, superLen);
+        }
+    };
+
+    // 呼叫時，分別將 refBounds 和 qryBounds 傳進去
+    extractUnusedRegions(alnCollection.ref_coverageTracker, refSuperBlock, refSuperLen, refBounds, "Ref");
+    extractUnusedRegions(alnCollection.qry_coverageTracker, qrySuperBlock, qrySuperLen, qryBounds, "Qry");
+
+    if (DEBUG_MODE) std::cout << "  -> Total " << unmappedCount << " unmapped boundary-aware fragments successfully integrated into Graph.\n";
+    // ==========================================
+    // 🌟 Phase 5: 拓撲重建與家族歸一化
+    // ==========================================
+    if (DEBUG_MODE) std::cout << "\n[Phase 5] Re-wiring Linear Pangenome Graph Edges...\n";
+
+    for (auto& block: mergedSet->getAllBlocks()) {
+        auto blk = block.lock();
+        if (!blk) continue;
+        blk->normalizeStrand();
+        
+        // 🚨 終極結算：確保圖譜中所有的 Family ID 都是收斂到源頭的真 ID！
+        if (blk->getFamilyId() != 0) {
+            blk->setFamilyId(getTrueFam(blk->getFamilyId()));
+        }
+    }
+    
+    
+    for (auto& seq: refSet->getSequences()) mergedSet->addSequenceName(seq);
+    for (auto& seq: qrySet->getSequences()) mergedSet->addSequenceName(seq);
+
+    for (auto& blk: refSet->getAllBlocks()) {
+        if (blk.lock()->isDistant()) mergedSet->addBlock(blk.lock());
+    }
+    for (auto& blk: qrySet->getAllBlocks()) {
+        if (blk.lock()->isDistant()) mergedSet->addBlock(blk.lock());
+    }
+
+    mergedSet->normalizeFamilyIDs();
+    mergedSet->rebuildAllPointers();
+
+    auto timeEnd = std::chrono::high_resolution_clock::now();
+    if (DEBUG_MODE) {
+        std::cout << "\n========================================================\n"
+                  << "=== GRAPH MERGE COMPLETED SUCCESSFULLY ===\n"
+                  << "Total Execution Time: " << std::chrono::duration_cast<std::chrono::milliseconds>(timeEnd - time0).count() << " ms\n"
+                  << "Find Best Alignment:  " << findBest << " ms\n"
+                  << "Merge Blocks:         " << merge_time << " ms\n"
+                  << "========================================================\n\n";
+    }
+
+    return mergedSet;
 }

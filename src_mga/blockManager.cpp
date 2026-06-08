@@ -1,3 +1,4 @@
+#include "block.hpp"
 #include "mga.hpp"
 #include <iomanip>
 #include <vector>
@@ -6,6 +7,7 @@
 #include <cctype>
 #include <functional>
 #include <unordered_set>
+#include <chrono>
 
 // Helper to truncate strings for printing
 std::string truncate(const std::string& str, size_t width) {
@@ -16,69 +18,276 @@ std::string truncate(const std::string& str, size_t width) {
 }
 
 
+
+/**
+ * 根據 minimap2 的 alignments，判斷每個 Query 基因組是否需要進行 Reverse Complement。
+ * * @param alignments 來自 minimap2 解析後的 alignment 陣列
+ * @return std::map<std::string, bool> 回傳每個 qryName 是否需要 RC (true 代表需要 RC)
+ */
+std::map<std::string, bool> decideReverseComplement(const std::vector<Alignment>& alignments) {
+    
+    
+}
+
+void BlockManager::orientCircularGenomes(Option& option, std::string refSequenceName) {
+    bool debug = true;
+    bool write_rotate = option.writeOriented;
+    auto start_time = std::chrono::high_resolution_clock::now();
+    auto log_step_time = [&](const std::string& step_name) {
+        if (!debug) return;
+        auto current_time = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double, std::milli> elapsed = current_time - start_time;
+        std::cout << "[DEBUG] " << std::left << std::setw(30) << step_name 
+                  << " | Elapsed: " << elapsed.count() << " ms\n";
+    };
+
+    if (debug) std::cout << "\n[DEBUG] --- Start orientCircularGenomes ---\n";
+
+    if (blocksets.empty() || sequence_lengths.empty()) {
+        std::cerr << "Warning: No blocksets or sequences to orient.\n";
+        return;
+    }
+
+    // 1. 決定 Reference Sequence Name
+    std::string bestRefName = refSequenceName;
+    if (bestRefName.empty()) { 
+        int maxLen = -1;
+        for (const auto& pair : sequence_lengths) {
+            if (pair.second > maxLen) {
+                maxLen = pair.second;
+                bestRefName = pair.first;
+            }
+        }
+    }
+
+    if (blocksets.find(bestRefName) == blocksets.end()) {
+        std::cerr << "Error: Chosen reference " << bestRefName << " not found in blocksets.\n";
+        return;
+    }
+
+    if (debug) std::cout << "[DEBUG] Selected Reference: " << bestRefName 
+                         << " (Length: " << sequence_lengths[bestRefName] << ")\n";
+    log_step_time("Reference Selected");
+
+    // 2. 擷取 Reference 和 Query 的序列
+    BlockSet* refBlockSet = blocksets[bestRefName].get();
+    auto reference_genome = refBlockSet->getRepresentativeConsensus();
+    
+    StringPairs query_genomes(this->blocksets.size() - 1);
+    int qryCount = 0;
+    for (const auto& pair : this->blocksets) {
+        if (pair.first != bestRefName) {
+            BlockSet* qryBlockSet = pair.second.get();
+            query_genomes[qryCount] = qryBlockSet->getRepresentativeConsensus()[0];
+            qryCount++;
+        }
+    }
+    log_step_time("Prepared Queries for minimap2");
+
+    // 3. 執行 Minimap2
+    if (debug) std::cout << "[DEBUG] Running minimap2 on " << qryCount << " queries...\n";
+    auto allAlignments = runMinimap2(reference_genome, query_genomes, "reference_genome", "query_genomes", option);
+    log_step_time("Minimap2 Completed");
+
+    // 4. 統計方向 & 尋找最佳定錨點 (Hybrid Approach)
+    struct StrandStats {
+        long long forwardLength = 0;
+        long long reverseLength = 0;
+    };
+    std::map<std::string, StrandStats> qryStatsMap;
+    std::map<std::string, int> maxAlnLenMap; // 記錄每個 query 的最長 alignment 長度
+    
+    for (const auto& aln : allAlignments) {
+        if (!aln.valid) continue; 
+        
+        if (aln.inverse) {
+            qryStatsMap[aln.qryName].reverseLength += aln.alnLength;
+        } else {
+            qryStatsMap[aln.qryName].forwardLength += aln.alnLength;
+        }
+
+        // 更新該 Query 的最大長度
+        maxAlnLenMap[aln.qryName] = std::max(maxAlnLenMap[aln.qryName], aln.alnLength);
+    }
+    
+    std::map<std::string, bool> rcDecisionMap;
+    for (const auto& pair : qryStatsMap) {
+        rcDecisionMap[pair.first] = (pair.second.reverseLength > pair.second.forwardLength);
+    }
+
+    // 尋找「夠長」且「最接近 Ref 起點」的 Alignment 當作 Shift 基準
+    std::map<std::string, const Alignment*> bestAlnMap; 
+    std::map<std::string, int> minRefStartMap; // 記錄最接近 0 的距離
+    
+    for (const auto& aln : allAlignments) {
+        if (!aln.valid) continue;
+        bool needsRC = rcDecisionMap[aln.qryName];
+        if (aln.inverse != needsRC) continue; // 方向錯誤的雜訊不要理
+
+        // 門檻：長度必須大於該 Query 最長 Alignment 的 50% (可調參數)
+        int lengthThreshold = 10000;
+        if (aln.alnLength < lengthThreshold) continue;
+
+        // 在符合長度條件的候選者中，找 ref.start 最接近 0 的
+        auto it = minRefStartMap.find(aln.qryName);
+        if (it == minRefStartMap.end() || aln.refIdx.first < it->second) {
+            minRefStartMap[aln.qryName] = aln.refIdx.first;
+            bestAlnMap[aln.qryName] = &aln;
+        }
+    }
+    log_step_time("Strand Voting & Hybrid Anchor Found");
+    
+    // 5. 執行 Reverse Complement 與 Shift (Rotation)
+    int rcCount = 0;
+    int shiftCount = 0;
+
+    for (const auto& pair : this->blocksets) {
+        std::string qryName = pair.first;
+        if (qryName == bestRefName) continue; // 略過 Reference 本身
+
+        bool needsRC = rcDecisionMap[qryName];
+        std::string seq = this->sequences[qryName];
+        int L = sequence_lengths[qryName];
+        int raw_shift = 0;
+
+        // 計算偏移量 (如果有找到對應的主 Alignment)
+        if (bestAlnMap.count(qryName)) {
+            const Alignment* bestAln = bestAlnMap[qryName];
+            if (needsRC) {
+                // RC 狀態下的位移數學轉換
+                raw_shift = (L - bestAln->qryIdx.second) - bestAln->refIdx.first;
+            } else {
+                raw_shift = bestAln->qryIdx.first - bestAln->refIdx.first;
+            }
+        }
+
+        // 把 shift 處理為標準的正數 (環狀模除)
+        int true_shift = ((raw_shift % L) + L) % L;
+
+        // --- 應用轉換 ---
+        if (needsRC) {
+            seq = getReverseComplement(seq);
+            rcCount++;
+        }
+        
+        if (true_shift != 0) {
+            // 字串環狀位移 (將前面 true_shift 長度搬到最後面)
+            seq = seq.substr(true_shift) + seq.substr(0, true_shift);
+            shiftCount++;
+        }
+
+        if (debug) {
+            std::cout << "[DEBUG] " << std::left << std::setw(15) << qryName 
+                      << " | RC: " << (needsRC ? "YES" : "NO ") 
+                      << " (Forward: " << qryStatsMap[qryName].forwardLength << " bp)"
+                      << " vs (Reverse: " << qryStatsMap[qryName].reverseLength << " bp"
+                      << " | Shifted: " << true_shift << " bp\n";
+        }
+
+        // 寫回原本的資料結構
+        BlockSet* qryBlockSet = pair.second.get();
+        auto first_block = qryBlockSet->getAllBlocks()[0];
+        if (auto sp = first_block.lock()) {
+            sp->setConsensus(seq, true); 
+        }
+        this->sequences[qryName] = seq;
+    }
+
+    if (debug) std::cout << "[DEBUG] Inverted: " << rcCount << " | Shifted: " << shiftCount << " genomes.\n";
+    log_step_time("Transformations Applied");
+
+    // ==========================================================
+    // 🌟 6. 輸出轉換後的完整序列 (Reference + Oriented Queries)
+    // ==========================================================
+
+    StringPairs output_seqs;
+    
+    // 6-1. 將 Reference 放在第一筆，維持對齊基準的直覺性
+    output_seqs.push_back({bestRefName, this->sequences[bestRefName]});
+    
+    // 6-2. 收集所有其他的 Query 序列
+    for (const auto& pair : this->sequences) {
+        if (pair.first != bestRefName) {
+            output_seqs.push_back({pair.first, pair.second});
+        }
+    }
+
+    // 6-3. 呼叫 IO 寫出檔案 (檔名可以依需求改為 option 裡的變數)
+    std::string outFileName = option.tempDir + "/oriented_genomes.fasta"; 
+    bool isCompressed = false; // 依需求調整
+    bool appendMode = false;   // 覆寫模式
+    
+    if (write_rotate) mga::io::writeAlignment(outFileName, output_seqs, isCompressed, appendMode);
+    
+    if (debug && write_rotate) std::cout << "[DEBUG] Wrote " << output_seqs.size() << " oriented sequences to '" << outFileName << "'\n";
+    if (debug && write_rotate) log_step_time("Output Sequences Written");
+    // ==========================================================
+
+    if (debug) std::cout << "[DEBUG] --- End orientCircularGenomes ---\n\n";
+    
+    /*
+    // ==========================================================
+    // 🌟 6. 輸出轉換後的完整序列 (Reference + Oriented Queries)
+    // ==========================================================
+    const size_t SAMPLE_SIZE = 50; // 🌟 設定最大輸出數量 (包含 Reference)
+    StringPairs output_seqs;
+    
+    // 6-1. 將 Reference 放在第一筆，維持對齊基準的直覺性
+    output_seqs.push_back({bestRefName, this->sequences[bestRefName]});
+    
+    // 6-2. 收集所有其他的 Query 序列 (套用 Quality Pass 與 Sample Size 限制)
+    int passed_quality_count = 0;
+    for (const auto& pair : this->sequences) {
+        if (pair.first != bestRefName) {
+            std::string qryName = pair.first;
+            
+            // 取得該序列的正反向比對長度
+            long long f_len = qryStatsMap[qryName].forwardLength;
+            long long r_len = qryStatsMap[qryName].reverseLength;
+            
+            // 🛡️ Quality Pass 條件：長度必須壓倒性地偏向某一邊 (> 3倍)
+            bool pass_quality = (f_len > 3 * r_len) || (r_len > 3 * f_len);
+
+            if (pass_quality) {
+                passed_quality_count++;
+                // 檢查是否還沒達到 Sample 數量上限
+                if (output_seqs.size() < SAMPLE_SIZE) {
+                    output_seqs.push_back({qryName, pair.second});
+                }
+            } else {
+                // 沒有通過 Quality Pass (可能是 50-50 倒位，或是完全沒有 alignment)
+                if (debug && write_rotate) {
+                    std::cout << "[DEBUG] 🛑 [FILTERED] " << std::left << std::setw(15) << qryName 
+                              << " excluded from output (F: " << f_len << " vs R: " << r_len << "). Strand ambiguous.\n";
+                }
+            }
+        }
+    }
+
+    // 6-3. 呼叫 IO 寫出檔案
+    std::string outFileName = option.tempDir + "/oriented_genomes.fasta"; 
+    bool isCompressed = false; 
+    bool appendMode = false;   
+    
+    if (write_rotate) mga::io::writeAlignment(outFileName, output_seqs, isCompressed, appendMode);
+    
+    if (debug && write_rotate) {
+        std::cout << "[DEBUG] Total queries passed quality : " << passed_quality_count << "\n";
+        std::cout << "[DEBUG] Wrote " << output_seqs.size() << " oriented sequences (capped at " << SAMPLE_SIZE << ") to '" << outFileName << "'\n";
+        log_step_time("Output Sequences Written");
+    }
+    */
+    // ==========================================================
+}
+
+
 // =======================
 // BlockManager Implementation
 // =======================
 
-BlockSet* BlockManager::createBlockSet(BlockSet::SetId id) {
-    auto new_set = std::make_unique<BlockSet>(id);
-    auto ptr = new_set.get();
-    block_sets_[id] = std::move(new_set);
-    return ptr;
-}
-
-BlockSet* BlockManager::getBlockSet(BlockSet::SetId id) const {
-    auto it = block_sets_.find(id);
-    if (it != block_sets_.end()) {
-        return it->second.get();
-    }
-    return nullptr;
-}
-
-std::vector<BlockSet*> BlockManager::getAllBlockSets() const {
-    std::vector<BlockSet*> all_sets;
-    all_sets.reserve(block_sets_.size());
-    for (const auto& pair : block_sets_) {
-        all_sets.push_back(pair.second.get());
-    }
-    return all_sets;
-}
-
-bool BlockManager::changeBlockSetId(BlockSet::SetId old_id, BlockSet::SetId new_id) {
-    if (block_sets_.count(new_id) || old_id == new_id) {
-        return false;
-    }
-
-    auto node_handle = block_sets_.extract(old_id);
-    if (node_handle.empty()) {
-        return false;
-    }
-    node_handle.key() = new_id;
-    node_handle.mapped()->id_ = new_id;
-    block_sets_.insert(std::move(node_handle));
-
-    return true;
-}
-
-bool BlockManager::removeBlockSet(BlockSet::SetId id) {
-    // 1. Safe Check: 尋找該 BlockSet 是否存在
-    auto it = block_sets_.find(id);
-    
-    if (it != block_sets_.end()) {
-        // 2. Erase: 
-        // 由於使用 std::unique_ptr 管理 BlockSet，且 BlockSet 內部使用 std::shared_ptr 
-        // 管理 Block，Block 之間的拓撲又正確使用 std::weak_ptr 避免了循環參照。
-        // 因此，只要 erase 這筆紀錄，C++ 就會自動呼叫解構子，將該 Set 與底下所有的 Block 記憶體完美釋放。
-        block_sets_.erase(it);
-        return true; // 成功刪除
-    }
-    
-    // 如果找不到，就不做事並回傳 false
-    return false;
-}
-
+/*
 void BlockManager::updateLongestSequences() {
-    for (const auto& pair : block_sets_) {
+    for (const auto& pair : blocksets) {
         if (pair.second) {
             pair.second->updateLongestSequence(this->sequence_lengths);
         }
@@ -90,15 +299,16 @@ void BlockManager::print(std::ostream& os) const {
     os << "############################################################\n";
     os << "               BLOCK MANAGER SYSTEM STATUS                  \n";
     os << "############################################################\n\n";
-    os << "> Total BlockSets Active: " << block_sets_.size() << "\n";
+    os << "> Total BlockSets Active: " << blocksets.size() << "\n";
 
-    for (const auto& pair : block_sets_) {
+    for (const auto& pair : blocksets) {
         if (pair.second) {
             pair.second->print(os);
         }
     }
     os << "############################################################\n";
 }
+*/
 
 /*
 void mergeAdjacentBlocks(std::list<std::shared_ptr<Block>>& list, const std::set<int>& cuts) {

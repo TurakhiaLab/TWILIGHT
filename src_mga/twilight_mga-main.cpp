@@ -1,17 +1,12 @@
-#ifndef MGA_HPP
+
 #include "mga.hpp"
-#endif
-
-#ifndef OPTION_HPP
 #include "option.hpp"
-#endif
-
-#ifndef PHYLO_HPP
 #include "phylogeny.hpp"
-#endif
+#include "block.hpp"
 
 #include <tbb/global_control.h>
 #include <boost/filesystem.hpp>
+#include <tbb/parallel_for.h>
 #include <chrono>
 namespace fs = boost::filesystem;
 
@@ -51,7 +46,9 @@ void parseArguments(int argc, char** argv)
         ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
         ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)")
         ("prune", "Prune the input guide tree based on the presence of unaligned sequences.")
-        ("write-prune", "Write the pruned tree to the output directory.");
+        ("write-prune", "Write the pruned tree to the output directory.")
+        ("circular", "Treat input genomes as circular and orient them relative to the reference genome before alignment.")
+        ("write-oriented", "Write the oriented genome sequences in FASTA format.");
 
     po::options_description seqFilterDesc("Sequence Filtering Options");
     seqFilterDesc.add_options()
@@ -100,32 +97,71 @@ int main(int argc, char** argv) {
     }
 
     Option option(vm);
+    tbb::global_control init(tbb::global_control::max_allowed_parallelism, option.cpuNum);
+
 
     // Read Tree
     phylogeny::Tree T(option.treeFile);
     phylogeny::Tree subT(T.root.get(), true);
+    subT.print();
 
     // Read Sequences
     auto manager = mga::io::readSequences(option.seqFile, option, subT);
-    // auto ptr = manager.get();
-    // ptr->print();
+    if (option.circular) manager->orientCircularGenomes(option);
 
     mga::progressive::msaOnSubtree(subT, option, manager.get(), 0);
 
+    auto final_set = manager.get()->getBlockSet(manager.get()->getBlockSets().begin()->first);
+
+
+    // Output MAF
     
+    final_set->debugValidateSegments(false);
+    final_set->debugValidateLinkages(false);
+    final_set->debugValidateQuality(false);
+    auto outputStart = std::chrono::high_resolution_clock::now();
+
+    auto refineStart = std::chrono::high_resolution_clock::now();
+    // final_set->realignBlocks(option.tempDir);
+    // final_set->absorbMicroBlocks();
+    // final_set->refineBlocks();
+    // final_set->realignBlocks(option.tempDir);
+    // final_set->refineGraph();
+
+    auto refineEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds refineTime = refineEnd - refineStart;
+    // final_set->debugValidateQuality(false);
+    
+    // final_set->debugValidateQualityNew(false);
+    // final_set->debugValidateBubble(false);
+
+
+    mga::io::writeMAF(final_set, option.tempDir+"/output_pre.maf");
+    auto outputEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds outputTime = outputEnd - outputStart;
+
+    // final_set->realignAllToAll(option.tempDir);
+    // final_set->refineGraph();
+    // final_set->absorbMicroBlocks();
+    // final_set->refineBlocks();
+    // final_set->writeMAF(option.tempDir+"/output_post.maf");
+    
+    // final_set->realignBlocks(option.tempDir);
+    final_set->debugValidateQuality(false);
+    // mga::io::writeMAF(final_set, option.tempDir+"/output_post.maf");
+
+    final_set->debugValidateSequences(manager.get(), false);
     
 
-    // mga::identifyPrimaryAlignments(alignments, chains);
-    // mga::detectDuplications(alignments);
-    // mga::parser::parsePAF(vm["alignment"].as<std::string>());
-    auto final_set = manager.get()->getBlockSet(manager.get()->getBlockSets().begin()->first);
-    for (auto& seqName: final_set->getSequences()) {
-        std::cerr << "Validate Sequence " << seqName << '\n';
-        auto seq_after = final_set->reconstructSequence(seqName);
-        auto seq_before = manager.get()->getSequence(seqName);
-        if (seq_after == seq_before) std::cout << "  ✅ [PERFECT] Validation Passed! Reconstructed sequence perfectly matches the raw sequence. (Len: " << seq_after.length() << " bp)\n";
-        else                        std::cerr << "  ❌ [CRITICAL ERROR] Validation Failed! Sequence mismatch.\n"; 
-    }
+    std::cout << "--- Profiling Results (ms) ---\n";
+    std::cout << "Minimap2 Time:         " << option.minimap2_time << " ms\n";
+    std::cout << "Merge Time:            " << option.merge_time << " ms\n";
+    std::cout << "Refine(BlockSet) Time: " << option.refineBlockSet_time << " ms\n";
+    std::cout << "Refine(Block) Time:    " << option.refineBlock_time << " ms\n";
+    std::cout << "Debug Time:            " << option.debug_time << " ms\n";
+    std::cout << "Realign Time:          " << refineTime.count() / 1000000.0 << " ms\n";
+    std::cout << "Output Time:           " << outputTime.count() / 1000000.0 << " ms\n";
+    std::cout << "------------------------------\n";
     
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;

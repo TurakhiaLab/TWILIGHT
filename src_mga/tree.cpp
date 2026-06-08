@@ -331,27 +331,35 @@ void phylogeny::Tree::calSeqWeight() {
     return;
 };
 
-void phylogeny::Tree::showTree() {
-    std::function<void(const std::unique_ptr<Node>&)> showTreeImpl = [&](const std::unique_ptr<Node>& node) {
-        std::cerr << std::left << std::setw(12) << node->identifier     // Identifier
-                  << std::right << std::setw(10) << std::fixed << std::setprecision(4) << node->branchLength  // Branch length
-                  << std::setw(10) << (node->parent ? node->parent->identifier : "ROOT")  // Parent or ROOT
-                  << std::setw(8)  << node->level
-                  << std::setw(8)  << node->grpID
-                  << std::setw(10) << std::fixed << std::setprecision(3) << node->children.size()
-                  << '\n';
-        for (auto& c : node->children) {
-            showTreeImpl(c);
-        }
-    };
-    std::cerr << std::left << std::setw(12) << "Identifier"
-              << std::right << std::setw(10) << "Length"
-              << std::setw(10) << "Parent"
-              << std::setw(8)  << "Level"
-              << std::setw(8)  << "Group"
-              << std::setw(10) << "Weight" << '\n';
-    std::cerr << std::string(50, '-') << '\n';
-    if (this->root) showTreeImpl(this->root);
+
+void phylogeny::Tree::print(std::ostream& os) {
+    if (!root) {
+        os << "(Empty Tree)\n";
+        return;
+    }
+    
+    os << root->identifier << " (len: " << root->branchLength << ")\n";
+    
+    for (size_t i = 0; i < root->children.size(); ++i) {
+        bool isLast = (i == root->children.size() - 1);
+        printHelper(root->children[i].get(), "", isLast, os);
+    }
+}
+
+void phylogeny::Tree::printHelper(const Node* node, std::string prefix, bool isLast, std::ostream& os) const {
+    if (!node) return;
+
+    std::cout << prefix;
+    std::cout << (isLast ? "└── " : "├── ");
+
+    std::cout << node->identifier << " (len: " << node->branchLength << ")\n";
+
+    std::string nextPrefix = prefix + (isLast ? "    " : "│   ");
+
+    for (size_t i = 0; i < node->children.size(); ++i) {
+        bool lastChild = (i == node->children.size() - 1);
+        printHelper(node->children[i].get(), nextPrefix, lastChild);
+    }
 }
 
 phylogeny::Tree* phylogeny::Tree::prune(std::unordered_set<std::string>& seqs) {
@@ -789,4 +797,26 @@ void phylogeny::Tree::reroot(bool placement)
     std::cerr << "Original: " << beforeConvert << '\n';
     std::cerr << "Binary:   " << beforeReroot << '\n';
     std::cerr << "Reroot:   " << afterReroot << '\n';
+}
+
+void phylogeny::Tree::collectLeaves(const Node* n, std::unordered_set<std::string>& leavesOut) {
+    if (n->is_leaf()) {
+        leavesOut.insert(n->identifier);
+    } else {
+        for (const auto& child : n->children) {
+            collectLeaves(child.get(), leavesOut);
+        }
+    }
+}
+
+void phylogeny::Tree::getSubLineages(const Node* node, int targetDepth, int currentDepth, std::vector<std::unordered_set<std::string>>& setsOut) {
+    if (currentDepth == targetDepth || node->is_leaf()) {
+        std::unordered_set<std::string> leaves;
+        collectLeaves(node, leaves);
+        setsOut.push_back(leaves);
+    } else {
+        for (const auto& child : node->children) {
+            getSubLineages(child.get(), targetDepth, currentDepth + 1, setsOut);
+        }
+    }
 }
