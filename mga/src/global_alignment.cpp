@@ -214,3 +214,174 @@ CigarString runSemiGlobalAlignment(const std::string& ref, const std::string& qr
 
     return cigar_ops;
 }
+
+CigarString runGlobalAlignment(const Consensus& refCons, const Consensus& qryCons) {
+    return runGlobalAlignment(refCons.getConsensusString(), qryCons.getConsensusString());
+}
+
+CigarString runSemiGlobalAlignment(const Consensus& refCons, const Consensus& qryCons) {
+    return runSemiGlobalAlignment(refCons.getConsensusString(), qryCons.getConsensusString());
+}
+
+// ==========================================
+// 3. Tiling Alignment (GACT) CPU Implementation
+// ==========================================
+CigarString runTilingAlignment(const std::string& ref, const std::string& qry) {
+    CigarString result;
+    if (ref.empty() || qry.empty()) return result;
+
+    // Tile configuration
+    const int T = 200;        // Tile size
+    const int O = 50;         // Overlap between tiles
+
+    // Scoring scheme
+    const int16_t MATCH = 2;
+    const int16_t MISMATCH = -1;
+    const int16_t GAP = -2;
+
+    // Traceback direction constants
+    const uint8_t DIR_DIAG = 1;
+    const uint8_t DIR_UP   = 2;
+    const uint8_t DIR_LEFT = 3;
+
+    int32_t refTotalLen = static_cast<int32_t>(ref.size());
+    int32_t qryTotalLen = static_cast<int32_t>(qry.size());
+
+    bool lastTile = false;
+    int16_t maxScore = 0;
+    int32_t reference_idx = 0;
+    int32_t query_idx = 0;
+
+    std::vector<uint8_t> tbDir(T * T, 0);
+    std::vector<int16_t> wf_scores(3 * (T + 1), -9999);
+    std::vector<uint8_t> localPath(2 * T, 0);
+
+    CigarString raw_cigar;
+    auto add_op = [&](char op) {
+        if (!raw_cigar.empty() && raw_cigar.back().second == op) {
+            raw_cigar.back().first++;
+        } else {
+            raw_cigar.push_back({1, op});
+        }
+    };
+
+    while (!lastTile) {
+        int32_t refLen = std::min((int32_t)T, refTotalLen - reference_idx);
+        int32_t qryLen = std::min((int32_t)T, qryTotalLen - query_idx);
+
+        if ((reference_idx + refLen == refTotalLen) && (query_idx + qryLen == qryTotalLen)) {
+            lastTile = true;
+        }
+
+        std::fill(wf_scores.begin(), wf_scores.end(), -9999);
+
+        int32_t best_ti = refLen;
+        int32_t best_tj = qryLen;
+
+        // Wavefront Scoring Loop (Diagonal Traversal)
+        for (int k = 0; k <= refLen + qryLen; ++k) {
+            int curr_k   = (k % 3) * (T + 1);
+            int pre_k    = ((k + 2) % 3) * (T + 1);
+            int prepre_k = ((k + 1) % 3) * (T + 1);
+
+            int i_start = std::max(0, k - qryLen);
+            int i_end   = std::min(refLen, k);
+
+            for (int i = i_start; i <= i_end; ++i) {
+                int j = k - i;
+
+                int16_t score = -9999;
+                uint8_t direction = DIR_DIAG;
+
+                if (i == 0 && j == 0) {
+                    score = maxScore;
+                    maxScore = -9999;
+                } else if (i == 0) {
+                    score = wf_scores[pre_k + i] + GAP;
+                    direction = DIR_LEFT;
+                } else if (j == 0) {
+                    score = wf_scores[pre_k + (i - 1)] + GAP;
+                    direction = DIR_UP;
+                } else {
+                    char r_char = ref[reference_idx + (i - 1)];
+                    char q_char = qry[query_idx + (j - 1)];
+
+                    int16_t score_diag = wf_scores[prepre_k + (i - 1)] + (r_char == q_char ? MATCH : MISMATCH);
+                    int16_t score_up   = wf_scores[pre_k + (i - 1)] + GAP;
+                    int16_t score_left = wf_scores[pre_k + i] + GAP;
+
+                    score = score_diag;
+                    direction = DIR_DIAG;
+
+                    if (score_up > score) {
+                        score = score_up;
+                        direction = DIR_UP;
+                    }
+                    if (score_left > score) {
+                        score = score_left;
+                        direction = DIR_LEFT;
+                    }
+                }
+
+                wf_scores[curr_k + i] = score;
+
+                if (i > 0 && j > 0) {
+                    tbDir[(i - 1) * T + (j - 1)] = direction;
+                }
+
+                if (!lastTile) {
+                    if (i > (refLen - O) && j > (qryLen - O)) {
+                        if (score >= maxScore) {
+                            maxScore = score;
+                            best_ti = i;
+                            best_tj = j;
+                        }
+                    }
+                }
+            }
+        } // End Wavefront Loop
+
+        // Traceback
+        int ti = (!lastTile) ? best_ti : refLen;
+        int tj = (!lastTile) ? best_tj : qryLen;
+
+        int next_ref_advance = ti;
+        int next_qry_advance = tj;
+
+        int localLen = 0;
+        while (ti > 0 || tj > 0) {
+            uint8_t dir;
+            if (ti == 0) {
+                dir = DIR_LEFT;
+            } else if (tj == 0) {
+                dir = DIR_UP;
+            } else {
+                dir = tbDir[(ti - 1) * T + (tj - 1)];
+            }
+
+            localPath[localLen++] = dir;
+
+            if (dir == DIR_DIAG) { ti--; tj--; }
+            else if (dir == DIR_UP) { ti--; }
+            else { tj--; }
+        }
+
+        // Convert reversed local path to CIGAR
+        for (int k = localLen - 1; k >= 0; --k) {
+            uint8_t dir = localPath[k];
+            if (dir == DIR_DIAG) add_op('M');
+            else if (dir == DIR_UP) add_op('D');
+            else if (dir == DIR_LEFT) add_op('I');
+        }
+
+        reference_idx += next_ref_advance;
+        query_idx     += next_qry_advance;
+    } // End Tile Loop
+
+    return raw_cigar;
+}
+
+CigarString runTilingAlignment(const Consensus& refCons, const Consensus& qryCons) {
+    return runTilingAlignment(refCons.getConsensusString(), qryCons.getConsensusString());
+}
+

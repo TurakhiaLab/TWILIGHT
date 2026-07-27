@@ -1,4 +1,4 @@
-#include "block.hpp"
+#include "block_manager.hpp"
 
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
@@ -10,7 +10,7 @@
 #include <tbb/blocked_range.h>
 #include <tbb/concurrent_vector.h>
 
-
+/*
 void BlockSet::refineGraph() {
     std::cout << "\n[Pipeline] Starting Graph Refinement...\n";
     // 1. Zip identical branch
@@ -991,7 +991,7 @@ void BlockSet::reconnectBlocks() {
 
     bool merged_any = false;
     int reconnectCount = 0; // 🌟 新增：追蹤總共合併了幾次
-    BlockIDs linear_path = getLinearizeBlocks(); 
+    auto linear_path = getLinearizeBlocks(); 
     
     if (linear_path.size() < 2) {
         if (debug) std::cout << "  -> Only " << linear_path.size() << " block(s) present. Skipping reconnect.\n";
@@ -1002,8 +1002,10 @@ void BlockSet::reconnectBlocks() {
     auto isPerfectlyContiguous = [&](std::shared_ptr<Block> left, std::shared_ptr<Block> right) -> bool {
         if (!left || !right) return false;
 
-        if (left->getFamilyId() != 0 || right->getFamilyId() != 0) return false;
-        
+        if (!left->isCoreBlock() || !right->isCoreBlock()) {
+            return false;
+        }
+
         auto& leftSeqs = left->getSequences();
         auto& rightSeqs = right->getSequences();
         
@@ -1197,11 +1199,16 @@ void BlockSet::reconnectBlocks() {
         return newBlock;
     };
 
-    // 使用迭代器進行貪婪走訪合併
+    // 🌟 修改：使用 auto 兼容 VBlockID (即 std::pair<BlockID, int>)
     auto it = linear_path.begin();
     while (it != linear_path.end() && std::next(it) != linear_path.end()) {
-        BlockID leftId = *it;
-        BlockID rightId = *std::next(it);
+        
+        // 解析 VBlockID
+        auto leftVId = *it;
+        auto rightVId = *std::next(it);
+        
+        BlockID leftId = leftVId.first;
+        BlockID rightId = rightVId.first;
         
         auto leftBlock = getBlock(leftId);
         auto rightBlock = getBlock(rightId);
@@ -1210,37 +1217,35 @@ void BlockSet::reconnectBlocks() {
             
             auto newBlock = connectBlocks(leftBlock, rightBlock); 
             
-            // 🌟 新增：紀錄單次合併事件
             if (debug) {
-                std::cout << "  -> 🔗 [RECONNECT] Perfectly contiguous! Merged Block " 
-                          << leftId << " + Block " << rightId 
-                          << " => New Block " << newBlock->getId() << "\n";
+                std::cout << "  -> 🔗 [RECONNECT] Perfectly contiguous! Merged Core Block " 
+                          << leftId << " + Core Block " << rightId 
+                          << " => New Core Block " << newBlock->getId() << "\n";
             }
             
-            *it = newBlock->getId();
+            // 🌟 將新的實體 BlockID 包裝回 VBlockID (因為是 Core Block，Copy 固定延續)
+            *it = {newBlock->getId(), leftVId.second}; 
             linear_path.erase(std::next(it));
             
             merged_any = true;
-            reconnectCount++; // 🌟 增加計數器
+            reconnectCount++; 
             
         } else {
-            ++it; // 無法合併，推進到下一個 Block
+            ++it; 
         }
     }
 
     if (merged_any) {
         invalidateRepCache();
-        linear_block_cache = linear_path; 
     }
 
     this->rebuildAllPointers();
 
-    // 🌟 新增：最終結算報告
     if (debug) {
         if (reconnectCount > 0) {
-            std::cout << "  ✅ [RECONNECT SUMMARY] Successfully reconnected " << reconnectCount << " fragmented block pairs.\n";
+            std::cout << "  ✅ [RECONNECT SUMMARY] Successfully reconnected " << reconnectCount << " core block pairs.\n";
         } else {
-            std::cout << "  ✅ [RECONNECT SUMMARY] No contiguous blocks needed reconnection.\n";
+            std::cout << "  ✅ [RECONNECT SUMMARY] No contiguous core blocks needed reconnection.\n";
         }
     }
 }

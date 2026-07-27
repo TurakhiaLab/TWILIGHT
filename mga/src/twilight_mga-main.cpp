@@ -2,13 +2,12 @@
 #include "mga.hpp"
 #include "option.hpp"
 #include "phylogeny.hpp"
-#include "block.hpp"
+#include "block_manager.hpp"
 
 #include <tbb/global_control.h>
 #include <boost/filesystem.hpp>
 #include <tbb/parallel_for.h>
 #include <chrono>
-namespace fs = boost::filesystem;
 
 po::options_description mainDesc("TWILIGHT Command Line Arguments", 120);
 

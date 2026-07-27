@@ -13,23 +13,11 @@
 // =========================
 // Alignment Utils
 // =========================
-bool consumesRef(char op);
-bool consumesQry(char op);
-int mapCoordinate(const CigarString& cigar, int q_start, int r_start, int target, bool is_target_ref);
-std::string getReverseComplement(std::string seq);
-CigarString compressCigar(const CigarString& cigar);
-inline char complement(char base) {
-    switch (base) {
-        case 'A': return 'T'; case 'T': return 'A';
-        case 'C': return 'G'; case 'G': return 'C';
-        case 'a': return 't'; case 't': return 'a';
-        case 'c': return 'g'; case 'g': return 'c';
-    }
-}
-void printCIGAR(const CigarString& cigar, bool changeLine=true);
 CigarString adjustCigarWithVariations(CigarString& origCigar, Segment& refSeg, Segment& qrySeg, bool qryInverse, int qryConsLen);
 CigarString extractSubCigar(const CigarString& origCigar, int refOffset, int refLen);
-Alignments runMinimap2(StringPairs& ref, StringPairs& qry, std::string refName, std::string qryName, Option& option);
+Alignments runMinimap2(StringPairs& ref, StringPairs& qry, std::string refName, std::string qryName, Option& option, bool needCigar = true, bool write_paf = false);
+Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::string refName, std::string qryName, Option& option, bool needCigar = true, bool write_paf = false);
+Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq, const std::string& refID, const std::string& qryID, Option& option, bool needCigar = true, bool write_paf = false);
 Alignments splitSingleAlignment(const Alignment& aln,const std::set<int>& refCuts,const std::set<int>& qryCuts);
 void snapAlignment(Alignment& aln, int r_pad_left, int r_pad_right, int q_pad_left, int q_pad_right);
 
@@ -53,8 +41,7 @@ struct Alignment {
     Range qryIdx;
     CigarString CIGAR;
     bool inverse;
-    FamilyID refFamilyId;
-    FamilyID qryFamilyId;
+    bool primary;
         
     int alnLength;
     int alnScore;
@@ -66,13 +53,20 @@ struct Alignment {
     double energy;
     
     // ========= Function ========= 
-    Alignment(): refFamilyId(0), qryFamilyId(0), valid(true), energy(0) {};
+    Alignment(): valid(true), energy(0) {};
     void setValid2False() { valid = false; }     
         
     int countVariationsInRange(BlockSet* blockSet, int aln_start, int aln_end);
     void updateEnergy(BlockSet* refBlockSet, BlockSet* qryBlockSet, double beta=10.0);
     void updateAlnLength();
+    int mapCoordinate(int targetPos, bool targetIsRef);
+    void finalizeAlignment(CoverageTracker& ref_coverageTracker, CoverageTracker& qry_coverageTracker, const std::map<int, std::string>& r_cut_reasons = {}, const std::map<int, std::string>& q_cut_reasons = {}, int snapLength=30);
 
+};
+
+struct CoordTracker {
+    uint64_t blkId = 0;
+    int localPos = -1;
 };
 
 struct CoverageTracker {
@@ -93,6 +87,8 @@ struct CoverageTracker {
     void getCuts(int start, int end, std::set<int>& cuts) const;
     int getOverlapLength(int start, int end) const;
     bool isCovered(int start, int end) const;
+    // void syncFromMap(const std::vector<CoordTracker>& globalMap);
+    void syncFromMap(const CoordinateManager& coordMgr, bool isRefAxis);
 };
 
 struct CompareEnergy {
@@ -110,7 +106,8 @@ struct AlignmentCollection {
     AlignmentCollection(Alignments& alignments, BlockSet* refBlockSet, BlockSet* qryBlockSet);
     // Alignment getBestAlignment(BlockSet* refBlockSet, BlockSet* qryBlockSet, int L_min=100);
     // Alignment getBestAlignment(BlockSet* refBlockSet, BlockSet* qryBlockSet, const BlockBoundaries& refBounds, const BlockBoundaries& qryBounds, int L_min=100);
-    Alignments getBestAlignments(BlockSet* refBlockSet, BlockSet* qryBlockSet, BlockPtr refSuperBlock, BlockPtr qrySuperBlock, const BlockBoundaries& refBounds, const BlockBoundaries& qryBounds, int L_min=50);
+    // Alignments getBestAlignments(BlockSet* refBlockSet, BlockSet* qryBlockSet, const BlockBoundaries& refBounds, const BlockBoundaries& qryBounds, int L_min=100);
+    Alignments getBestAlignments(BlockSet* refBlockSet, BlockSet* qryBlockSet, CoordinateManager& coordMgr, int L_min=100);
     void addAlignment(Alignment aln);
 };
 

@@ -1,6 +1,6 @@
 #include "mga.hpp"
 #include "kseq.h"
-#include "block.hpp"
+#include "block_manager.hpp"
 #include "phylogeny.hpp"
 
 #include <unordered_set>
@@ -200,7 +200,7 @@ std::string generateAlignmentString(const std::string& consensus, Variants& vari
     return aliSeq;
 }
 
-void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName) {
+void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName, bool grouped) {
     std::ofstream mafFile(outputFileName);
     if (!mafFile.is_open()) {
         std::cerr << "Error: Could not open file " << outputFileName << " for writing MAF.\n";
@@ -209,32 +209,58 @@ void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName) {
 
     // 1. MAF Header
     mafFile << "##maf version=1\n";
-    mafFile << "# Generated from BlockSet ID: " << blockSet->getId() << "\n\n";
-    BlockWeakPtrs blocks_;
+    mafFile << "# Generated from BlockSet ID: " << blockSet->getId() << "\n";
+    mafFile << "# Mode: " << (grouped ? "Homology-Merged" : "Linearized") << "\n\n";
     
-    auto blocks_ids = blockSet->getLinearizeBlocks();
+    // 🌟 定義一個小結構來統一後續的處理流程
+    struct IterItem {
+        std::shared_ptr<Block> blk;
+        int target_copy; // -1 代表 Grouped 模式 (全印)
+    };
+    std::vector<IterItem> items_to_write;
 
-    for (auto& id : blocks_ids) blocks_.push_back(blockSet->getBlock(id));
-    
-    // 🚨 新增：用來追蹤每個 BlockID 寫入的次數 (Occurrence tracker)
-    std::unordered_map<BlockID, int> blockCounter; 
+    // 🌟 2. 根據模式準備要輸出的 Block 與 Copy 目標
+    if (grouped) {
+        // [Grouped 模式]：直接走訪所有實體 Block，target_copy 設為 -1
+        auto all_blocks = blockSet->getAllBlocks();
+        for (auto& weak_blk : all_blocks) {
+            if (auto blk = weak_blk.lock()) {
+                items_to_write.push_back({blk, -1});
+            }
+        }
+    } else {
+        // [Linearized 模式]：走訪 1D 骨幹，根據 VBlockID 決定要印哪個 Copy
+        // 假設你的 getLinearizeBlocks() 現在回傳的是 std::vector<VBlockID> (即 pair<BlockID, int>)
+        auto vblocks = blockSet->getLinearizeBlocks(); 
+        for (auto& vid : vblocks) {
+            if (auto blk = blockSet->getBlock(vid.first)) {
+                items_to_write.push_back({blk, vid.second});
+            }
+        }
+    }
 
-    // 2. Blocks
-    for (auto& block_ptr : blocks_) {
-        auto blk = block_ptr.lock();
-        if (!blk) continue; // 防呆：如果弱指標失效則跳過
+    // 3. 執行統一的輸出邏輯
+    for (auto& item : items_to_write) {
+        auto blk = item.blk;
+        int target_copy = item.target_copy;
 
         BlockID currentBlockId = blk->getId();
-        const std::string& consensus = blk->getConsensus();
+        const std::string& consensus = blk->getConsensus().getConsensusString();
         int consLen = consensus.length();
         
         int segmentCount = 0;
         int totalVarLen = 0;
         
+        // 🌟 重新計算 Score，只算符合條件的 Segments
         for (auto& seqEntry : blk->getSequences()) {
             for (auto& segPair : seqEntry.second.getSegments()) {
+                Segment& seg = segPair.second;
+                
+                // [過濾機制] 如果不是 grouped 模式，且 Copy 號碼不對，就跳過！
+                if (target_copy != -1 && seg.getCopyCount() != target_copy) continue;
+
                 segmentCount++;
-                for (auto& var : segPair.second.getVariants()) {
+                for (auto& var : seg.getVariants()) {
                     totalVarLen += (var.getEnd() - var.getStart());
                 }
             }
@@ -244,15 +270,15 @@ void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName) {
 
         double score = static_cast<double>(consLen * segmentCount - totalVarLen);
 
-        // 🚨 新增：取得並增加這個 BlockID 的出現次數
-        int currentCount = blockCounter[currentBlockId]++;
-        
-        // 組合成你要的 extension 格式，例如 "3_0", "3_1"
-        std::string customBlockID = std::to_string(currentBlockId) + "_" + std::to_string(currentCount);
+        // 🌟 決定 a 行的 blockID 標籤
+        std::string blockLabel = std::to_string(currentBlockId);
+        if (target_copy != -1) {
+            blockLabel += "_C" + std::to_string(target_copy); // 產生像 "5_C0", "5_C1" 這樣的標籤
+        }
 
-        // 3. 'a' line (加上自訂的 blockID)
+        // 3. 'a' line
         mafFile << "a score=" << std::fixed << std::setprecision(1) << score 
-                << " blockID=" << customBlockID << "\n";
+                << " blockID=" << blockLabel << "\n";
 
         // 4. 輸出各個 Segment 的 's' 行
         for (auto& seqEntry : blk->getSequences()) {
@@ -261,18 +287,16 @@ void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName) {
             for (auto& segPair : seqEntry.second.getSegments()) {
                 Segment& seg = segPair.second;
                 
-                // 產生包含 SNV 與 Gap 的比對序列字串
+                // 🌟 同樣的過濾機制
+                if (target_copy != -1 && seg.getCopyCount() != target_copy) continue;
+                
                 std::string aliString = generateAlignmentString(consensus, seg.getVariants());
                 
-                // 準備 s 行參數
                 int start = seg.getStart();
-                int size = std::abs(seg.getEnd() - seg.getStart()); // 實際佔用的鹼基數量
+                int size = std::abs(seg.getEnd() - seg.getStart()); 
                 char strand = seg.isReverse() ? '-' : '+';
-                
-                // 由於目前的資料結構未直接存放整條 src 染色體的總長度，這裡先填 0 (這不影響純序列分析，但若是上傳 genome browser 需後處理修正)
                 long srcSize = 0; 
 
-                // 格式化輸出以保持整齊
                 mafFile << "s " << std::left << std::setw(20) << seqID << " "
                         << std::right << std::setw(10) << start << " "
                         << std::right << std::setw(8) << size << " "
@@ -281,7 +305,7 @@ void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName) {
                         << aliString << "\n";
             }
         }
-        mafFile << "\n"; // 每個 Block 結束後空一行
+        mafFile << "\n"; 
     }
 
     mafFile.close();

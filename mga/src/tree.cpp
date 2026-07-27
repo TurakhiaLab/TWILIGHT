@@ -810,10 +810,20 @@ void phylogeny::Tree::collectLeaves(const Node* n, std::unordered_set<std::strin
 }
 
 void phylogeny::Tree::getSubLineages(const Node* node, int targetDepth, int currentDepth, std::vector<std::unordered_set<std::string>>& setsOut) {
+    // 當提早遇到 leaf，或是剛好達到目標深度時
     if (currentDepth == targetDepth || node->is_leaf()) {
         std::unordered_set<std::string> leaves;
         collectLeaves(node, leaves);
-        setsOut.push_back(leaves);
+        
+        // 【核心邏輯】：計算提早了幾層，把缺少的 sets 數量補齊
+        // 舉例：目標看 2 層，但 695 在第 1 層就是 leaf，差距 1 層。
+        // 1 << 1 = 2，所以 695 會產生 2 個相同的 set 丟進去，補齊左半邊的權重。
+        int remainingDepth = targetDepth - currentDepth;
+        int numCopies = 1 << remainingDepth; 
+        
+        for (int i = 0; i < numCopies; ++i) {
+            setsOut.push_back(leaves);
+        }
     } else {
         for (const auto& child : node->children) {
             getSubLineages(child.get(), targetDepth, currentDepth + 1, setsOut);
