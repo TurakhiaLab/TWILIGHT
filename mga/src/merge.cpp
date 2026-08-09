@@ -317,16 +317,21 @@ void BlockSet::updateSegmentVariations(
                 
                 for (auto& var : seg.getVariants()) {
                     if (var.getType() == VariantType::GAP) {
-                        if (var.getStart() >= (int)task.oldToNew->size() || var.getEnd() >= (int)task.oldToNew->size()) continue;
-                        int rawStart = (*task.oldToNew)[var.getStart()];
-                        int rawEnd = (*task.oldToNew)[var.getEnd()];
+                        int s = var.getStart();
+                        int e = var.getEnd();
+                        if (s < 0 || s >= (int)task.oldToNew->size()) continue;
+                        int rawStart = (*task.oldToNew)[s];
+                        int rawEnd = (e >= (int)task.oldToNew->size()) 
+                                     ? (task.oldToNew->empty() ? rawStart : task.oldToNew->back() + 1)
+                                     : (e < 0 ? rawStart : (*task.oldToNew)[e]);
                         int newStart = std::min(rawStart, rawEnd);
                         int newEnd = std::max(rawStart, rawEnd);
                         segmentGaps.push_back(Variant::createGap(newStart, newEnd));
                     } else {
-                        if (var.getStart() >= (int)task.oldToNew->size()) continue;
-                        int newPos = (*task.oldToNew)[var.getStart()];
-                        if (newPos < (int)mergedStr.length() && var.getAlt() != mergedStr[newPos]) {
+                        int s = var.getStart();
+                        if (s < 0 || s >= (int)task.oldToNew->size()) continue;
+                        int newPos = (*task.oldToNew)[s];
+                        if (newPos >= 0 && newPos < (int)mergedStr.length() && var.getAlt() != mergedStr[newPos]) {
                             candidateSnvs.push_back(Variant(newPos, var.getAlt()));
                         }
                     }

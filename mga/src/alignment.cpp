@@ -1008,12 +1008,15 @@ static void evaluateCutClusters(
 
 Alignments AlignmentCollection::getBestAlignments(BlockSet* refBlockSet, BlockSet* qryBlockSet, CoordinateManager& coordMgr, int L_min) {
     bool debug = true; 
+    // bool debug = false; 
     
     std::vector<Alignment> final_results;
 
     const std::string& refSeq = refBlockSet->getAncestralSequence();
     const std::string& qrySeq = qryBlockSet->getAncestralSequence();
 
+    // bool debug = (refBlockSet->getSequenceCount() >= 20 || qryBlockSet->getSequenceCount() >= 20);
+  
     while (!queue_.empty()) {
         Alignment best = queue_.top();
         queue_.pop();

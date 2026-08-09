@@ -8,16 +8,13 @@
 
 #include "type.hpp"
 #include "option.hpp"
-
+#include "minimap2_util.hpp"
 
 // =========================
 // Alignment Utils
 // =========================
 CigarString adjustCigarWithVariations(CigarString& origCigar, Segment& refSeg, Segment& qrySeg, bool qryInverse, int qryConsLen);
 CigarString extractSubCigar(const CigarString& origCigar, int refOffset, int refLen);
-Alignments runMinimap2(StringPairs& ref, StringPairs& qry, std::string refName, std::string qryName, Option& option, bool needCigar = true, bool write_paf = false);
-Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::string refName, std::string qryName, Option& option, bool needCigar = true, bool write_paf = false);
-Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq, const std::string& refID, const std::string& qryID, Option& option, bool needCigar = true, bool write_paf = false);
 Alignments splitSingleAlignment(const Alignment& aln,const std::set<int>& refCuts,const std::set<int>& qryCuts);
 void snapAlignment(Alignment& aln, int r_pad_left, int r_pad_right, int q_pad_left, int q_pad_right);
 
@@ -28,7 +25,6 @@ void snapAlignment(Alignment& aln, int r_pad_left, int r_pad_right, int q_pad_le
 
 namespace parser {
     CigarString parseCigar(const std::string& cigar);
-    Alignments parseMinimap2PAF(const std::string& filename);
 }
 
 struct Alignment {

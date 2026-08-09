@@ -52,20 +52,31 @@ public:
     return (">" + name + "\n" + consensus.getConsensusString() + "\n");
   }
   Sequences &getSequences() { return sequences; }
-  BlockWeakPtr getPrevBlock(int copy) const { return prev_blocks[copy]; };
-  BlockWeakPtr getNextBlock(int copy) const { return next_blocks[copy]; };
+  BlockWeakPtr getPrevBlock(int copy) const {
+    if (copy >= 0 && copy < static_cast<int>(prev_blocks.size()))
+      return prev_blocks[copy];
+    return BlockWeakPtr();
+  };
+  BlockWeakPtr getNextBlock(int copy) const {
+    if (copy >= 0 && copy < static_cast<int>(next_blocks.size()))
+      return next_blocks[copy];
+    return BlockWeakPtr();
+  };
   bool isCoreBlock() const { return distant.size() == 1; }
-  bool isDistant(int copy = -1) const {
-    if (copy != -1)
-      return distant[copy];
-    bool dis = true;
+  bool isAllDistant() const {
+    if (distant.empty()) return false;
     for (auto d : distant) {
-      if (!d) {
-        dis = false;
-        break;
-      }
+      if (!d) return false;
     }
-    return dis;
+    return true;
+  }
+  bool isDistant(int copy = -1) const {
+    if (copy != -1) {
+      if (copy >= 0 && copy < static_cast<int>(distant.size()))
+        return distant[copy];
+      return false;
+    }
+    return isAllDistant();
   }
   int getMaxCopy() const;
 

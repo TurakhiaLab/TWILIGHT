@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
 
     // Read Sequences
     auto manager = mga::io::readSequences(option.seqFile, option, subT);
-    if (option.circular) manager->orientCircularGenomes(option);
+    if (option.circular) manager->orientCircularGenomes(option, "NZ_CP046309.1");
 
     mga::progressive::msaOnSubtree(subT, option, manager.get(), 0);
 
@@ -115,9 +115,9 @@ int main(int argc, char** argv) {
 
     // Output MAF
     
-    final_set->debugValidateSegments(false);
-    final_set->debugValidateLinkages(false);
-    final_set->debugValidateQuality(false);
+    // final_set->debugValidateSegments(false);
+    // final_set->debugValidateLinkages(false);
+    // final_set->debugValidateQuality(false);
     auto outputStart = std::chrono::high_resolution_clock::now();
 
     auto refineStart = std::chrono::high_resolution_clock::now();
@@ -135,7 +135,7 @@ int main(int argc, char** argv) {
     // final_set->debugValidateBubble(false);
 
 
-    mga::io::writeMAF(final_set, option.tempDir+"/output_pre.maf");
+    // mga::io::writeMAF(final_set, option.tempDir+"/output_pre.maf");
     auto outputEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds outputTime = outputEnd - outputStart;
 
@@ -146,10 +146,10 @@ int main(int argc, char** argv) {
     // final_set->writeMAF(option.tempDir+"/output_post.maf");
     
     // final_set->realignBlocks(option.tempDir);
-    final_set->debugValidateQuality(false);
+    // final_set->debugValidateQuality(false);
     // mga::io::writeMAF(final_set, option.tempDir+"/output_post.maf");
 
-    final_set->debugValidateSequences(manager.get(), false);
+    // final_set->debugValidateSequences(manager.get(), false);
     
 
     std::cout << "--- Profiling Results (ms) ---\n";

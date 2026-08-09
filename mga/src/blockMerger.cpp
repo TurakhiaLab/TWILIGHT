@@ -20,9 +20,9 @@
 
 BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
                               AlignmentCollection &alnCollection,
-                              BlockSetID newID, Tree *tree, int L_min) {
-  bool DEBUG_MODE = (refSet->getSequenceCount() > 1 || qrySet->getSequenceCount() > 1);
-  // bool DEBUG_MODE = false;
+                              BlockSetID newID, Tree *tree, Option *option, int L_min) {
+  // bool DEBUG_MODE = (refSet->getSequenceCount() >= 20 || qrySet->getSequenceCount() >= 20);
+  bool DEBUG_MODE = true;
   auto time0 = std::chrono::high_resolution_clock::now();
   if (DEBUG_MODE)
     std::cout << "\n========================================================\n"
@@ -395,9 +395,9 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
 
         if (precomputed_inverse) q_virt_cons = getReverseComplement(q_virt_cons);
 
-        // 🚀 執行預先對齊
+        // 🚀 執行預先對齊 (Linear Gap Penalty + Tiling Alignment)
         global_timer.start("p2_4_2_semi_global_aln");
-        precomputed_cigar = runTilingAlignment(r_virt_cons, q_virt_cons);
+        precomputed_cigar = runTilingAlignmentLinearGap(r_virt_cons, q_virt_cons);
         global_timer.stop("p2_4_2_semi_global_aln");
         double identity = identityCIGAR(precomputed_cigar);
         double IDENTITY_THRESHOLD = 0.85;
@@ -656,35 +656,35 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
 
       auto r_probe = getProbeSegment(rBlk_ptr, r_start);
       std::string r_probe_seq = r_probe.first;
-      int r_probe_start = r_probe.second.getStart();
+      int r_probe_local_start = r_probe.second.getStart();
       int r_probe_copy = r_probe.second.getCopyCount();
 
       auto q_probe = getProbeSegment(qBlk_ptr, q_start);
       std::string q_probe_seq = q_probe.first;
-      int q_probe_start = q_probe.second.getStart();
+      int q_probe_local_start = q_probe.second.getStart();
       int q_probe_copy = q_probe.second.getCopyCount();
 
       global_timer.start("merge_blocks");
       auto mBlk = mergedSet->mergeTwoBlocks(rBlk_ptr, qBlk_ptr, finalCigar,
                                             actual_merge_inverse, merge_mode,
-                                            r_probe_start, q_probe_start,
+                                            r_probe_local_start, q_probe_local_start,
                                             r_probe_copy, q_probe_copy);
       global_timer.stop("merge_blocks");
 
       // 3. 🌟 [Merge 後] 在新的 mBlk 中找回那兩個探針，看它們的 Copy 變成多少
-      int r_new_copy = mBlk->getSequences()[r_probe_seq].getSegment(r_probe_start).getCopyCount();
-      int q_new_copy = mBlk->getSequences()[q_probe_seq].getSegment(q_probe_start).getCopyCount();
+      int r_new_copy = mBlk->getSequences()[r_probe_seq].getSegment(r_probe_local_start).getCopyCount();
+      int q_new_copy = mBlk->getSequences()[q_probe_seq].getSegment(q_probe_local_start).getCopyCount();
 
       int actual_rLen = rBlk_ptr->getConsensus().length();
       int actual_qLen = qBlk_ptr->getConsensus().length();
 
-      // 4. 🎯 更新 CoordinateManager
+      // 4. 🎯 更新 CoordinateManager (傳入全域 r_start 與 q_start 做為探針標記)
       global_timer.start("p2_8_coord_tracker_update");
       bool inBoth = (merge_mode == 1 || r_new_copy == q_new_copy);
       coordMgr.updateAfterMerge(rCore, qCore, mBlk->getId(), finalCigar,
                                 actual_merge_inverse, actual_rLen, actual_qLen,
                                 r_new_copy, q_new_copy, inBoth,
-                                r_probe_start, q_probe_start);
+                                r_start, q_start);
 
       BlockID mId = mBlk->getId();
       if (DEBUG_MODE)
@@ -787,45 +787,22 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
     mergedSet->addSequenceName(seq);
   for (auto &seq : qrySet->getSequences())
     mergedSet->addSequenceName(seq);
-
-  for (auto &blk : refSet->getAllBlocks()) {
-    if (blk.lock()->isDistant()) {
-      if (DEBUG_MODE) {
-        auto b = blk.lock();
-        std::cout << "  [DISTANT-REF] Adding Block " << b->getId()
-                  << " (len=" << b->getConsensus().length() << ")";
-        for (auto &seq : b->getSequences()) {
-          for (auto &seg : seq.second.getSegments()) {
-            std::cout << " | " << seq.first << ":[" << seg.second.getStart()
-                      << "," << seg.second.getEnd() << ")";
-          }
-        }
-        std::cout << "\n";
-      }
-      mergedSet->addBlock(blk.lock());
-    }
-  }
-  for (auto &blk : qrySet->getAllBlocks()) {
-    if (blk.lock()->isDistant()) {
-      if (DEBUG_MODE) {
-        auto b = blk.lock();
-        std::cout << "  [DISTANT-QRY] Adding Block " << b->getId()
-                  << " (len=" << b->getConsensus().length() << ")";
-        for (auto &seq : b->getSequences()) {
-          for (auto &seg : seq.second.getSegments()) {
-            std::cout << " | " << seq.first << ":[" << seg.second.getStart()
-                      << "," << seg.second.getEnd() << ")";
-          }
-        }
-        std::cout << "\n";
-      }
-      mergedSet->addBlock(blk.lock());
-    }
-  }
+  // 🌟 Phase 5: 所有 Ref/Qry Blocks 已在 CoordinateManager::init 中完整納入 mergedSet 保管
+  // 故此處不需要再重複逐一加入。
 
   // 🔍 Diagnostic checkpoint B: after distant block additions
   if (DEBUG_MODE) std::cout << "\n  [DIAG-B] Validating AFTER distant block additions...\n";
   mergedSet->debugValidateSequences(this);
+
+  // 🌟 Phase 5.5: 標記 Distant Blocks 並執行 Self-Align (透過 global_timer 計時)
+  if (tree) {
+    mergedSet->setDistantBlocks(*tree);
+  }
+
+  global_timer.start("phase5_5_self_align");
+  mergedSet->selfAlignDistant(*option, &coordMgr);
+  mergedSet->selfAlign(*option, &coordMgr);
+  global_timer.stop("phase5_5_self_align");
 
   mergedSet->rebuildLinearGraph(coordMgr);
   global_timer.stop("phase5_rewire_edges");

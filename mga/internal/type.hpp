@@ -95,16 +95,16 @@ using NodePairs = std::vector<NodePair>;
 // ============================================================================
 
 // Snapping window size used during alignment processing (bp)
-constexpr int SNAP_LENGTH = 50;
+constexpr int SNAP_LENGTH = 100;
 
 // Maximum sequence length for running dynamic programming (Needleman-Wunsch) alignment
 constexpr int MAX_NW_LENGTH = 300;
 
 // Minimum distance to the boundary to classify a cut point as non-noise (bp)
-constexpr int MIN_DIST_2_BOUNDARY = 50;
+constexpr int MIN_DIST_2_BOUNDARY = 100;
 
 // Default tree lookdown depth for finding distant/ancestral blocks
-constexpr int DEFAULT_LOOKDOWN_DEPTH = 2;
+constexpr int DEFAULT_LOOKDOWN_DEPTH = 3;
 
 // Default minimum alignment length threshold for merging (bp)
 constexpr int DEFAULT_L_MIN = 100;

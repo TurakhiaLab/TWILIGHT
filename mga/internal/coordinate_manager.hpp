@@ -140,14 +140,14 @@ class CoordinateManager {
             // 2. 轉移並註冊 RefSet
             // ==========================================
             int start = 0;
-            std::unordered_map<BlockID, std::shared_ptr<Block>> ref_added_blocks; // 🌟 新增：紀錄已加入的 Ref 積木
+            std::unordered_map<BlockID, std::shared_ptr<Block>> ref_added_blocks; // 🌟 紀錄已加入的 Ref 積木
                 
-            for (auto& vblkID : refSet->getAncestralBlocks()) {
+            for (auto& vblkID : refSet->getLinearizeBlocks()) {
                 auto oldBlk = refSet->getBlock(vblkID.first);
                 if (!oldBlk) continue;
             
                 std::shared_ptr<Block> newBlk;
-                // 🌟 防呆：如果這個積木已經被加過了，直接拿出來用，不要再 addBlock！
+                // 🌟 防呆：如果這個積木已經被加過了，直接拿出來用，不要重複 addBlock！
                 if (ref_added_blocks.count(oldBlk->getId())) {
                     newBlk = ref_added_blocks[oldBlk->getId()];
                 } else {
@@ -155,33 +155,46 @@ class CoordinateManager {
                     ref_added_blocks[oldBlk->getId()] = newBlk; // 紀錄起來
                 }
             
-                int size = newBlk->getConsensus().size();
-                int end = start + size;
-            
-                reverseMap[newBlk->getId()].push_back({true, start, end});
-                refIntervals[start] = {end, newBlk->getId()};
-            
-                for (int i = start; i < end; ++i) {
-                    refMap[i].blkId = newBlk->getId();
-                    refMap[i].localPos = i - start;
-                    refMap[i].copyId = vblkID.second; 
-                    refMap[i].isMerged = false; 
+                // 🌟 只有 Core Copy 才累加 Offset 並註冊進 refIntervals / refMap
+                if (!oldBlk->isDistant(vblkID.second)) {
+                    int size = newBlk->getConsensus().size();
+                    int end = start + size;
+                
+                    reverseMap[newBlk->getId()].push_back({true, start, end});
+                    refIntervals[start] = {end, newBlk->getId()};
+                
+                    for (int i = start; i < end; ++i) {
+                        refMap[i].blkId = newBlk->getId();
+                        refMap[i].localPos = i - start;
+                        refMap[i].copyId = vblkID.second; 
+                        refMap[i].isMerged = false; 
+                    }
+                    start = end;
                 }
-                start = end;
+            }
+
+            // 🌟 安全防護：確保 RefSet 中縱使有極少數不在 linear 列表中的 Block 也能被納入 mergedSet
+            for (auto& weak_blk : refSet->getAllBlocks()) {
+                auto oldBlk = weak_blk.lock();
+                if (!oldBlk) continue;
+                if (!ref_added_blocks.count(oldBlk->getId())) {
+                    auto newBlk = mergedSet->addBlockReferencing(oldBlk, refSet);
+                    ref_added_blocks[oldBlk->getId()] = newBlk;
+                }
             }
         
             // ==========================================
             // 3. 轉移並註冊 QrySet
             // ==========================================
             start = 0;
-            std::unordered_map<BlockID, std::shared_ptr<Block>> qry_added_blocks; // 🌟 新增：紀錄已加入的 Qry 積木
+            std::unordered_map<BlockID, std::shared_ptr<Block>> qry_added_blocks; // 🌟 紀錄已加入的 Qry 積木
         
-            for (auto& vblkID : qrySet->getAncestralBlocks()) {
+            for (auto& vblkID : qrySet->getLinearizeBlocks()) {
                 auto oldBlk = qrySet->getBlock(vblkID.first);
                 if (!oldBlk) continue;
             
                 std::shared_ptr<Block> newBlk;
-                // 🌟 防呆：如果這個積木已經被加過了，直接拿出來用
+                // 🌟 防呆：如果這個積木已經被加過了，直接拿出來用，不要重複 addBlock！
                 if (qry_added_blocks.count(oldBlk->getId())) {
                     newBlk = qry_added_blocks[oldBlk->getId()];
                 } else {
@@ -189,21 +202,32 @@ class CoordinateManager {
                     qry_added_blocks[oldBlk->getId()] = newBlk; // 紀錄起來
                 }
             
-                int size = newBlk->getConsensus().size();
-                int end = start + size;
-            
-                reverseMap[newBlk->getId()].push_back({false, start, end});
-                qryIntervals[start] = {end, newBlk->getId()};
-            
-                // std::cout << oldBlk->getId() << " -> " << newBlk->getId() << ": [" << start << ", " << end << ") / " << qryLen << std::endl;
-            
-                for (int i = start; i < end; ++i) {
-                    qryMap[i].blkId = newBlk->getId();
-                    qryMap[i].localPos = i - start;
-                    qryMap[i].copyId = vblkID.second; 
-                    qryMap[i].isMerged = false; 
+                // 🌟 只有 Core Copy 才累加 Offset 並註冊進 qryIntervals / qryMap
+                if (!oldBlk->isDistant(vblkID.second)) {
+                    int size = newBlk->getConsensus().size();
+                    int end = start + size;
+                
+                    reverseMap[newBlk->getId()].push_back({false, start, end});
+                    qryIntervals[start] = {end, newBlk->getId()};
+                
+                    for (int i = start; i < end; ++i) {
+                        qryMap[i].blkId = newBlk->getId();
+                        qryMap[i].localPos = i - start;
+                        qryMap[i].copyId = vblkID.second; 
+                        qryMap[i].isMerged = false; 
+                    }
+                    start = end;
                 }
-                start = end;
+            }
+
+            // 🌟 安全防護：確保 QrySet 中縱使有極少數不在 linear 列表中的 Block 也能被納入 mergedSet
+            for (auto& weak_blk : qrySet->getAllBlocks()) {
+                auto oldBlk = weak_blk.lock();
+                if (!oldBlk) continue;
+                if (!qry_added_blocks.count(oldBlk->getId())) {
+                    auto newBlk = mergedSet->addBlockReferencing(oldBlk, qrySet);
+                    qry_added_blocks[oldBlk->getId()] = newBlk;
+                }
             }
         }
 

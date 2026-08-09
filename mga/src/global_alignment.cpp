@@ -224,7 +224,7 @@ CigarString runSemiGlobalAlignment(const Consensus& refCons, const Consensus& qr
 }
 
 // ==========================================
-// 3. Tiling Alignment (GACT) CPU Implementation
+// 3. Tiling Alignment (GACT) CPU Implementation with Affine Gap
 // ==========================================
 CigarString runTilingAlignment(const std::string& ref, const std::string& qry) {
     CigarString result;
@@ -234,27 +234,13 @@ CigarString runTilingAlignment(const std::string& ref, const std::string& qry) {
     const int T = 200;        // Tile size
     const int O = 50;         // Overlap between tiles
 
-    // Scoring scheme
-    const int16_t MATCH = 2;
-    const int16_t MISMATCH = -1;
-    const int16_t GAP = -2;
-
-    // Traceback direction constants
-    const uint8_t DIR_DIAG = 1;
-    const uint8_t DIR_UP   = 2;
-    const uint8_t DIR_LEFT = 3;
-
     int32_t refTotalLen = static_cast<int32_t>(ref.size());
     int32_t qryTotalLen = static_cast<int32_t>(qry.size());
 
     bool lastTile = false;
-    int16_t maxScore = 0;
+    int maxScore = 0;
     int32_t reference_idx = 0;
     int32_t query_idx = 0;
-
-    std::vector<uint8_t> tbDir(T * T, 0);
-    std::vector<int16_t> wf_scores(3 * (T + 1), -9999);
-    std::vector<uint8_t> localPath(2 * T, 0);
 
     CigarString raw_cigar;
     auto add_op = [&](char op) {
@@ -273,105 +259,107 @@ CigarString runTilingAlignment(const std::string& ref, const std::string& qry) {
             lastTile = true;
         }
 
-        std::fill(wf_scores.begin(), wf_scores.end(), -9999);
+        std::string ref_sub = ref.substr(reference_idx, refLen);
+        std::string qry_sub = qry.substr(query_idx, qryLen);
 
-        int32_t best_ti = refLen;
-        int32_t best_tj = qryLen;
+        int n = refLen;
+        int m = qryLen;
 
-        // Wavefront Scoring Loop (Diagonal Traversal)
-        for (int k = 0; k <= refLen + qryLen; ++k) {
-            int curr_k   = (k % 3) * (T + 1);
-            int pre_k    = ((k + 2) % 3) * (T + 1);
-            int prepre_k = ((k + 1) % 3) * (T + 1);
+        std::vector<std::vector<int>> M(n + 1, std::vector<int>(m + 1, INF));
+        std::vector<std::vector<int>> I(n + 1, std::vector<int>(m + 1, INF));
+        std::vector<std::vector<int>> D(n + 1, std::vector<int>(m + 1, INF));
 
-            int i_start = std::max(0, k - qryLen);
-            int i_end   = std::min(refLen, k);
+        M[0][0] = maxScore;
+        for (int i = 1; i <= n; ++i) {
+            D[i][0] = maxScore + GAP_OPEN + i * GAP_EXT;
+        }
+        for (int j = 1; j <= m; ++j) {
+            I[0][j] = maxScore + GAP_OPEN + j * GAP_EXT;
+        }
 
-            for (int i = i_start; i <= i_end; ++i) {
-                int j = k - i;
+        int best_score = INF;
+        int best_ti = n;
+        int best_tj = m;
 
-                int16_t score = -9999;
-                uint8_t direction = DIR_DIAG;
+        for (int i = 1; i <= n; ++i) {
+            for (int j = 1; j <= m; ++j) {
+                int score = (ref_sub[i - 1] == qry_sub[j - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
 
-                if (i == 0 && j == 0) {
-                    score = maxScore;
-                    maxScore = -9999;
-                } else if (i == 0) {
-                    score = wf_scores[pre_k + i] + GAP;
-                    direction = DIR_LEFT;
-                } else if (j == 0) {
-                    score = wf_scores[pre_k + (i - 1)] + GAP;
-                    direction = DIR_UP;
-                } else {
-                    char r_char = ref[reference_idx + (i - 1)];
-                    char q_char = qry[query_idx + (j - 1)];
-
-                    int16_t score_diag = wf_scores[prepre_k + (i - 1)] + (r_char == q_char ? MATCH : MISMATCH);
-                    int16_t score_up   = wf_scores[pre_k + (i - 1)] + GAP;
-                    int16_t score_left = wf_scores[pre_k + i] + GAP;
-
-                    score = score_diag;
-                    direction = DIR_DIAG;
-
-                    if (score_up > score) {
-                        score = score_up;
-                        direction = DIR_UP;
-                    }
-                    if (score_left > score) {
-                        score = score_left;
-                        direction = DIR_LEFT;
-                    }
+                int prev_max = std::max({M[i - 1][j - 1], I[i - 1][j - 1], D[i - 1][j - 1]});
+                if (prev_max > INF / 2) {
+                    M[i][j] = prev_max + score;
                 }
 
-                wf_scores[curr_k + i] = score;
+                int i_from_m = (M[i][j - 1] > INF / 2) ? (M[i][j - 1] + GAP_OPEN + GAP_EXT) : INF;
+                int i_from_i = (I[i][j - 1] > INF / 2) ? (I[i][j - 1] + GAP_EXT) : INF;
+                I[i][j] = std::max(i_from_m, i_from_i);
 
-                if (i > 0 && j > 0) {
-                    tbDir[(i - 1) * T + (j - 1)] = direction;
-                }
+                int d_from_m = (M[i - 1][j] > INF / 2) ? (M[i - 1][j] + GAP_OPEN + GAP_EXT) : INF;
+                int d_from_d = (D[i - 1][j] > INF / 2) ? (D[i - 1][j] + GAP_EXT) : INF;
+                D[i][j] = std::max(d_from_m, d_from_d);
 
                 if (!lastTile) {
-                    if (i > (refLen - O) && j > (qryLen - O)) {
-                        if (score >= maxScore) {
-                            maxScore = score;
+                    if (i > (n - O) && j > (m - O)) {
+                        int cell_max = std::max({M[i][j], I[i][j], D[i][j]});
+                        if (cell_max >= best_score) {
+                            best_score = cell_max;
                             best_ti = i;
                             best_tj = j;
                         }
                     }
                 }
             }
-        } // End Wavefront Loop
+        }
 
-        // Traceback
-        int ti = (!lastTile) ? best_ti : refLen;
-        int tj = (!lastTile) ? best_tj : qryLen;
+        int ti = (!lastTile) ? best_ti : n;
+        int tj = (!lastTile) ? best_tj : m;
+
+        if (!lastTile) {
+            maxScore = best_score;
+        }
 
         int next_ref_advance = ti;
         int next_qry_advance = tj;
 
-        int localLen = 0;
+        // Traceback inside tile
+        int cell_max = std::max({M[ti][tj], I[ti][tj], D[ti][tj]});
+        int state = 0;
+        if (cell_max == M[ti][tj]) state = 0;
+        else if (cell_max == I[ti][tj]) state = 1;
+        else state = 2;
+
+        std::vector<char> local_ops;
         while (ti > 0 || tj > 0) {
-            uint8_t dir;
-            if (ti == 0) {
-                dir = DIR_LEFT;
-            } else if (tj == 0) {
-                dir = DIR_UP;
-            } else {
-                dir = tbDir[(ti - 1) * T + (tj - 1)];
+            if (ti > 0 && tj > 0) {
+                if (state == 0) {
+                    int score = (ref_sub[ti - 1] == qry_sub[tj - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
+                    if (M[ti][tj] == M[ti - 1][tj - 1] + score) state = 0;
+                    else if (M[ti][tj] == I[ti - 1][tj - 1] + score) state = 1;
+                    else state = 2;
+                    local_ops.push_back('M');
+                    ti--; tj--;
+                } else if (state == 1) {
+                    if (I[ti][tj] == M[ti][tj - 1] + GAP_OPEN + GAP_EXT) state = 0;
+                    else state = 1;
+                    local_ops.push_back('I');
+                    tj--;
+                } else if (state == 2) {
+                    if (D[ti][tj] == M[ti - 1][tj] + GAP_OPEN + GAP_EXT) state = 0;
+                    else state = 2;
+                    local_ops.push_back('D');
+                    ti--;
+                }
+            } else if (ti > 0 && tj == 0) {
+                local_ops.push_back('D');
+                ti--;
+            } else if (tj > 0 && ti == 0) {
+                local_ops.push_back('I');
+                tj--;
             }
-
-            localPath[localLen++] = dir;
-
-            if (dir == DIR_DIAG) { ti--; tj--; }
-            else if (dir == DIR_UP) { ti--; }
-            else { tj--; }
         }
 
-        // Convert reversed local path to CIGAR
-        for (int k = localLen - 1; k >= 0; --k) {
-            uint8_t dir = localPath[k];
-            if (dir == DIR_DIAG) add_op('M');
-            else if (dir == DIR_UP) add_op('D');
-            else if (dir == DIR_LEFT) add_op('I');
+        for (auto it = local_ops.rbegin(); it != local_ops.rend(); ++it) {
+            add_op(*it);
         }
 
         reference_idx += next_ref_advance;
@@ -384,4 +372,289 @@ CigarString runTilingAlignment(const std::string& ref, const std::string& qry) {
 CigarString runTilingAlignment(const Consensus& refCons, const Consensus& qryCons) {
     return runTilingAlignment(refCons.getConsensusString(), qryCons.getConsensusString());
 }
+
+// ==========================================
+// 1b. Global Alignment with Linear Gap (No Affine)
+// ==========================================
+CigarString runGlobalAlignmentLinearGap(const std::string& ref, const std::string& qry, int gapPenalty) {
+    CigarString result;
+    if (ref.empty() || qry.empty()) return result;
+
+    int n = ref.size();
+    int m = qry.size();
+
+    std::vector<std::vector<int>> dp(n + 1, std::vector<int>(m + 1, 0));
+
+    dp[0][0] = 0;
+    for (int i = 1; i <= n; ++i) {
+        dp[i][0] = i * gapPenalty;
+    }
+    for (int j = 1; j <= m; ++j) {
+        dp[0][j] = j * gapPenalty;
+    }
+
+    for (int i = 1; i <= n; ++i) {
+        for (int j = 1; j <= m; ++j) {
+            int score = (ref[i - 1] == qry[j - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
+            int match = dp[i - 1][j - 1] + score;
+            int del = dp[i - 1][j] + gapPenalty;
+            int ins = dp[i][j - 1] + gapPenalty;
+            dp[i][j] = std::max({match, del, ins});
+        }
+    }
+
+    int i = n, j = m;
+    CigarString cigar_ops;
+    auto add_op = [&](char op) {
+        if (!cigar_ops.empty() && cigar_ops.back().second == op) {
+            cigar_ops.back().first++;
+        } else {
+            cigar_ops.push_back({1, op});
+        }
+    };
+
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0) {
+            int score = (ref[i - 1] == qry[j - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
+            if (dp[i][j] == dp[i - 1][j - 1] + score) {
+                add_op('M');
+                i--; j--;
+            } else if (dp[i][j] == dp[i - 1][j] + gapPenalty) {
+                add_op('D');
+                i--;
+            } else {
+                add_op('I');
+                j--;
+            }
+        } else if (i > 0) {
+            add_op('D');
+            i--;
+        } else {
+            add_op('I');
+            j--;
+        }
+    }
+
+    std::reverse(cigar_ops.begin(), cigar_ops.end());
+    return cigar_ops;
+}
+
+CigarString runGlobalAlignmentLinearGap(const Consensus& refCons, const Consensus& qryCons, int gapPenalty) {
+    return runGlobalAlignmentLinearGap(refCons.getConsensusString(), qryCons.getConsensusString(), gapPenalty);
+}
+
+// ==========================================
+// 2b. Semi-Global Alignment with Linear Gap (No Affine)
+// ==========================================
+CigarString runSemiGlobalAlignmentLinearGap(const std::string& ref, const std::string& qry, int gapPenalty) {
+    CigarString result;
+    if (ref.empty() || qry.empty()) return result;
+
+    bool swapped = false;
+    std::string ref_seq = ref;
+    std::string qry_seq = qry;
+
+    if (ref_seq.size() < qry_seq.size()) {
+        std::swap(ref_seq, qry_seq);
+        swapped = true;
+    }
+
+    int n = ref_seq.size();
+    int m = qry_seq.size();
+
+    std::vector<std::vector<int>> dp(n + 1, std::vector<int>(m + 1, 0));
+
+    for (int i = 0; i <= n; ++i) {
+        dp[i][0] = 0;
+    }
+    for (int j = 1; j <= m; ++j) {
+        dp[0][j] = j * gapPenalty;
+    }
+
+    int maxScore = INF;
+    int endI = 0;
+
+    for (int i = 1; i <= n; ++i) {
+        for (int j = 1; j <= m; ++j) {
+            int score = (ref_seq[i - 1] == qry_seq[j - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
+            int match = dp[i - 1][j - 1] + score;
+            int del = dp[i - 1][j] + gapPenalty;
+            int ins = dp[i][j - 1] + gapPenalty;
+            dp[i][j] = std::max({match, del, ins});
+
+            if (j == m) {
+                if (dp[i][j] >= maxScore) {
+                    maxScore = dp[i][j];
+                    endI = i;
+                }
+            }
+        }
+    }
+
+    CigarString cigar_ops;
+    auto add_op = [&](char op) {
+        if (swapped) {
+            if (op == 'I') op = 'D';
+            else if (op == 'D') op = 'I';
+        }
+        if (!cigar_ops.empty() && cigar_ops.back().second == op) {
+            cigar_ops.back().first++;
+        } else {
+            cigar_ops.push_back({1, op});
+        }
+    };
+
+    for (int i = 0; i < n - endI; ++i) add_op('D');
+
+    int i = endI, j = m;
+    while (i > 0 && j > 0) {
+        int score = (ref_seq[i - 1] == qry_seq[j - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
+        if (dp[i][j] == dp[i - 1][j - 1] + score) {
+            add_op('M');
+            i--; j--;
+        } else if (dp[i][j] == dp[i - 1][j] + gapPenalty) {
+            add_op('D');
+            i--;
+        } else {
+            add_op('I');
+            j--;
+        }
+    }
+
+    while (i > 0) { add_op('D'); i--; }
+    while (j > 0) { add_op('I'); j--; }
+
+    std::reverse(cigar_ops.begin(), cigar_ops.end());
+    return cigar_ops;
+}
+
+CigarString runSemiGlobalAlignmentLinearGap(const Consensus& refCons, const Consensus& qryCons, int gapPenalty) {
+    return runSemiGlobalAlignmentLinearGap(refCons.getConsensusString(), qryCons.getConsensusString(), gapPenalty);
+}
+
+// ==========================================
+// 3b. Tiling Alignment (GACT) CPU Implementation with Linear Gap
+// ==========================================
+CigarString runTilingAlignmentLinearGap(const std::string& ref, const std::string& qry, int gapPenalty) {
+    CigarString result;
+    if (ref.empty() || qry.empty()) return result;
+
+    const int T = 200;        // Tile size
+    const int O = 50;         // Overlap between tiles
+
+    int32_t refTotalLen = static_cast<int32_t>(ref.size());
+    int32_t qryTotalLen = static_cast<int32_t>(qry.size());
+
+    bool lastTile = false;
+    int maxScore = 0;
+    int32_t reference_idx = 0;
+    int32_t query_idx = 0;
+
+    CigarString raw_cigar;
+    auto add_op = [&](char op) {
+        if (!raw_cigar.empty() && raw_cigar.back().second == op) {
+            raw_cigar.back().first++;
+        } else {
+            raw_cigar.push_back({1, op});
+        }
+    };
+
+    while (!lastTile) {
+        int32_t refLen = std::min((int32_t)T, refTotalLen - reference_idx);
+        int32_t qryLen = std::min((int32_t)T, qryTotalLen - query_idx);
+
+        if ((reference_idx + refLen == refTotalLen) && (query_idx + qryLen == qryTotalLen)) {
+            lastTile = true;
+        }
+
+        std::string ref_sub = ref.substr(reference_idx, refLen);
+        std::string qry_sub = qry.substr(query_idx, qryLen);
+
+        int n = refLen;
+        int m = qryLen;
+
+        std::vector<std::vector<int>> dp(n + 1, std::vector<int>(m + 1, INF));
+
+        dp[0][0] = maxScore;
+        for (int i = 1; i <= n; ++i) {
+            dp[i][0] = maxScore + i * gapPenalty;
+        }
+        for (int j = 1; j <= m; ++j) {
+            dp[0][j] = maxScore + j * gapPenalty;
+        }
+
+        int best_score = INF;
+        int best_ti = n;
+        int best_tj = m;
+
+        for (int i = 1; i <= n; ++i) {
+            for (int j = 1; j <= m; ++j) {
+                int score = (ref_sub[i - 1] == qry_sub[j - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
+                int match = (dp[i - 1][j - 1] > INF / 2) ? (dp[i - 1][j - 1] + score) : INF;
+                int del   = (dp[i - 1][j] > INF / 2) ? (dp[i - 1][j] + gapPenalty) : INF;
+                int ins   = (dp[i][j - 1] > INF / 2) ? (dp[i][j - 1] + gapPenalty) : INF;
+                dp[i][j]  = std::max({match, del, ins});
+
+                if (!lastTile) {
+                    if (i > (n - O) && j > (m - O)) {
+                        if (dp[i][j] >= best_score) {
+                            best_score = dp[i][j];
+                            best_ti = i;
+                            best_tj = j;
+                        }
+                    }
+                }
+            }
+        }
+
+        int ti = (!lastTile) ? best_ti : n;
+        int tj = (!lastTile) ? best_tj : m;
+
+        if (!lastTile) {
+            maxScore = best_score;
+        }
+
+        int next_ref_advance = ti;
+        int next_qry_advance = tj;
+
+        // Traceback inside tile
+        std::vector<char> local_ops;
+        int i = ti, j = tj;
+        while (i > 0 || j > 0) {
+            if (i > 0 && j > 0) {
+                int score = (ref_sub[i - 1] == qry_sub[j - 1]) ? MATCH_SCORE : MISMATCH_PENALTY;
+                if (dp[i][j] == dp[i - 1][j - 1] + score) {
+                    local_ops.push_back('M');
+                    i--; j--;
+                } else if (dp[i][j] == dp[i - 1][j] + gapPenalty) {
+                    local_ops.push_back('D');
+                    i--;
+                } else {
+                    local_ops.push_back('I');
+                    j--;
+                }
+            } else if (i > 0) {
+                local_ops.push_back('D');
+                i--;
+            } else {
+                local_ops.push_back('I');
+                j--;
+            }
+        }
+
+        for (auto it = local_ops.rbegin(); it != local_ops.rend(); ++it) {
+            add_op(*it);
+        }
+
+        reference_idx += next_ref_advance;
+        query_idx     += next_qry_advance;
+    } // End Tile Loop
+
+    return raw_cigar;
+}
+
+CigarString runTilingAlignmentLinearGap(const Consensus& refCons, const Consensus& qryCons, int gapPenalty) {
+    return runTilingAlignmentLinearGap(refCons.getConsensusString(), qryCons.getConsensusString(), gapPenalty);
+}
+
 

@@ -20,17 +20,41 @@ std::pair<Segment, Segment> Segment::split(int localCut) {
             }
         } else if (var.getStart() >= localCut) {
             Variant right_var = var;
-            right_var.shift(-localCut); 
-            right.variations.push_back(right_var);
+            int newStart = right_var.getStart() - localCut;
+            int newEnd = right_var.getEnd() - localCut;
+            if (newStart >= 0) { // 🌟 ROOT CAUSE FIX: 確保右半部 Variant 起點絕不為負數
+                if (right_var.getType() == VariantType::GAP) {
+                    right.variations.push_back(Variant::createGap(newStart, newEnd));
+                } else {
+                    right.variations.push_back(Variant(newStart, right_var.getAlt()));
+                }
+            }
         } else {
-            // Gap across the cut point
-            Variant left_gap = Variant::createGap(var.getStart(), localCut);
-            left.variations.push_back(left_gap);
-            gap_bases_before_cut += (localCut - var.getStart());
-            
-            Variant right_gap = Variant::createGap(localCut, var.getEnd());
-            right_gap.shift(-localCut);
-            right.variations.push_back(right_gap);
+            // Straddling the cut point
+            if (var.getType() == VariantType::GAP) {
+                if (localCut > var.getStart()) {
+                    Variant left_gap = Variant::createGap(var.getStart(), localCut);
+                    left.variations.push_back(left_gap);
+                    gap_bases_before_cut += (localCut - var.getStart());
+                }
+                if (var.getEnd() > localCut) {
+                    int rStart = 0; // 右半部從 offset 0 開始
+                    int rEnd = var.getEnd() - localCut;
+                    if (rEnd > 0) {
+                        right.variations.push_back(Variant::createGap(rStart, rEnd));
+                    }
+                }
+            } else {
+                // SNV at or straddling cut point
+                if (var.getStart() < localCut) {
+                    left.variations.push_back(var);
+                } else {
+                    int newStart = var.getStart() - localCut;
+                    if (newStart >= 0) {
+                        right.variations.push_back(Variant(newStart, var.getAlt()));
+                    }
+                }
+            }
         }
     }
     

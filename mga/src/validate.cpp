@@ -298,12 +298,15 @@ void BlockSet::debugValidateQuality(bool verbose) {
   int softCore90BlocksCount = 0;
   int accessoryBlocksCount = 0;
   int narrowCoreBlocksCount = 0;
+  int distantBlocksCount = 0;
 
   uint64_t coreLenSum = 0;
   uint64_t softCore95LenSum = 0;
   uint64_t softCore90LenSum = 0;
   uint64_t accessoryLenSum = 0;
   uint64_t narrowCoreLenSum = 0;
+  uint64_t distantLenSum = 0;
+  int distantMaxLen = 0;
 
   if (verbose)
     std::cout << "[Block-level Identity Info]\n";
@@ -329,6 +332,15 @@ void BlockSet::debugValidateQuality(bool verbose) {
             blockVarLen += (var.getEnd() - var.getStart());
           }
         }
+      }
+    }
+
+    // 統計 Distant Block (若該 block 所有 copy 都是 distant)
+    if (blk->isAllDistant()) {
+      distantBlocksCount++;
+      distantLenSum += consLen;
+      if (consLen > distantMaxLen) {
+        distantMaxLen = consLen;
       }
     }
 
@@ -430,6 +442,9 @@ void BlockSet::debugValidateQuality(bool verbose) {
       (narrowCoreDenominator > 0)
           ? (1.0 - ((double)narrowCoreVarLen / narrowCoreDenominator))
           : 0.0;
+  double distantAvgLen = (distantBlocksCount > 0)
+                             ? (double)distantLenSum / distantBlocksCount
+                             : 0.0;
 
   std::cout
       << "\n------------------------------------------------------------\n";
@@ -460,6 +475,10 @@ void BlockSet::debugValidateQuality(bool verbose) {
             << " blocks (" << softCore95LenSum << " bp)\n";
   std::cout << "  - Soft Core (>= 90%)     : " << softCore90BlocksCount
             << " blocks (" << softCore90LenSum << " bp)\n";
+  std::cout << "  - Distant Blocks         : " << distantBlocksCount
+            << " blocks (" << distantLenSum << " bp, Max: " << distantMaxLen
+            << " bp, Avg: " << std::fixed << std::setprecision(2)
+            << distantAvgLen << " bp)\n";
   // std::cout << "  - Accessory (< 100%)     : " << accessoryBlocksCount << "
   // blocks (" << accessoryLenSum << " bp)\n";
 

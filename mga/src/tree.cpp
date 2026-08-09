@@ -296,11 +296,12 @@ void phylogeny::Tree::calLeafNum() {
     while (!postorder.empty()) {
         current = postorder.top(); 
         postorder.pop();
-        if (current->is_leaf()) this->allNodes[current->identifier]->numLeaves = 1;
-        else {
+        if (current->is_leaf()) {
+            current->numLeaves = 1;
+        } else {
             int leaves = 0;
             for (const auto& ch: current->children) leaves += ch->numLeaves;
-            this->allNodes[current->identifier]->numLeaves = leaves;
+            current->numLeaves = leaves;
         }
     }
     this->m_numLeaves = this->root->numLeaves;
@@ -310,7 +311,7 @@ void phylogeny::Tree::calLeafNum() {
 void phylogeny::Tree::calSeqWeight() {
     float maxWeight = 0;
     for (auto node: this->allNodes) {
-        if (!node.second->is_leaf()) continue;
+        if (!node.second || !node.second->is_leaf()) continue;
         float w = 0;
         Node* current = node.second;
         while (true) {
@@ -320,13 +321,13 @@ void phylogeny::Tree::calSeqWeight() {
             if (current == nullptr) break; 
         }
         // w = 1.0;
-        this->allNodes[node.second->identifier]->weight = w;
+        node.second->weight = w;
         if (w > maxWeight) maxWeight = w;
     }
-    float normFactor = maxWeight / 1.0;
+    float normFactor = (maxWeight > 0.0f) ? (maxWeight / 1.0f) : 1.0f;
     for (auto node: this->allNodes) {
-        if (!node.second->is_leaf()) continue;
-        this->allNodes[node.second->identifier]->weight /= normFactor;
+        if (!node.second || !node.second->is_leaf()) continue;
+        node.second->weight /= normFactor;
     }
     return;
 };

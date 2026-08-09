@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.10)
 
 project(twilight LANGUAGES CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 option(USE_CUDA "Build with CUDA" OFF)
 option(USE_HIP "Build with HIP" OFF)
 
@@ -207,33 +209,52 @@ endif()
 # 				src_mga/refine.cpp)
 
 add_executable (twilight_mga
-				src_mga/twilight_mga-main.cpp
-				src_mga/option.cpp
-				src_mga/tree.cpp
-				src_mga/node.cpp
-				src_mga/io.cpp
-				src_mga/progressive.cpp
-				src_mga/alignment.cpp
-				src_mga/alignment_util.cpp
-				src_mga/alignment_kernel.cpp
-				src_mga/block.cpp
-				src_mga/blockManager.cpp
-				src_mga/blockSet.cpp
-				src_mga/blockMerger.cpp
-				src_mga/merge.cpp
-				src_mga/Sequence.cpp
-				src_mga/validate.cpp
-				src_mga/refine.cpp
-				src_mga/global_alignment.cpp
+				mga/src/twilight_mga-main.cpp
+				mga/src/option.cpp
+				mga/src/tree.cpp
+				mga/src/node.cpp
+				mga/src/io.cpp
+				mga/src/progressive.cpp
+				mga/src/alignment.cpp
+				mga/src/coverageTracker.cpp
+				mga/src/alignment_util.cpp
+				mga/src/minimap2_util.cpp
+				mga/src/alignment_kernel.cpp
+				mga/src/block.cpp
+				mga/src/blockManager.cpp
+				mga/src/blockSet.cpp
+				mga/src/blockMerger.cpp
+				mga/src/merge.cpp
+				mga/src/consensus.cpp
+				mga/src/Sequence.cpp
+				mga/src/validate.cpp
+				mga/src/refine.cpp
+				mga/src/global_alignment.cpp
+				mga/src/self_align.cpp
 				)
 
 find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
 find_package(ZLIB REQUIRED)
-include_directories(${ZLIB_INCLUDE_DIR})
+include_directories(${ZLIB_INCLUDE_DIR} mga/internal ${CMAKE_CURRENT_SOURCE_DIR}/minimap2)
 find_package(TBB REQUIRED CONFIG)
+get_target_property(TBB_INC_DIRS TBB::tbb INTERFACE_INCLUDE_DIRECTORIES)
+if(TBB_INC_DIRS)
+    include_directories(${TBB_INC_DIRS})
+endif()
+if(TBB_INCLUDE_DIRS)
+    include_directories(${TBB_INCLUDE_DIRS})
+endif()
+
 # add_executable (twilight ${SRC_FILES})
 # target_link_libraries(twilight PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
-target_link_libraries(twilight_mga PRIVATE ${Boost_LIBRARIES} ${ZLIB_LIBRARIES} TBB::tbb)
+target_link_libraries(twilight_mga PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}/minimap2/libminimap2.a
+    ${Boost_LIBRARIES} 
+    ${ZLIB_LIBRARIES} 
+    TBB::tbb
+    pthread
+    m
+)
 
 
 # =========================================================================

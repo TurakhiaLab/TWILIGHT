@@ -14,6 +14,10 @@
 
 // Forward declaration
 class BlockManager;
+class CoordinateManager;
+struct Option;
+struct Alignment;
+using Alignments = std::vector<Alignment>;
 
 class BlockSet {
 
@@ -167,4 +171,8 @@ public:
 
   void realignBlocks(std::string tempDir);
   bool realignBlock(BlockID blkId, std::string tempDir, int iterations = 1);
+
+  // --- Self alignment ---
+  Alignments selfAlign(Option &option, CoordinateManager *coordMgr = nullptr, double min_ratio = 0.10);
+  Alignments selfAlignDistant(Option &option, CoordinateManager *coordMgr = nullptr, double min_ratio = 0.10);
 };

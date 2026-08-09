@@ -67,7 +67,7 @@ public:
   void print(std::ostream &os = std::cout) const;
   BlockSet *merge(BlockSet *refSet, BlockSet *qrySet,
                   AlignmentCollection &alnCollection, BlockSetID newID,
-                  Tree *tree = nullptr, int L_min = DEFAULT_L_MIN);
+                  Tree *tree = nullptr, Option *option = nullptr, int L_min = DEFAULT_L_MIN);
   void orientCircularGenomes(Option &option, std::string refSequenceName = "");
 
   void updateLongestSequences();

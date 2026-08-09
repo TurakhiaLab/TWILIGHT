@@ -76,7 +76,13 @@ namespace phylogeny {
         size_t m_maxDepth{ 0 };
         size_t m_numLeaves{ 0 };
         float m_meanDepth{ 0 };
-        std::string newInternalNodeId() { return "node_" + std::to_string(++m_currInternalNode);}
+        std::string newInternalNodeId() {
+            std::string id;
+            do {
+                id = "node_" + std::to_string(++m_currInternalNode);
+            } while (allNodes.find(id) != allNodes.end());
+            return id;
+        }
         std::unique_ptr<Node> root;
         std::unordered_map<std::string, Node*> allNodes;
 

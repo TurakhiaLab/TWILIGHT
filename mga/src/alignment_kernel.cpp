@@ -36,7 +36,7 @@ void mga::progressive::alignmentKernel(NodePairs &alnPairs,
     const auto& consensus2 = BlockSet2->getAncestralSequence();
 
     auto minimap2_start = std::chrono::high_resolution_clock::now();
-    auto mainAlignments = runMinimap2(consensus1, consensus2, BlockSet1->getId(), BlockSet2->getId(), option, true, true);
+    auto mainAlignments = runMinimap2(consensus1, consensus2, BlockSet1->getId(), BlockSet2->getId(), option, mm_config_1(), true);
     auto minimap2_end = std::chrono::high_resolution_clock::now();
     std::cout << "Minimap2 [Len: (" << consensus1.size() << "," << consensus2.size() << "), Count: " << mainAlignments.size() << ", Runtime: " << (std::chrono::duration_cast<std::chrono::milliseconds>(minimap2_end - minimap2_start).count()) << " us]\n";
     
@@ -56,7 +56,7 @@ void mga::progressive::alignmentKernel(NodePairs &alnPairs,
       auto merge_start = std::chrono::high_resolution_clock::now();
       BlockSet *mergeBlockSet =
           blockManager->merge(BlockSet1, BlockSet2, alnCollection, parentID,
-                              &tree);
+                              &tree, &option);
       auto merge_end = std::chrono::high_resolution_clock::now();
       option.merge_time += std::chrono::duration_cast<std::chrono::milliseconds>(merge_end - merge_start).count();
 
@@ -91,12 +91,12 @@ void mga::progressive::alignmentKernel(NodePairs &alnPairs,
       // mergeBlockSet->print(std::cout);
 
       auto debug_start2 = std::chrono::high_resolution_clock::now();
-      mergeBlockSet->debugValidateSegments(false);
+      // mergeBlockSet->debugValidateSegments(false);
       // mergeBlockSet->debugValidateLinkages(false);
       mergeBlockSet->debugValidateQuality(false);
       // mergeBlockSet->debugValidateLinearizedBlocks(true);
-      mergeBlockSet->debugValidateBlocks(true);
-      mergeBlockSet->debugValidateSequences(blockManager);
+      // mergeBlockSet->debugValidateBlocks(true);
+      // mergeBlockSet->debugValidateSequences(blockManager);
       // mergeBlockSet->debugValidateBubble(false);
       auto debug_end2 = std::chrono::high_resolution_clock::now();
       option.debug_time +=
@@ -109,7 +109,6 @@ void mga::progressive::alignmentKernel(NodePairs &alnPairs,
       // blockManager->changeBlockSetId(mergeBlockSet->getId(), node1->identifier); 
       // mergeBlockSet->setDistantBlocks(tree);
       // mergeBlockSet->print(std::cout);
-      global_timer.print();
     }
 
   
@@ -118,6 +117,8 @@ void mga::progressive::alignmentKernel(NodePairs &alnPairs,
   }
 
   // blockManager->updateLongestSequences();
+
+  global_timer.print();
 
   std::cout << "--- Profiling Results (ms) ---\n";
   std::cout << "Minimap2 Time:         " << option.minimap2_time << " ms\n";

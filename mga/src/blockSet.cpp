@@ -10,6 +10,7 @@
 #include <boost/filesystem.hpp>
 #include <string>
 #include <queue>
+#include <list>
 #include <limits>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
@@ -29,7 +30,7 @@ void BlockSet::buildCaches() {
   ancestral_block_cache.clear();
   for (auto &vblkID : linear_block_cache) {
     auto blk = this->getBlock(vblkID.first);
-    if (blk->isDistant(vblkID.second))
+    if (!blk || blk->isDistant(vblkID.second))
       continue;
     ancestral_block_cache.push_back(vblkID);
   }
@@ -422,6 +423,14 @@ bool BlockSet::detectVBlockCycle(const CoordinateManager &coordMgr, bool verbose
   return cycle_detected;
 }
 
+namespace {
+struct VBlockIDHash {
+  size_t operator()(const VBlockID &p) const {
+    return (static_cast<size_t>(p.first) << 32) ^ static_cast<uint32_t>(p.second);
+  }
+};
+} // namespace
+
 void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
   const auto &refIntervals = coordMgr.getRefIntervals();
   const auto &qryIntervals = coordMgr.getQryIntervals();
@@ -429,13 +438,17 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
   std::vector<VBlockID> refList;
   refList.reserve(refIntervals.size());
   for (const auto &kv : refIntervals) {
-    refList.push_back({kv.second.blkId, coordMgr.getCopyId(kv.first, true)});
+    if (this->getBlock(kv.second.blkId)) {
+      refList.push_back({kv.second.blkId, coordMgr.getCopyId(kv.first, true)});
+    }
   }
 
   std::vector<VBlockID> qryList;
   qryList.reserve(qryIntervals.size());
   for (const auto &kv : qryIntervals) {
-    qryList.push_back({kv.second.blkId, coordMgr.getCopyId(kv.first, false)});
+    if (this->getBlock(kv.second.blkId)) {
+      qryList.push_back({kv.second.blkId, coordMgr.getCopyId(kv.first, false)});
+    }
   }
 
   if (refList.empty() && qryList.empty()) {
@@ -445,32 +458,47 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
   }
 
   // 1. 識別同時間存在於 Ref 與 Qry 的 Mode 1 共享 VBlocks (inBothSet)
-  std::set<VBlockID> inBothSet;
+  std::unordered_set<VBlockID, VBlockIDHash> inBothSet;
+  inBothSet.reserve(refList.size());
   for (const auto &vid : refList) {
     if (coordMgr.isVBlockInBoth(vid)) {
       inBothSet.insert(vid);
     }
   }
   // 萬一 coordMgr 標籤無資訊，做集合交集保險補強
-  std::set<VBlockID> qryVSet(qryList.begin(), qryList.end());
+  std::unordered_set<VBlockID, VBlockIDHash> qryVSet(qryList.begin(), qryList.end(), qryList.size(), VBlockIDHash());
   for (const auto &vid : refList) {
     if (qryVSet.count(vid)) {
       inBothSet.insert(vid);
     }
   }
 
+  // 預建 Hash Map 記錄 refList 與 qryList 各 VBlock 的出現索引，避免雙指標衝突時的 O(N) 線性搜尋
+  std::unordered_map<VBlockID, std::vector<size_t>, VBlockIDHash> refPosMap;
+  refPosMap.reserve(refList.size());
+  for (size_t i = 0; i < refList.size(); ++i) {
+    refPosMap[refList[i]].push_back(i);
+  }
+
+  std::unordered_map<VBlockID, std::vector<size_t>, VBlockIDHash> qryPosMap;
+  qryPosMap.reserve(qryList.size());
+  for (size_t i = 0; i < qryList.size(); ++i) {
+    qryPosMap[qryList[i]].push_back(i);
+  }
+
   // 2. 雙指標 (pRef, pQry) 依序動態交錯合併 Ref/Qry 1D 順序
-  std::vector<VBlockID> finalLinearVBlocks;
-  finalLinearVBlocks.reserve(refList.size() + qryList.size());
+  std::vector<VBlockID> initialLinearVBlocks;
+  initialLinearVBlocks.reserve(refList.size() + qryList.size());
 
   size_t pRef = 0;
   size_t pQry = 0;
-  std::set<VBlockID> processed;
+  std::unordered_set<VBlockID, VBlockIDHash> processed;
+  processed.reserve(refList.size() + qryList.size());
 
   while (pRef < refList.size() || pQry < qryList.size()) {
     if (pRef >= refList.size()) {
       if (processed.insert(qryList[pQry]).second) {
-        finalLinearVBlocks.push_back(qryList[pQry]);
+        initialLinearVBlocks.push_back(qryList[pQry]);
       }
       pQry++;
       continue;
@@ -478,7 +506,7 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
 
     if (pQry >= qryList.size()) {
       if (processed.insert(refList[pRef]).second) {
-        finalLinearVBlocks.push_back(refList[pRef]);
+        initialLinearVBlocks.push_back(refList[pRef]);
       }
       pRef++;
       continue;
@@ -499,7 +527,7 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
 
     // 兩邊剛好走到同一個 is_both / 共享 VBlock
     if (rVid == qVid) {
-      finalLinearVBlocks.push_back(rVid);
+      initialLinearVBlocks.push_back(rVid);
       processed.insert(rVid);
       pRef++;
       pQry++;
@@ -511,36 +539,44 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
 
     if (!rIsShared) {
       // Ref 側目前是 unique VBlock，直接 append 並推進 Ref
-      finalLinearVBlocks.push_back(rVid);
+      initialLinearVBlocks.push_back(rVid);
       processed.insert(rVid);
       pRef++;
     } else if (!qIsShared) {
       // Qry 側目前是 unique VBlock，直接 append 並推進 Qry
-      finalLinearVBlocks.push_back(qVid);
+      initialLinearVBlocks.push_back(qVid);
       processed.insert(qVid);
       pQry++;
     } else {
       // 兩邊都是 shared 錨點但點不一樣，尋找哪一邊的指標離對方錨點較近
       size_t rFindQ = refList.size();
-      for (size_t k = pRef; k < refList.size(); ++k) {
-        if (refList[k] == qVid) { rFindQ = k; break; }
+      auto itR = refPosMap.find(qVid);
+      if (itR != refPosMap.end()) {
+        auto posIt = std::lower_bound(itR->second.begin(), itR->second.end(), pRef);
+        if (posIt != itR->second.end()) {
+          rFindQ = *posIt;
+        }
       }
 
       size_t qFindR = qryList.size();
-      for (size_t k = pQry; k < qryList.size(); ++k) {
-        if (qryList[k] == rVid) { qFindR = k; break; }
+      auto itQ = qryPosMap.find(rVid);
+      if (itQ != qryPosMap.end()) {
+        auto posIt = std::lower_bound(itQ->second.begin(), itQ->second.end(), pQry);
+        if (posIt != itQ->second.end()) {
+          qFindR = *posIt;
+        }
       }
 
       if (qFindR < qryList.size() && (rFindQ == refList.size() || qFindR - pQry <= rFindQ - pRef)) {
-        finalLinearVBlocks.push_back(qVid);
+        initialLinearVBlocks.push_back(qVid);
         processed.insert(qVid);
         pQry++;
       } else if (rFindQ < refList.size()) {
-        finalLinearVBlocks.push_back(rVid);
+        initialLinearVBlocks.push_back(rVid);
         processed.insert(rVid);
         pRef++;
       } else {
-        finalLinearVBlocks.push_back(rVid);
+        initialLinearVBlocks.push_back(rVid);
         processed.insert(rVid);
         pRef++;
       }
@@ -569,6 +605,33 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
   };
 
   // 4. 🌟 將所有 Distant VBlocks 根據實體 Sequence 上最近的錨點 Block 插進線性順序中
+  struct AnchorPos {
+    int start;
+    int index;
+  };
+  std::unordered_map<std::string, std::vector<AnchorPos>> seqAnchorsMap;
+
+  for (int i = 0; i < (int)initialLinearVBlocks.size(); ++i) {
+    auto anchorBlk = this->getBlock(initialLinearVBlocks[i].first);
+    int anchorCopy = initialLinearVBlocks[i].second;
+    if (!anchorBlk) continue;
+
+    for (const auto &seqPair : anchorBlk->getSequences()) {
+      int startPos = getVBlockSegStart(anchorBlk, anchorCopy, seqPair.first);
+      if (startPos != -1) {
+        seqAnchorsMap[seqPair.first].push_back({startPos, i});
+      }
+    }
+  }
+
+  // 使用雙向鏈表建構最終順序，維持 O(1) 節點插入
+  std::list<VBlockID> linearList(initialLinearVBlocks.begin(), initialLinearVBlocks.end());
+  std::vector<std::list<VBlockID>::iterator> nodeIterators;
+  nodeIterators.reserve(initialLinearVBlocks.size());
+  for (auto it = linearList.begin(); it != linearList.end(); ++it) {
+    nodeIterators.push_back(it);
+  }
+
   for (auto &blkWeak : this->getAllBlocks()) {
     auto blk = blkWeak.lock();
     if (!blk) continue;
@@ -599,18 +662,16 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
           distStart = std::min(seg.getStart(), seg.getEnd());
         }
 
-        // 在已排好的 finalLinearVBlocks 中尋找同序列上最接近的非-Distant 錨點
         int bestInsertIdx = -1;
         int maxPrevStart = -1;
         int minNextStart = std::numeric_limits<int>::max();
         int minNextIdx = -1;
 
-        for (int i = 0; i < (int)finalLinearVBlocks.size(); ++i) {
-          auto anchorBlk = this->getBlock(finalLinearVBlocks[i].first);
-          int anchorCopy = finalLinearVBlocks[i].second;
-          int anchorStart = getVBlockSegStart(anchorBlk, anchorCopy, sampleSeq);
-
-          if (anchorStart != -1) {
+        auto mapIt = seqAnchorsMap.find(sampleSeq);
+        if (mapIt != seqAnchorsMap.end()) {
+          for (const auto &anchor : mapIt->second) {
+            int anchorStart = anchor.start;
+            int i = anchor.index;
             if (anchorStart <= distStart) {
               if (anchorStart > maxPrevStart) {
                 maxPrevStart = anchorStart;
@@ -625,17 +686,19 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
           }
         }
 
-        // 根據找到的鄰居錨點插入
+        // 根據找到的鄰居錨點插入 O(1)
         if (bestInsertIdx != -1) {
-          finalLinearVBlocks.insert(finalLinearVBlocks.begin() + bestInsertIdx + 1, distVId);
+          linearList.insert(std::next(nodeIterators[bestInsertIdx]), distVId);
         } else if (minNextIdx != -1) {
-          finalLinearVBlocks.insert(finalLinearVBlocks.begin() + minNextIdx, distVId);
+          linearList.insert(nodeIterators[minNextIdx], distVId);
         } else {
-          finalLinearVBlocks.push_back(distVId);
+          linearList.push_back(distVId);
         }
       }
     }
   }
+
+  std::vector<VBlockID> finalLinearVBlocks(linearList.begin(), linearList.end());
 
   // 5. 寫回實體 Block 與 Segment 的 prev/next 指標以及 linear_block_cache
   this->linear_block_cache.reserve(finalLinearVBlocks.size());
@@ -645,9 +708,8 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
     auto currBlk = this->getBlock(currVId.first);
     int currCopy = currVId.second;
 
-    this->linear_block_cache.push_back(currVId);
-
     if (currBlk) {
+      this->linear_block_cache.push_back(currVId);
       auto prevBlkPtr = (i > 0) ? this->getBlock(finalLinearVBlocks[i - 1].first) : nullptr;
       auto nextBlkPtr = (i + 1 < finalLinearVBlocks.size()) ? this->getBlock(finalLinearVBlocks[i + 1].first) : nullptr;
 
@@ -673,9 +735,9 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
     }
   }
 
-  // if (tree_ptr) {
-  //   this->setDistantBlocks(*tree_ptr);
-  // }
+  if (tree_ptr) {
+    this->setDistantBlocks(*tree_ptr);
+  }
   this->buildCaches();
 
   std::cout << "  📊 [LinearGraph] Node '" << this->getId()
@@ -1426,7 +1488,7 @@ void BlockSet::print(std::ostream &os) const {
 }
 
 void BlockSet::setDistantBlocks(Tree &tree, int lookdownDepth) {
-  bool debug = true;
+  bool debug = false;
   BlockSetID targetNodeId = this->getId();
 
   auto it = tree.allNodes.find(targetNodeId);
@@ -1508,21 +1570,6 @@ void BlockSet::setDistantBlocks(Tree &tree, int lookdownDepth) {
 
           bool isDistant = (supportedSets < 2);
 
-          // 🔍 Debug: print per-block per-copy classification
-          if (debug && isDistant) {
-            std::cout << "  [DISTANT-DETAIL] Block " << blk->getId()
-                      << " Copy " << currentCopy
-                      << " -> supportedSets=" << supportedSets
-                      << " -> DISTANT | seqs={";
-            bool first = true;
-            for (const auto &s : copySeqNames) {
-              if (!first) std::cout << ", ";
-              std::cout << s;
-              first = false;
-            }
-            std::cout << "}\n";
-          }
-
           // 🌟 步驟 3：使用包含 Copy 參數的新 Setter
           if (!isDistant) {
             blk->setDistant(false, currentCopy);
@@ -1531,6 +1578,32 @@ void BlockSet::setDistantBlocks(Tree &tree, int lookdownDepth) {
             blk->setDistant(true, currentCopy);
             distantCount++;
           }
+
+          // 🔍 Debug: print per-block per-copy classification with segment coordinates & isAllDistant
+          if (debug && isDistant) {
+            std::cout << "  [DISTANT-DETAIL] Block " << blk->getId()
+                      << " (isAllDistant=" << (blk->isAllDistant() ? "TRUE" : "FALSE") << ")"
+                      << " Copy " << currentCopy
+                      << " -> supportedSets=" << supportedSets
+                      << " -> DISTANT | segs={";
+            bool first = true;
+            for (auto &seqPair : blk->getSequences()) {
+              const std::string &seqName = seqPair.first;
+              for (auto &segPairInner : seqPair.second.getSegments()) {
+                if (segPairInner.second.getCopyCount() == currentCopy) {
+                  if (!first) std::cout << ", ";
+                  std::cout << seqName << ":[" << segPairInner.second.getStart()
+                            << "," << segPairInner.second.getEnd() << ")";
+                  first = false;
+                }
+              }
+            }
+            std::cout << "}\n";
+          }
+        }
+
+        if (debug && blk->isAllDistant()) {
+          std::cout << "  🌟 [ALL-DISTANT-BLOCK] Block " << blk->getId() << " -> ALL copies are distant!\n";
         }
   }
 
@@ -1542,7 +1615,6 @@ void BlockSet::setDistantBlocks(Tree &tree, int lookdownDepth) {
               << ", Distant VBlocks=" << distantCount << "\n";
   }
 }
-
 
 std::shared_ptr<Block> BlockSet::extractBlock(int extract_start, int extract_end) {
   if (extract_start >= extract_end)

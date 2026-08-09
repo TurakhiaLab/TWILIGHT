@@ -107,13 +107,58 @@ size_t Consensus::getLength() const {
 }
 
 void Consensus::merge(const Consensus& B, const CigarString& cigar, bool inverse) {
-  if (use_stored_string) {
-    if (block_set_ptr) {
-      use_stored_string = false;
+  if (use_stored_string || !block_set_ptr) {
+    std::string seqA = getConsensusString();
+    std::string seqB = B.getConsensusString();
+    size_t lenA = seqA.length();
+    size_t lenB = seqB.length();
+
+    std::string new_seq = "";
+    int aPos = 0;
+    int bPos = 0;
+
+    for (const auto& op : cigar) {
+      int len = op.first;
+      char type = op.second;
+
+      if (type == 'M' || type == '=' || type == 'X') {
+        if (aPos + len <= (int)lenA) {
+          new_seq += seqA.substr(aPos, len);
+        } else if (aPos < (int)lenA) {
+          new_seq += seqA.substr(aPos);
+        }
+        aPos += len;
+        bPos += len;
+      } else if (type == 'D') {
+        if (aPos + len <= (int)lenA) {
+          new_seq += seqA.substr(aPos, len);
+        } else if (aPos < (int)lenA) {
+          new_seq += seqA.substr(aPos);
+        }
+        aPos += len;
+      } else if (type == 'I') {
+        std::string B_patch;
+        if (!inverse) {
+          if (bPos + len <= (int)lenB) {
+            B_patch = seqB.substr(bPos, len);
+          } else if (bPos < (int)lenB) {
+            B_patch = seqB.substr(bPos);
+          }
+        } else {
+          size_t real_b_pos = (lenB >= (size_t)bPos + len) ? (lenB - bPos - len) : 0;
+          size_t real_len = std::min((size_t)len, lenB - real_b_pos);
+          B_patch = getReverseComplement(seqB.substr(real_b_pos, real_len));
+        }
+        new_seq += B_patch;
+        bPos += len;
+      }
     }
-  }
-  
-  if (!block_set_ptr) {
+    if (aPos < (int)lenA) {
+      new_seq += seqA.substr(aPos);
+    }
+
+    stored_string = std::move(new_seq);
+    use_stored_string = true;
     return;
   }
   

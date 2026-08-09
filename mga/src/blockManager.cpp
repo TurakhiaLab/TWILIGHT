@@ -22,6 +22,8 @@ std::string truncate(const std::string& str, size_t width) {
 
 void BlockManager::orientCircularGenomes(Option& option, std::string refSequenceName) {
     bool debug = true;
+    bool filter = false;
+    int target_num [2] = {20, 30};
     bool write_rotate = option.writeOriented;
     auto start_time = std::chrono::high_resolution_clock::now();
     auto log_step_time = [&](const std::string& step_name) {
@@ -122,6 +124,9 @@ void BlockManager::orientCircularGenomes(Option& option, std::string refSequence
     }
     log_step_time("Strand Voting & Hybrid Anchor Found");
     
+    // 備份原始 sequence (轉向與旋轉前)
+    std::unordered_map<std::string, std::string> original_sequences = this->sequences;
+
     // 5. 執行 Reverse Complement 與 Shift (Rotation)
     int rcCount = 0;
     int shiftCount = 0;
@@ -182,31 +187,71 @@ void BlockManager::orientCircularGenomes(Option& option, std::string refSequence
     log_step_time("Transformations Applied");
 
     // ==========================================================
-    // 🌟 6. 輸出轉換後的完整序列 (Reference + Oriented Queries)
+    // 🌟 6. 過濾序列 (filter == true 時僅保留與 ref 有明確 strand 且覆蓋率 > 90% 之序列) 並根據 target_num 輸出 FASTA
     // ==========================================================
 
-    StringPairs output_seqs;
-    
-    // 6-1. 將 Reference 放在第一筆，維持對齊基準的直覺性
-    output_seqs.push_back({bestRefName, this->sequences[bestRefName]});
-    
-    // 6-2. 收集所有其他的 Query 序列
+    long long refLen = sequence_lengths[bestRefName];
+
+    // 收集符合條件的 sequence 名稱 (Reference 本身為第一筆)
+    std::vector<std::string> qualified_names;
+    qualified_names.push_back(bestRefName);
+
     for (const auto& pair : this->sequences) {
-        if (pair.first != bestRefName) {
-            output_seqs.push_back({pair.first, pair.second});
+        std::string qryName = pair.first;
+        if (qryName == bestRefName) continue;
+
+        if (filter) {
+            long long f_len = qryStatsMap[qryName].forwardLength;
+            long long r_len = qryStatsMap[qryName].reverseLength;
+
+            bool pass = (refLen > 0) && (((double)f_len / refLen > 0.9) || ((double)r_len / refLen > 0.9));
+            if (pass) {
+                qualified_names.push_back(qryName);
+            } else if (debug) {
+                std::cout << "[DEBUG] [FILTERED OUT] " << qryName 
+                          << " (Forward: " << f_len << " bp, Reverse: " << r_len << " bp, RefLen: " << refLen << " bp)\n";
+            }
+        } else {
+            qualified_names.push_back(qryName);
         }
     }
 
-    // 6-3. 呼叫 IO 寫出檔案 (檔名可以依需求改為 option 裡的變數)
-    std::string outFileName = option.tempDir + "/oriented_genomes.fasta"; 
-    bool isCompressed = false; // 依需求調整
-    bool appendMode = false;   // 覆寫模式
-    
-    if (write_rotate) mga::io::writeAlignment(outFileName, output_seqs, isCompressed, appendMode);
-    
-    if (debug && write_rotate) std::cout << "[DEBUG] Wrote " << output_seqs.size() << " oriented sequences to '" << outFileName << "'\n";
-    if (debug && write_rotate) log_step_time("Output Sequences Written");
-    // ==========================================================
+    if (debug) {
+        std::cout << "[DEBUG] Filter: " << (filter ? "ON" : "OFF") 
+                  << " | Total sequences: " << this->sequences.size() 
+                  << " | Qualified sequences: " << qualified_names.size() << "\n";
+    }
+
+    // 依據 target_num 分別截取前 N 筆序列寫出 original 與 orientated FASTA
+    std::string outDir = option.tempDir.empty() ? "." : option.tempDir;
+    for (int N : target_num) {
+        size_t count = std::min(static_cast<size_t>(N), qualified_names.size());
+        StringPairs orig_seqs;
+        StringPairs orient_seqs;
+        orig_seqs.reserve(count);
+        orient_seqs.reserve(count);
+
+        for (size_t i = 0; i < count; ++i) {
+            const std::string& name = qualified_names[i];
+            orig_seqs.push_back({name, original_sequences[name]});
+            orient_seqs.push_back({name, this->sequences[name]});
+        }
+
+        std::string origFileName = outDir + "/seq_" + std::to_string(N) + ".original.fa";
+        std::string orientFileName = outDir + "/seq_" + std::to_string(N) + ".orientated.fa";
+
+        bool isCompressed = false;
+        bool appendMode = false;
+
+        mga::io::writeAlignment(origFileName, orig_seqs, isCompressed, appendMode);
+        mga::io::writeAlignment(orientFileName, orient_seqs, isCompressed, appendMode);
+
+        if (debug) {
+            std::cout << "[DEBUG] Target N=" << N 
+                      << ": Wrote " << orig_seqs.size() << " sequences to '" << origFileName << "' and '" << orientFileName << "'\n";
+        }
+    }
+    log_step_time("Output FASTA Files Written");
 
     if (debug) std::cout << "[DEBUG] --- End orientCircularGenomes ---\n\n";
     
