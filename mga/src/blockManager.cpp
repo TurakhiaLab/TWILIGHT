@@ -77,9 +77,13 @@ void BlockManager::orientCircularGenomes(Option& option, std::string refSequence
     }
     log_step_time("Prepared Queries for minimap2");
 
-    // 3. 執行 Minimap2 (負責 orientation 只需要 chain 長度即可，帶入 false 關閉 CIGAR/DP 計算以極速完成)
+    // 3. 執行 Minimap2 (負責 orientation 只需要 chain 長度即可，關閉 CIGAR 計算並縮小 max_gap 以極速完成)
     if (debug) std::cout << "[DEBUG] Running chaining-only minimap2 on " << query_genomes.size() << " queries...\n";
-    auto allAlignments = runMinimap2(reference_genome, query_genomes, "reference_genome", "query_genomes", option, false, true);
+    
+    Minimap2Config fastConfig("asm5", false);
+    fastConfig.setMaxGap(500); // 大幅縮小 max gap，限制 chaining 搜尋範圍，極大化效能
+    
+    auto allAlignments = runMinimap2(reference_genome, query_genomes, "reference_genome", "query_genomes", option, fastConfig, true);
     log_step_time("Minimap2 Completed");
 
     // 4. 統計方向 & 尋找最佳定錨點 (Hybrid Approach)
@@ -180,6 +184,7 @@ void BlockManager::orientCircularGenomes(Option& option, std::string refSequence
         if (auto sp = first_block.lock()) {
             sp->setConsensus(Consensus(seq)); 
         }
+        qryBlockSet->rebuildAllPointers();
         this->sequences[qryName] = seq;
     }
 
@@ -222,36 +227,38 @@ void BlockManager::orientCircularGenomes(Option& option, std::string refSequence
                   << " | Qualified sequences: " << qualified_names.size() << "\n";
     }
 
-    // 依據 target_num 分別截取前 N 筆序列寫出 original 與 orientated FASTA
-    std::string outDir = option.tempDir.empty() ? "." : option.tempDir;
-    for (int N : target_num) {
-        size_t count = std::min(static_cast<size_t>(N), qualified_names.size());
-        StringPairs orig_seqs;
-        StringPairs orient_seqs;
-        orig_seqs.reserve(count);
-        orient_seqs.reserve(count);
+    // 依據 target_num 分別截取前 N 筆序列寫出 original 與 orientated FASTA (僅在 filter 開啟時才寫入檔案)
+    if (filter) {
+        std::string outDir = option.tempDir.empty() ? "." : option.tempDir;
+        for (int N : target_num) {
+            size_t count = std::min(static_cast<size_t>(N), qualified_names.size());
+            StringPairs orig_seqs;
+            StringPairs orient_seqs;
+            orig_seqs.reserve(count);
+            orient_seqs.reserve(count);
 
-        for (size_t i = 0; i < count; ++i) {
-            const std::string& name = qualified_names[i];
-            orig_seqs.push_back({name, original_sequences[name]});
-            orient_seqs.push_back({name, this->sequences[name]});
+            for (size_t i = 0; i < count; ++i) {
+                const std::string& name = qualified_names[i];
+                orig_seqs.push_back({name, original_sequences[name]});
+                orient_seqs.push_back({name, this->sequences[name]});
+            }
+
+            std::string origFileName = outDir + "/seq_" + std::to_string(N) + ".original.fa";
+            std::string orientFileName = outDir + "/seq_" + std::to_string(N) + ".orientated.fa";
+
+            bool isCompressed = false;
+            bool appendMode = false;
+
+            mga::io::writeAlignment(origFileName, orig_seqs, isCompressed, appendMode);
+            mga::io::writeAlignment(orientFileName, orient_seqs, isCompressed, appendMode);
+
+            if (debug) {
+                std::cout << "[DEBUG] Target N=" << N 
+                          << ": Wrote " << orig_seqs.size() << " sequences to '" << origFileName << "' and '" << orientFileName << "'\n";
+            }
         }
-
-        std::string origFileName = outDir + "/seq_" + std::to_string(N) + ".original.fa";
-        std::string orientFileName = outDir + "/seq_" + std::to_string(N) + ".orientated.fa";
-
-        bool isCompressed = false;
-        bool appendMode = false;
-
-        mga::io::writeAlignment(origFileName, orig_seqs, isCompressed, appendMode);
-        mga::io::writeAlignment(orientFileName, orient_seqs, isCompressed, appendMode);
-
-        if (debug) {
-            std::cout << "[DEBUG] Target N=" << N 
-                      << ": Wrote " << orig_seqs.size() << " sequences to '" << origFileName << "' and '" << orientFileName << "'\n";
-        }
+        log_step_time("Output FASTA Files Written");
     }
-    log_step_time("Output FASTA Files Written");
 
     if (debug) std::cout << "[DEBUG] --- End orientCircularGenomes ---\n\n";
     

@@ -83,9 +83,7 @@ void mga::progressive::alignmentKernel(NodePairs &alnPairs,
                                                                 refine_1)
               .count();
 
-      mga::io::writeMAF(mergeBlockSet,
-                        option.tempDir + "/" + mergeBlockSet->getId() + ".maf",
-                        true);
+      // mga::io::writeMAF(mergeBlockSet, option.tempDir + "/" + mergeBlockSet->getId() + ".maf", true);
 
       // if (mergeBlockSet->getSequenceCount() > 2)
       // mergeBlockSet->print(std::cout);

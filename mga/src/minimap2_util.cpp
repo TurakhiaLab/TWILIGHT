@@ -14,6 +14,8 @@ extern "C" {
 #include <vector>
 #include <string>
 #include <algorithm>
+#include <mutex>
+#include <tbb/parallel_for.h>
 
 Alignments parser::parseMinimap2PAF(const std::string& filename) {
     bool DEBUG_MODE = false;
@@ -301,7 +303,8 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
         std::cerr << "[DEBUG runMinimap2] Error: Failed to open minimap2 index reader." << std::endl;
         return alignments;
     }
-    mm_idx_t* mi = mm_idx_reader_read(r, 1);
+    int numThreads = option.cpuNum > 0 ? option.cpuNum : 8;
+    mm_idx_t* mi = mm_idx_reader_read(r, numThreads);
     mm_idx_reader_close(r);
 
     if (!mi) {
@@ -310,10 +313,6 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
     }
     if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Index built successfully. Updating map options..." << std::endl;
     mm_mapopt_update(&mopt, mi);
-
-    // 4. 初始化 Thread Buffer
-    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Initializing thread buffer..." << std::endl;
-    mm_tbuf_t* tbuf = mm_tbuf_init();
 
     std::ofstream pafOut;
     if (write_paf) {
@@ -324,127 +323,126 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
         }
     }
 
-    // 5. 零拷貝過渡 Query 序列進行 mapping
-    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Starting query sequence mapping loop..." << std::endl;
-    for (const auto& qRef : qry) {
-        const std::string& q_name = qRef.name;
-        const std::string& q_seq = qRef.seq;
-        int n_regs = 0;
+    // 5. 零拷貝過渡 Query 序列進行並行 mapping
+    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Starting query sequence mapping loop with " << numThreads << " threads..." << std::endl;
 
-        if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Mapping query: " << q_name << " (length: " << q_seq.length() << " bp)..." << std::endl;
-        
-        // 診斷是否有非法字元 (例如 Gap '-', Space, Newline 等)
-        size_t invalid_chars = 0;
-        for (char c : q_seq) {
-            char uc = std::toupper(static_cast<unsigned char>(c));
-            if (uc != 'A' && uc != 'C' && uc != 'G' && uc != 'T' && uc != 'N') {
-                invalid_chars++;
-            }
-        }
-        if (invalid_chars > 0) {
-            if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] WARNING: Query " << q_name << " contains " 
-                      << invalid_chars << " non-ACGTN characters (e.g. gaps or formatting symbols)!" << std::endl;
-        }
-        if (!q_seq.empty()) {
-            if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Query Prefix (100bp): " 
-                      << q_seq.substr(0, std::min<size_t>(100, q_seq.length())) << std::endl;
-        }
+    std::mutex pafMutex;
+    std::mutex alnMutex;
 
-        mm_reg1_t* regs = mm_map(mi, static_cast<int>(q_seq.length()), q_seq.c_str(),
-                                 &n_regs, tbuf, &mopt, q_name.c_str());
-        if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Query: " << q_name << " mapping complete. Found " << n_regs << " alignment regions." << std::endl;
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, qry.size()), [&](const tbb::blocked_range<size_t>& range) {
+        mm_tbuf_t* tbuf = mm_tbuf_init();
+        std::vector<Alignment> local_alns;
 
-        for (int j = 0; j < n_regs; ++j) {
-            mm_reg1_t* aln_reg = &regs[j];
+        for (size_t i = range.begin(); i < range.end(); ++i) {
+            const auto& qRef = qry[i];
+            const std::string& q_name = qRef.name;
+            const std::string& q_seq = qRef.seq;
+            int n_regs = 0;
 
-            if (write_paf && pafOut.is_open()) {
-                std::string r_name = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].name : "unknown_ref";
-                uint32_t r_len     = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].len : 0;
+            if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Mapping query: " << q_name << " (length: " << q_seq.length() << " bp)..." << std::endl;
 
-                pafOut << q_name << "\t"
-                       << q_seq.length() << "\t"
-                       << aln_reg->qs << "\t"
-                       << aln_reg->qe << "\t"
-                       << (aln_reg->rev ? "-" : "+") << "\t"
-                       << r_name << "\t"
-                       << r_len << "\t"
-                       << aln_reg->rs << "\t"
-                       << aln_reg->re << "\t"
-                       << aln_reg->mlen << "\t"
-                       << aln_reg->blen << "\t"
-                       << aln_reg->mapq << "\t"
-                       << "tp:A:" << (aln_reg->sam_pri ? "P" : "S") << "\n";
-            }
+            mm_reg1_t* regs = mm_map(mi, static_cast<int>(q_seq.length()), q_seq.c_str(),
+                                     &n_regs, tbuf, &mopt, q_name.c_str());
 
-            Alignment aln;
-            aln.ID = 0;
-            // 安全性檢查：防範 rid 越界讀取
-            if (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) {
-                aln.refName = mi->seq[aln_reg->rid].name;
-            } else {
-                aln.refName = "unknown_ref";
-            }
-            aln.qryName = q_name;
-            aln.refIdx = {aln_reg->rs, aln_reg->re};
-            aln.qryIdx = {aln_reg->qs, aln_reg->qe};
-            aln.inverse = (aln_reg->rev != 0);
-            aln.primary = (aln_reg->sam_pri != 0);
-            aln.valid = true;
+            for (int j = 0; j < n_regs; ++j) {
+                mm_reg1_t* aln_reg = &regs[j];
 
-            int totLen = 0, ins = 0, del = 0, numEdits = 0;
-            int score = 0;
+                if (write_paf) {
+                    std::lock_guard<std::mutex> lock(pafMutex);
+                    if (pafOut.is_open()) {
+                        std::string r_name = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].name : "unknown_ref";
+                        uint32_t r_len     = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].len : 0;
 
-            if (aln_reg->p) {
-                score = aln_reg->p->dp_max;
-                numEdits = aln_reg->p->n_ambi;
-
-                aln.CIGAR.reserve(aln_reg->p->n_cigar);
-                for (uint32_t k = 0; k < aln_reg->p->n_cigar; ++k) {
-                    uint32_t c32 = aln_reg->p->cigar[k];
-                    int length = c32 >> 4;
-                    char opType = "MIDNSHPE="[c32 & 0xf];
-
-                    aln.CIGAR.push_back({length, opType});
-
-                    switch (opType) {
-                        case 'M':
-                        case 'X':
-                        case '=':
-                            totLen += length;
-                            break;
-                        case 'D': // Deletion from ref
-                        case 'N': // Skipped region
-                            totLen += length;
-                            del += length;
-                            break;
-                        case 'I': // Insertion to ref
-                            totLen += length;
-                            ins += length;
-                            break;
-                        default:
-                            break;
+                        pafOut << q_name << "\t"
+                               << q_seq.length() << "\t"
+                               << aln_reg->qs << "\t"
+                               << aln_reg->qe << "\t"
+                               << (aln_reg->rev ? "-" : "+") << "\t"
+                               << r_name << "\t"
+                               << r_len << "\t"
+                               << aln_reg->rs << "\t"
+                               << aln_reg->re << "\t"
+                               << aln_reg->mlen << "\t"
+                               << aln_reg->blen << "\t"
+                               << aln_reg->mapq << "\t"
+                               << "tp:A:" << (aln_reg->sam_pri ? "P" : "S") << "\n";
                     }
                 }
-                free(aln_reg->p); // 釋放 CIGAR payload 記憶體
-            } else {
-                // Chaining-only mode: 使用 block length 作為對齊長度
-                totLen = aln_reg->blen;
+
+                Alignment aln;
+                aln.ID = 0;
+                if (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) {
+                    aln.refName = mi->seq[aln_reg->rid].name;
+                } else {
+                    aln.refName = "unknown_ref";
+                }
+                aln.qryName = q_name;
+                aln.refIdx = {aln_reg->rs, aln_reg->re};
+                aln.qryIdx = {aln_reg->qs, aln_reg->qe};
+                aln.inverse = (aln_reg->rev != 0);
+                aln.primary = (aln_reg->sam_pri != 0);
+                aln.valid = true;
+
+                int totLen = 0, ins = 0, del = 0, numEdits = 0;
+                int score = 0;
+
+                if (aln_reg->p) {
+                    score = aln_reg->p->dp_max;
+                    numEdits = aln_reg->p->n_ambi;
+
+                    aln.CIGAR.reserve(aln_reg->p->n_cigar);
+                    for (uint32_t k = 0; k < aln_reg->p->n_cigar; ++k) {
+                        uint32_t c32 = aln_reg->p->cigar[k];
+                        int length = c32 >> 4;
+                        char opType = "MIDNSHPE="[c32 & 0xf];
+
+                        aln.CIGAR.push_back({length, opType});
+
+                        switch (opType) {
+                            case 'M':
+                            case 'X':
+                            case '=':
+                                totLen += length;
+                                break;
+                            case 'D':
+                            case 'N':
+                                totLen += length;
+                                del += length;
+                                break;
+                            case 'I':
+                                totLen += length;
+                                ins += length;
+                                break;
+                            default:
+                                break;
+                        }
+                    }
+                    free(aln_reg->p);
+                } else {
+                    totLen = aln_reg->blen;
+                }
+
+                aln.alnLength = totLen;
+                aln.alnScore = score;
+                aln.ins = ins;
+                aln.del = del;
+                aln.mis = std::max(0, numEdits - ins - del);
+
+                local_alns.push_back(std::move(aln));
             }
-
-            aln.alnLength = totLen;
-            aln.alnScore = score;
-            aln.ins = ins;
-            aln.del = del;
-            aln.mis = std::max(0, numEdits - ins - del);
-
-            alignments.push_back(std::move(aln));
+            if (regs) free(regs);
         }
-        free(regs);
-    }
+
+        if (!local_alns.empty()) {
+            std::lock_guard<std::mutex> lock(alnMutex);
+            alignments.insert(alignments.end(), std::make_move_iterator(local_alns.begin()), std::make_move_iterator(local_alns.end()));
+        }
+
+        mm_tbuf_destroy(tbuf);
+    });
 
     // 6. 清理 Minimap2 記憶體
-    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Cleaning up minimap2 buffers and index..." << std::endl;
-    mm_tbuf_destroy(tbuf);
+    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Cleaning up minimap2 index..." << std::endl;
     mm_idx_destroy(mi);
 
     // 清理產生的暫存 Reference 檔案

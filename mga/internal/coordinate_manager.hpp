@@ -2,6 +2,8 @@
 #include <vector>
 #include <unordered_map>
 #include <map>
+#include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 #include "type.hpp"
 #include "block_set.hpp"
@@ -397,7 +399,7 @@ class CoordinateManager {
                 if (gStart >= gEnd) continue;
 
                 // 3. 🌟 O(1) 計算全域切點位置 (免除逐 Base 搜尋)
-                bool leftFirst = (targetMap[gStart].localPos < localCut);
+                bool leftFirst = !occ.isInverse;
                 int gCut = leftFirst ? (gStart + localCut) : (gEnd - localCut);
                 gCut = std::max(gStart, std::min(gEnd, gCut));
 
@@ -465,9 +467,18 @@ class CoordinateManager {
 
                     GlobalPosTracker* ptr = &targetMap[rStart];
                     int len = rEnd - rStart;
-                    for (int i = 0; i < len; ++i) {
-                        ptr[i].blkId = rightID;
-                        ptr[i].localPos -= localCut;
+                    if (len > 2048) {
+                        tbb::parallel_for(tbb::blocked_range<int>(0, len), [&](const tbb::blocked_range<int>& r) {
+                            for (int i = r.begin(); i < r.end(); ++i) {
+                                ptr[i].blkId = rightID;
+                                ptr[i].localPos -= localCut;
+                            }
+                        });
+                    } else {
+                        for (int i = 0; i < len; ++i) {
+                            ptr[i].blkId = rightID;
+                            ptr[i].localPos -= localCut;
+                        }
                     }
                 }
             }
@@ -476,20 +487,237 @@ class CoordinateManager {
             reverseMap.erase(it);
             if (!left_occs.empty()) reverseMap[leftID] = std::move(left_occs);
             if (!right_occs.empty()) reverseMap[rightID] = std::move(right_occs);
+        }
+
+        void updateAfterDoubleSplit(BlockID parentID, BlockID leftID, BlockID midID, BlockID rightID, int cut1, int cut2) {
+            auto it = reverseMap.find(parentID);
+            if (it == reverseMap.end()) return;
+
+            std::vector<BlockOccurrence> left_occs;
+            std::vector<BlockOccurrence> mid_occs;
+            std::vector<BlockOccurrence> right_occs;
+            left_occs.reserve(it->second.size());
+            mid_occs.reserve(it->second.size());
+            right_occs.reserve(it->second.size());
+
+            for (const auto& occ : it->second) {
+                std::vector<GlobalPosTracker>& targetMap = occ.isRef ? refMap : qryMap;
+                std::map<int, BlockInterval>& intervalMap = occ.isRef ? refIntervals : qryIntervals;
+
+                int gStart = occ.globalStart;
+                int gEnd = occ.globalEnd;
+
+                if (gStart >= gEnd) continue;
+
+                bool leftFirst = !occ.isInverse;
+                int gCut1 = leftFirst ? (gStart + cut1) : (gEnd - cut1);
+                int gCut2 = leftFirst ? (gStart + cut2) : (gEnd - cut2);
+                gCut1 = std::max(gStart, std::min(gEnd, gCut1));
+                gCut2 = std::max(gStart, std::min(gEnd, gCut2));
+
+                int lStart, lEnd, mStart, mEnd, rStart, rEnd;
+                BlockID b1, b2, b3;
+
+                if (leftFirst) {
+                    lStart = gStart; lEnd = gCut1;
+                    mStart = gCut1;  mEnd = gCut2;
+                    rStart = gCut2;  rEnd = gEnd;
+                    b1 = leftID; b2 = midID; b3 = rightID;
+                } else {
+                    rStart = gStart; rEnd = gCut2;
+                    mStart = gCut2;  mEnd = gCut1;
+                    lStart = gCut1;  lEnd = gEnd;
+                    b1 = rightID; b2 = midID; b3 = leftID;
+                }
+
+                auto tree_it = intervalMap.find(gStart);
+                if (tree_it != intervalMap.end()) {
+                    tree_it->second = {leftFirst ? gCut1 : gCut2, b1};
+                } else {
+                    tree_it = intervalMap.insert({gStart, BlockInterval{leftFirst ? gCut1 : gCut2, b1}}).first;
+                }
+
+                auto hint1 = intervalMap.insert(std::next(tree_it), {leftFirst ? gCut1 : gCut2, BlockInterval{leftFirst ? gCut2 : gCut1, b2}});
+                intervalMap.insert(std::next(hint1), {leftFirst ? gCut2 : gCut1, BlockInterval{gEnd, b3}});
+
+                if (lStart < lEnd) {
+                    left_occs.push_back({occ.isRef, lStart, lEnd, occ.isInverse});
+                    GlobalPosTracker* ptr = &targetMap[lStart];
+                    int len = lEnd - lStart;
+                    for (int i = 0; i < len; ++i) {
+                        ptr[i].blkId = leftID;
+                    }
+                }
+
+                if (mStart < mEnd) {
+                    mid_occs.push_back({occ.isRef, mStart, mEnd, occ.isInverse});
+                    GlobalPosTracker* ptr = &targetMap[mStart];
+                    int len = mEnd - mStart;
+                    if (len > 2048) {
+                        tbb::parallel_for(tbb::blocked_range<int>(0, len), [&](const tbb::blocked_range<int>& r) {
+                            for (int i = r.begin(); i < r.end(); ++i) {
+                                ptr[i].blkId = midID;
+                                ptr[i].localPos -= cut1;
+                            }
+                        });
+                    } else {
+                        for (int i = 0; i < len; ++i) {
+                            ptr[i].blkId = midID;
+                            ptr[i].localPos -= cut1;
+                        }
+                    }
+                }
+
+                if (rStart < rEnd) {
+                    right_occs.push_back({occ.isRef, rStart, rEnd, occ.isInverse});
+                    GlobalPosTracker* ptr = &targetMap[rStart];
+                    int len = rEnd - rStart;
+                    if (len > 2048) {
+                        tbb::parallel_for(tbb::blocked_range<int>(0, len), [&](const tbb::blocked_range<int>& r) {
+                            for (int i = r.begin(); i < r.end(); ++i) {
+                                ptr[i].blkId = rightID;
+                                ptr[i].localPos -= cut2;
+                            }
+                        });
+                    } else {
+                        for (int i = 0; i < len; ++i) {
+                            ptr[i].blkId = rightID;
+                            ptr[i].localPos -= cut2;
+                        }
+                    }
+                }
+            }
+
+            reverseMap.erase(it);
+            if (!left_occs.empty()) reverseMap[leftID] = std::move(left_occs);
+            if (!mid_occs.empty()) reverseMap[midID] = std::move(mid_occs);
+            if (!right_occs.empty()) reverseMap[rightID] = std::move(right_occs);
         }   
+
+        void updateAfterExtract(BlockID parentID, BlockID leftID, BlockID midID, BlockID rightID, int localStart, int localEnd) {
+            auto it = reverseMap.find(parentID);
+            if (it == reverseMap.end()) return;
+
+            bool cutLeft = (localStart > 0);
+            bool cutRight = (rightID != 0);
+
+            std::vector<BlockOccurrence> left_occs;
+            std::vector<BlockOccurrence> mid_occs;
+            std::vector<BlockOccurrence> right_occs;
+            
+            if (cutLeft) left_occs.reserve(it->second.size());
+            mid_occs.reserve(it->second.size());
+            if (cutRight) right_occs.reserve(it->second.size());
+
+            for (const auto& occ : it->second) {
+                std::vector<GlobalPosTracker>& targetMap = occ.isRef ? refMap : qryMap;
+                std::map<int, BlockInterval>& intervalMap = occ.isRef ? refIntervals : qryIntervals;
+
+                int gStart = occ.globalStart;
+                int gEnd = occ.globalEnd;
+
+                if (gStart >= gEnd) continue;
+
+                // Check direction (is inverse)
+                bool leftFirst = !occ.isInverse;
+
+                int gCut1 = leftFirst ? (gStart + localStart) : (gEnd - localStart);
+                int gCut2 = leftFirst ? (gStart + localEnd) : (gEnd - localEnd);
+
+                if (!leftFirst) {
+                    std::swap(gCut1, gCut2);
+                }
+
+                gCut1 = std::max(gStart, std::min(gEnd, gCut1));
+                gCut2 = std::max(gCut1, std::min(gEnd, gCut2));
+
+                int r1_start = gStart; int r1_end = gCut1;
+                int r2_start = gCut1;  int r2_end = gCut2;
+                int r3_start = gCut2;  int r3_end = gEnd;
+
+                // 4. Update Red-Black Tree (intervalMap)
+                auto tree_it = intervalMap.find(gStart);
+                if (tree_it != intervalMap.end()) {
+                    intervalMap.erase(tree_it);
+                }
+
+                if (leftFirst) {
+                    if (cutLeft && r1_start < r1_end) intervalMap[r1_start] = {r1_end, leftID};
+                    if (r2_start < r2_end) intervalMap[r2_start] = {r2_end, midID};
+                    if (cutRight && r3_start < r3_end) intervalMap[r3_start] = {r3_end, rightID};
+                } else {
+                    if (cutRight && r1_start < r1_end) intervalMap[r1_start] = {r1_end, rightID};
+                    if (r2_start < r2_end) intervalMap[r2_start] = {r2_end, midID};
+                    if (cutLeft && r3_start < r3_end) intervalMap[r3_start] = {r3_end, leftID};
+                }
+
+                // 5. Update 1D Tracker
+                if (leftFirst) {
+                    if (cutLeft && r1_start < r1_end) {
+                        left_occs.push_back({occ.isRef, r1_start, r1_end, occ.isInverse});
+                        GlobalPosTracker* ptr = &targetMap[r1_start];
+                        for (int i = 0; i < r1_end - r1_start; ++i) ptr[i].blkId = leftID;
+                    }
+                    if (r2_start < r2_end) {
+                        mid_occs.push_back({occ.isRef, r2_start, r2_end, occ.isInverse});
+                        GlobalPosTracker* ptr = &targetMap[r2_start];
+                        for (int i = 0; i < r2_end - r2_start; ++i) {
+                            ptr[i].blkId = midID;
+                            ptr[i].localPos -= localStart;
+                        }
+                    }
+                    if (cutRight && r3_start < r3_end) {
+                        right_occs.push_back({occ.isRef, r3_start, r3_end, occ.isInverse});
+                        GlobalPosTracker* ptr = &targetMap[r3_start];
+                        for (int i = 0; i < r3_end - r3_start; ++i) {
+                            ptr[i].blkId = rightID;
+                            ptr[i].localPos -= localEnd;
+                        }
+                    }
+                } else {
+                    // Reversed layout
+                    if (cutRight && r1_start < r1_end) {
+                        right_occs.push_back({occ.isRef, r1_start, r1_end, occ.isInverse});
+                        GlobalPosTracker* ptr = &targetMap[r1_start];
+                        for (int i = 0; i < r1_end - r1_start; ++i) {
+                            ptr[i].blkId = rightID;
+                            ptr[i].localPos -= localEnd;
+                        }
+                    }
+                    if (r2_start < r2_end) {
+                        mid_occs.push_back({occ.isRef, r2_start, r2_end, occ.isInverse});
+                        GlobalPosTracker* ptr = &targetMap[r2_start];
+                        for (int i = 0; i < r2_end - r2_start; ++i) {
+                            ptr[i].blkId = midID;
+                            ptr[i].localPos -= localStart;
+                        }
+                    }
+                    if (cutLeft && r3_start < r3_end) {
+                        left_occs.push_back({occ.isRef, r3_start, r3_end, occ.isInverse});
+                        GlobalPosTracker* ptr = &targetMap[r3_start];
+                        for (int i = 0; i < r3_end - r3_start; ++i) ptr[i].blkId = leftID;
+                    }
+                }
+            }
+
+            reverseMap.erase(it);
+            if (cutLeft && !left_occs.empty()) reverseMap[leftID] = std::move(left_occs);
+            if (!mid_occs.empty()) reverseMap[midID] = std::move(mid_occs);
+            if (cutRight && !right_occs.empty()) reverseMap[rightID] = std::move(right_occs);
+        }
+
 
         void updateAfterMerge(BlockID rCore, BlockID qCore, BlockID mId,
                           const CigarString& finalCigar, bool qryInverse,
                           int actual_rLen, int actual_qLen,
-                          int r_copy, int q_copy,
-                          bool inBoth = false,
-                          int r_probe_start = -1, int q_probe_start = -1) 
+                          int merge_mode, int maxRefCopy, int maxQryCopy,
+                          int r_probe_copy, int q_probe_copy,
+                          size_t rSegCount = 0, size_t qSegCount = 0) 
         {
-            bool is_in_both = inBoth || (r_copy == q_copy);
-            if (is_in_both) {
-                inBothVBlocks.insert({mId, r_copy});
-                inBothVBlocks.insert({mId, q_copy});
-            }
+            int qry_shift = std::max(0, maxRefCopy + 1);
+            int ref_shift = std::max(0, maxQryCopy + 1);
+            int target_r_copy = (r_probe_copy >= 0) ? r_probe_copy : 0;
+            int target_q_copy = (q_probe_copy >= 0) ? q_probe_copy : 0;
 
             // ========================================================
             // 1. 內部直接解析 CIGAR，動態建立相對映射 (不變)
@@ -538,22 +766,60 @@ class CoordinateManager {
                 int mapSize = static_cast<int>(coordMap.size());
                 reverseMap[mId].reserve(reverseMap[mId].size() + occs.size());
 
+                bool invert_coords = isQryCore && qryInverse;
+                int core_len = isQryCore ? actual_qLen : actual_rLen;
+
                 for (auto& occ : occs) {
                     std::vector<GlobalPosTracker>& targetMap = occ.isRef ? refMap : qryMap;
                     bool new_isInverse = occ.isInverse;
-                    if (isQryCore && qryInverse) new_isInverse = !new_isInverse;
+                    if (invert_coords) new_isInverse = !new_isInverse;
 
-                    int probe_start = isQryCore ? q_probe_start : r_probe_start;
-                    bool is_probe_occ = (probe_start < 0) || (occ.globalStart <= probe_start && occ.globalEnd > probe_start);
+                    int old_copy = 0;
+                    if (occ.globalStart >= 0 && occ.globalStart < (int)targetMap.size()) {
+                        old_copy = targetMap[occ.globalStart].copyId;
+                    }
 
-                    int base_copy = isQryCore ? q_copy : r_copy;
-                    int val = is_probe_occ ? base_copy : (targetMap[occ.globalStart].copyId != base_copy ? targetMap[occ.globalStart].copyId : base_copy + 1);
-                    bool current_in_both = is_probe_occ && is_in_both;
+                    int val = old_copy;
+                    bool current_in_both = false;
+
+                    if (isQryCore) {
+                        // Qry 端的 Copy 轉換邏輯（與 merge.cpp 100% 同步）
+                        if (merge_mode == 1) {
+                            if (old_copy == target_q_copy) {
+                                val = target_r_copy;
+                                current_in_both = true;
+                            } else {
+                                val = old_copy + qry_shift;
+                            }
+                        } else if (merge_mode == 2 || merge_mode == 3) {
+                            val = old_copy + qry_shift;
+                        } else if (merge_mode == 4) {
+                            val = old_copy; // Qry 不動
+                        } else if (merge_mode == 5) {
+                            val = (rSegCount >= qSegCount) ? (old_copy + qry_shift) : old_copy;
+                        }
+                    } else {
+                        // Ref 端的 Copy 轉換邏輯（與 merge.cpp 100% 同步）
+                        if (merge_mode == 1) {
+                            val = old_copy; // Ref 不動
+                            if (old_copy == target_r_copy) current_in_both = true;
+                        } else if (merge_mode == 2 || merge_mode == 3) {
+                            val = old_copy; // Ref 不動
+                        } else if (merge_mode == 4) {
+                            val = old_copy + ref_shift; // Ref 平移
+                        } else if (merge_mode == 5) {
+                            val = (rSegCount < qSegCount) ? (old_copy + ref_shift) : old_copy;
+                        }
+                    }
+
+                    if (current_in_both) {
+                        inBothVBlocks.insert({mId, val});
+                    }
                 
                     for (int i = occ.globalStart; i < occ.globalEnd; ++i) {
                         GlobalPosTracker& tracker = targetMap[i];
                         int old_local = tracker.localPos;
-                        int mapped_local = occ.isInverse ? (actual_qLen - 1 - old_local) : old_local;
+                        int mapped_local = invert_coords ? (core_len - 1 - old_local) : old_local;
 
                         tracker.copyId = val;
                         tracker.blkId = mId;

@@ -18,13 +18,15 @@ static CigarString invertCigar(const CigarString& cigar) {
     return inverted;
 }
 
+#include <unordered_set>
+
 // =========================================================
 // 原始的 Merge (建立新 Block，搬移 Sequences，並刪除舊 Block)
 // 加入 mode 控制 Copy ID 的分發邏輯
 // =========================================================
 BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const CigarString& cigar, bool inverse, int mode, int r_probe_start, int q_probe_start, int r_probe_copy, int q_probe_copy) 
 {
-    if (!refBlock || !qryBlock) return nullptr;
+    if (!refBlock || !qryBlock || refBlock == qryBlock) return nullptr;
 
     // 1. 扁平化 Segment 以供 TBB 使用
     std::vector<Segment*> refSegsFlat, qrySegsFlat;
@@ -47,54 +49,49 @@ BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const Ci
     switch (mode) {
         case 1:
         {
-            // 🌟 只有探針對應的 Seg (r_probe_start / q_probe_start) 才會在 Mode 1 設為 0 (共享 inBoth)
-            // 其它非對齊的額外副本則被賦予獨立的不重複 Copy ID，避免重複包夾或內部覆蓋
-            std::set<int> usedRefCopies;
-            bool matchedRefProbe = false;
-            for (auto seg : refSegsFlat) {
-                bool isProbe = (r_probe_start > 0) ? (seg->getStart() == r_probe_start)
-                             : ((r_probe_copy >= 0 && seg->getCopyCount() == r_probe_copy) || !matchedRefProbe);
-                if (isProbe && !matchedRefProbe) {
-                    seg->setCopyCount(0);
-                    usedRefCopies.insert(0);
-                    matchedRefProbe = true;
-                }
-            }
-            int nextRefCopy = 1;
-            for (auto seg : refSegsFlat) {
-                if (seg->getCopyCount() != 0 || !matchedRefProbe) {
-                    while (usedRefCopies.count(nextRefCopy)) nextRefCopy++;
-                    seg->setCopyCount(nextRefCopy);
-                    usedRefCopies.insert(nextRefCopy);
+            int target_r_copy = (r_probe_copy >= 0) ? r_probe_copy : 0;
+            int target_q_copy = (q_probe_copy >= 0) ? q_probe_copy : 0;
+
+            // 1. Ref 端：所有 segment 保持原本的 copyCount（同源的維持 target_r_copy，額外的維持其原 ID）
+            // 2. Qry 端：
+            //    - 屬於 target_q_copy 的同源 segment 合併至 target_r_copy (前提是 Ref 端該 sequence 尚未佔用 target_r_copy)
+            //    - 其餘額外的 copy 或已存在衝突的 sequence 則平移至 (maxRefCopy + 1) 起跳，避免與 Ref 端衝突
+            int qry_shift = std::max(0, maxRefCopy + 1);
+
+            std::unordered_set<std::string> ref_target_seqs;
+            for (auto& seqPair : refBlock->getSequences()) {
+                for (auto& segPairInner : seqPair.second.getSegments()) {
+                    if (segPairInner.second.getCopyCount() == target_r_copy) {
+                        ref_target_seqs.insert(seqPair.first);
+                        break;
+                    }
                 }
             }
 
-            std::set<int> usedQryCopies;
-            bool matchedQryProbe = false;
-            for (auto seg : qrySegsFlat) {
-                bool isProbe = (q_probe_start > 0) ? (seg->getStart() == q_probe_start)
-                             : ((q_probe_copy >= 0 && seg->getCopyCount() == q_probe_copy) || !matchedQryProbe);
-                if (isProbe && !matchedQryProbe) {
-                    seg->setCopyCount(0);
-                    usedQryCopies.insert(0);
-                    matchedQryProbe = true;
-                }
-            }
-            int nextQryCopy = std::max(1, maxRefCopy + 1);
-            for (auto seg : qrySegsFlat) {
-                if (seg->getCopyCount() != 0 || !matchedQryProbe) {
-                    while (usedQryCopies.count(nextQryCopy) || usedQryCopies.count(nextQryCopy)) nextQryCopy++;
-                    seg->setCopyCount(nextQryCopy);
-                    usedQryCopies.insert(nextQryCopy);
+            for (auto& seqPair : qryBlock->getSequences()) {
+                bool ref_has_target = (ref_target_seqs.count(seqPair.first) > 0);
+                for (auto& segPairInner : seqPair.second.getSegments()) {
+                    Segment& seg = segPairInner.second;
+                    if (seg.getCopyCount() == target_q_copy && !ref_has_target) {
+                        seg.setCopyCount(target_r_copy);
+                    } else {
+                        seg.setCopyCount(seg.getCopyCount() + qry_shift);
+                    }
                 }
             }
             break;
         }
             
         case 2:
-            for (auto seg : refSegsFlat) seg->setCopyCount(0);
-            for (auto seg : qrySegsFlat) seg->setCopyCount(1);
+        {
+            // Ref 端保持原有的 copyCount 分配不變
+            // Qry 端每個 segment 則平移 maxRefCopy + 1，確保兩邊 copy ID 互不衝突且各自內部 copy 區隔完整保留
+            int shift = std::max(0, maxRefCopy + 1);
+            for (auto seg : qrySegsFlat) {
+                seg->setCopyCount(seg->getCopyCount() + shift);
+            }
             break;
+        }
             
         case 3:
         {

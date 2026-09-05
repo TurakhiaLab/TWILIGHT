@@ -299,6 +299,7 @@ void BlockSet::debugValidateQuality(bool verbose) {
   int accessoryBlocksCount = 0;
   int narrowCoreBlocksCount = 0;
   int distantBlocksCount = 0;
+  int totalVBlocksCount = 0;
 
   uint64_t coreLenSum = 0;
   uint64_t softCore95LenSum = 0;
@@ -320,11 +321,13 @@ void BlockSet::debugValidateQuality(bool verbose) {
     int blockSegCount = 0;
     uint64_t blockVarLen = 0;
     std::set<std::string> uniqueSeqsInBlock;
+    std::set<int> uniqueCopiesInBlock;
 
     for (auto &seqPair : blk->getSequences()) {
       uniqueSeqsInBlock.insert(seqPair.first);
       for (auto &segPair : seqPair.second.getSegments()) {
         blockSegCount++;
+        uniqueCopiesInBlock.insert(segPair.second.getCopyCount());
         for (auto &var : segPair.second.getVariants()) {
           if (var.getType() == VariantType::SNV) {
             blockVarLen += 1;
@@ -334,6 +337,8 @@ void BlockSet::debugValidateQuality(bool verbose) {
         }
       }
     }
+    totalVBlocksCount += (uniqueCopiesInBlock.empty() ? 1 : uniqueCopiesInBlock.size());
+
 
     // 統計 Distant Block (若該 block 所有 copy 都是 distant)
     if (blk->isAllDistant()) {
@@ -453,6 +458,7 @@ void BlockSet::debugValidateQuality(bool verbose) {
   std::cout << "[1. Sequence & Graph Size]\n";
   std::cout << "  - Total Sequences        : " << totalSequenceCount << "\n";
   std::cout << "  - Total Blocks           : " << blocks.size() << "\n";
+  std::cout << "  - Total VBlocks          : " << totalVBlocksCount << "\n";
   std::cout << "  - Longest Input Sequence : " << maxSeqLen << " bp ("
             << longestSeqName << ")\n";
   std::cout << "  - Total Graph Length     : " << totalConsensusLen << " bp\n";
@@ -564,7 +570,7 @@ void BlockSet::debugValidateSequences(BlockManager *manager, bool verbose) {
 
                         size_t min_len = std::min(res.len_before, res.len_after);
                         res.mismatch_count = 0;
-                        const int MAX_MISMATCH_PRINT = 15;
+                        const int MAX_MISMATCH_PRINT = 1;
 
                         for (size_t i = 0; i < min_len; ++i) {
                           if (seq_before[i] != seq_after[i]) {
@@ -635,6 +641,47 @@ void BlockSet::debugValidateSequences(BlockManager *manager, bool verbose) {
                   << std::min(res.len_before, res.len_after)
                   << " bp, but then one is abruptly truncated.\n";
       }
+
+      // 🔍 詳細診斷：找出該序列在全圖所有 Block 內的 Segments，檢查是否有重疊或斷裂
+      struct AuditSeg {
+        int start, end;
+        bool isRev;
+        int copy;
+        BlockID blkId;
+        int consLen;
+      };
+      std::vector<AuditSeg> segList;
+      for (const auto &blkPair : blocks) {
+        auto blk = blkPair.second;
+        auto it = blk->getSequences().find(res.seqName);
+        if (it != blk->getSequences().end()) {
+          for (const auto &sp : it->second.getSegments()) {
+            segList.push_back({sp.second.getStart(), sp.second.getEnd(), sp.second.isReverse(),
+                               sp.second.getCopyCount(), blk->getId(), (int)blk->getConsensus().length()});
+          }
+        }
+      }
+      std::sort(segList.begin(), segList.end(), [](const AuditSeg &a, const AuditSeg &b) {
+        return a.start < b.start;
+      });
+
+      std::cerr << "     ├─ [SEGMENT AUDIT] Total segments in graph: " << segList.size() << "\n";
+      int mismatch_pos = (res.error_logs.empty()) ? 0 : (int)res.error_logs[0].pos;
+      for (size_t si = 0; si < segList.size(); ++si) {
+        bool is_overlap = (si > 0 && segList[si].start < segList[si - 1].end);
+        bool is_gap = (si > 0 && segList[si].start > segList[si - 1].end);
+        bool near_mismatch = (std::abs(segList[si].start - mismatch_pos) < 10000 || std::abs(segList[si].end - mismatch_pos) < 10000);
+
+        if (is_overlap || is_gap || near_mismatch) {
+          std::cerr << "          " << (is_overlap ? "🚨 [OVERLAP] " : (is_gap ? "⚠️ [GAP] " : "   [SEG] "))
+                    << "Block " << segList[si].blkId << " (ConsLen " << segList[si].consLen << ", Copy " << segList[si].copy << ", Strand " << (segList[si].isRev ? "-" : "+") << "): "
+                    << "[" << segList[si].start << ", " << segList[si].end << ") len=" << (segList[si].end - segList[si].start) << " bp\n";
+          if (is_overlap) {
+            std::cerr << "               ↳ Overlaps with previous Block " << segList[si - 1].blkId << " by "
+                      << (segList[si - 1].end - segList[si].start) << " bp!\n";
+          }
+        }
+      }
     }
   }
 
@@ -646,6 +693,73 @@ void BlockSet::debugValidateSequences(BlockManager *manager, bool verbose) {
   }
   std::cout << "  ✅ [PERFECT] All Sequences Validation Passed!\n";
   global_timer.stop("debug_validate_sequences");
+}
+
+void BlockSet::debugValidateCopies(bool verbose) {
+  global_timer.start("debug_validate_copies");
+  bool has_error = false;
+  int total_error_blocks = 0;
+  int total_error_vblocks = 0;
+
+  for (auto& weak_blk : this->getAllBlocks()) {
+    auto blk = weak_blk.lock();
+    if (!blk) continue;
+
+    // 依據 copyCount 整理出每個 Copy 底下包含的 Sequence 與其 Segments
+    std::map<int, std::map<std::string, std::vector<const Segment*>>> copy_seq_segs;
+
+    for (const auto& seqPair : blk->getSequences()) {
+      const std::string& seqName = seqPair.first;
+      for (const auto& segPair : seqPair.second.getSegments()) {
+        const Segment& seg = segPair.second;
+        copy_seq_segs[seg.getCopyCount()][seqName].push_back(&seg);
+      }
+    }
+
+    bool block_has_error = false;
+    for (const auto& copyPair : copy_seq_segs) {
+      int copy = copyPair.first;
+      for (const auto& seqSegsPair : copyPair.second) {
+        const std::string& seqName = seqSegsPair.first;
+        const auto& segs = seqSegsPair.second;
+
+        // 🚨 檢查：同一個 (Block, Copy) 底下，同一條 Sequence 絕不能包含 >= 2 個 Segments
+        if (segs.size() > 1) {
+          has_error = true;
+          if (!block_has_error) {
+            total_error_blocks++;
+            block_has_error = true;
+            std::cerr << "\n❌ [COPY VALIDATION ERROR] Block " << blk->getId() 
+                      << " (Consensus Len: " << blk->getConsensus().length() << " bp)\n";
+          }
+          total_error_vblocks++;
+          std::cerr << "   ├─ VBlock (Block_" << blk->getId() << ", Copy " << copy << ")\n"
+                    << "   │  └─ Sequence '" << seqName << "' has " << segs.size() 
+                    << " duplicate segments sharing copyCount=" << copy << ":\n";
+          for (size_t sIdx = 0; sIdx < segs.size(); ++sIdx) {
+            const Segment* s = segs[sIdx];
+            std::cerr << "   │     [" << sIdx + 1 << "] start=" << s->getStart() 
+                      << ", end=" << s->getEnd()
+                      << ", len=" << std::abs(s->getEnd() - s->getStart()) << " bp"
+                      << ", strand=" << (s->isReverse() ? "-" : "+") << "\n";
+          }
+        }
+      }
+    }
+  }
+
+  if (has_error) {
+    std::cerr << "\n💥 [FATAL] debugValidateCopies failed! Found " << total_error_vblocks 
+              << " invalid VBlocks with duplicate segments across " << total_error_blocks 
+              << " blocks. Terminating execution.\n";
+    global_timer.stop("debug_validate_copies");
+    exit(1);
+  } else {
+    if (verbose) {
+      std::cout << "  ✅ [PERFECT] debugValidateCopies passed! All VBlocks contain at most one segment per sequence.\n";
+    }
+  }
+  global_timer.stop("debug_validate_copies");
 }
 
 void BlockSet::debugValidateLinearizedBlocks(bool verbose) {

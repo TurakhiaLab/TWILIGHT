@@ -3,6 +3,7 @@
 #include "option.hpp"
 #include "phylogeny.hpp"
 #include "block_manager.hpp"
+#include "panmanWriter.hpp"
 
 #include <tbb/global_control.h>
 #include <boost/filesystem.hpp>
@@ -106,39 +107,28 @@ int main(int argc, char** argv) {
 
     // Read Sequences
     auto manager = mga::io::readSequences(option.seqFile, option, subT);
-    if (option.circular) manager->orientCircularGenomes(option, "NZ_CP046309.1");
+    if (option.circular) manager->orientCircularGenomes(option);
 
     mga::progressive::msaOnSubtree(subT, option, manager.get(), 0);
 
     auto final_set = manager.get()->getBlockSet(manager.get()->getBlockSets().begin()->first);
 
 
-    // Output MAF
-    
-    // final_set->debugValidateSegments(false);
-    // final_set->debugValidateLinkages(false);
-    // final_set->debugValidateQuality(false);
+    // Output PanMAN
     auto outputStart = std::chrono::high_resolution_clock::now();
+    mga::io::writeMAF(final_set, option.tempDir + "/output.maf", true);
 
-    auto refineStart = std::chrono::high_resolution_clock::now();
-    // final_set->realignBlocks(option.tempDir);
-    // final_set->absorbMicroBlocks();
-    // final_set->refineBlocks();
-    // final_set->realignBlocks(option.tempDir);
-    // final_set->refineGraph();
-
-    auto refineEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds refineTime = refineEnd - refineStart;
-    // final_set->debugValidateQuality(false);
+    std::chrono::nanoseconds refineTime(0);
     
-    // final_set->debugValidateQualityNew(false);
-    // final_set->debugValidateBubble(false);
+    if (final_set) {
+        std::string panmanOutputPath = option.tempDir + "/output.panman";
+        final_set->insertDistantBlockInPlace();
+        mga::panman::PanmanWriter::writePanMAN(final_set, &subT, "", panmanOutputPath);
+    }
 
-
-    // mga::io::writeMAF(final_set, option.tempDir+"/output_pre.maf");
     auto outputEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds outputTime = outputEnd - outputStart;
-
+    
     // final_set->realignAllToAll(option.tempDir);
     // final_set->refineGraph();
     // final_set->absorbMicroBlocks();

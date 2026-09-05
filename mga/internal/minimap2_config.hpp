@@ -26,7 +26,7 @@ public:
         }
         // 專案標準預設調整
         mopt.pri_ratio = 0.0f; // -p 0
-        mopt.best_n = 50;     // -N 50
+        mopt.best_n = 10;     // -N 50
         return *this;
     }
 

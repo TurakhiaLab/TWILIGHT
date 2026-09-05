@@ -22,7 +22,8 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
                               AlignmentCollection &alnCollection,
                               BlockSetID newID, Tree *tree, Option *option, int L_min) {
   // bool DEBUG_MODE = (refSet->getSequenceCount() >= 20 || qrySet->getSequenceCount() >= 20);
-  bool DEBUG_MODE = true;
+  bool DEBUG_MODE = false;
+  // bool DEBUG_MODE = (alnCollection.queue_.size() > 8900 && alnCollection.queue_.size() < 9000);
   auto time0 = std::chrono::high_resolution_clock::now();
   if (DEBUG_MODE)
     std::cout << "\n========================================================\n"
@@ -54,8 +55,10 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
   for (auto &seq : qrySet->getSequences()) mergedSet->addSequenceName(seq);
 
   // 🌟 呼叫 BlockSet::createIndexedCopy 產生保留 BlockID 且零大字串複製成本的 Index 版 BlockSet
-  BlockSet *refIndexSet = refSet->createIndexedCopy(this, refSet->getId() + "_indexed");
-  BlockSet *qryIndexSet = qrySet->createIndexedCopy(this, qrySet->getId() + "_indexed");
+  BlockSetID refIndexID = refSet->getId() + "_indexed";
+  BlockSetID qryIndexID = qrySet->getId() + "_indexed";
+  BlockSet *refIndexSet = refSet->createIndexedCopy(this, refIndexID);
+  BlockSet *qryIndexSet = qrySet->createIndexedCopy(this, qryIndexID);
 
   global_timer.start("phase2_iterative_merge");
   while (true) {
@@ -117,11 +120,11 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
         std::cout << "========================================\n";
       }
 
-      if (r_merged && q_merged && (*r_overlaps.begin()) == (*q_overlaps.begin())) {
+      if (!r_overlaps.empty() && !q_overlaps.empty() && r_overlaps.size() == 1 && q_overlaps.size() == 1 && r_overlaps[0] == q_overlaps[0]) {
         if (DEBUG_MODE)
           std::cout
-              << "  -> SKIP. Both paths resolve to the exact same merged block "
-              << (*r_overlaps.begin()) << ".\n";
+              << "  -> SKIP. Both paths resolve to the exact same block "
+              << r_overlaps[0] << ".\n";
         continue;
       }
 
@@ -193,6 +196,13 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
           int pos1 = coordMgr.getLocalPos(globalStart, isRef);
           int pos2 = coordMgr.getLocalPos(globalEnd - 1, isRef);
 
+          // 🌟 防呆：雖然 overlaps.size() == 1，但可能跨越了同一個 Block 的兩個不同發生 (Occurrence)！
+          // 如果是同一個 Occurrence，localPos 的絕對差必須等於 globalPos 的絕對差
+          if (std::abs(pos2 - pos1) != (globalEnd - 1 - globalStart)) {
+              if (DEBUG_MODE) std::cout << "      ❌ [ALIGNMENT REJECTED] Crosses occurrence boundary of the same block.\n";
+              return true; 
+          }
+
           int localStart = std::min(pos1, pos2);
           int localEnd = std::max(pos1, pos2) + 1;
           int len = mergedSet->getBlock(blkId)->getConsensus().length();
@@ -201,8 +211,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
           bool cutRight = ((len - localEnd) > SLICE_SNAP_THRESHOLD);
 
           int depth = getBlockDepth(blkId);
-          // if (cutLeft && cutRight) Nc += 2 * depth;      // 正中間切兩刀
-          // else if (cutLeft || cutRight) Nc += 1 * depth; // 邊緣切一刀
           if (cutLeft && cutRight)
             Nc += 2; // 正中間切兩刀
           else if (cutLeft || cutRight)
@@ -273,6 +281,15 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
         int pos1 = coordMgr.getLocalPos(globalStart, isRef);
         int pos2 = coordMgr.getLocalPos(globalEnd - 1, isRef);
 
+        // 🌟 防呆：確保是同一個 Occurrence
+        if (std::abs(pos2 - pos1) != (globalEnd - 1 - globalStart)) {
+            if (DEBUG_MODE) {
+                std::cout << "  🚨 [REJECT] extractCoreBlock: Alignment crosses occurrence boundaries of the same block. Rejecting merge.\n";
+            }
+            global_timer.stop("ecb_1_convert_local_pos");
+            return 0;
+        }
+
         int localStart = std::min(pos1, pos2);
         int localEnd = std::max(pos1, pos2) + 1;
         int currentLen = mergedSet->getBlock(targetId)->getConsensus().length();
@@ -286,38 +303,41 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
           return targetId;
         }
 
-        // 🌟 A. 左側防護與切割
+        // 🌟 A. 左側與右側 Snap 防護
         if (localStart > 0 && localStart <= SLICE_SNAP_THRESHOLD) {
           out_left_snap = localStart; // 記錄左邊多吃的
           localStart = 0;
         }
 
-        if (localStart > 0) {
-          global_timer.start("ecb_2_left_split");
-          auto parts = mergedSet->splitSingleBlock(targetId, localStart);
-          global_timer.stop("ecb_2_left_split");
-          global_timer.start("ecb_2_left_update");
-          coordMgr.updateAfterSplit(targetId, parts.first, parts.second, localStart);
-          targetId = parts.second;
-          localEnd -= localStart;
-          currentLen = mergedSet->getBlock(targetId)->getConsensus().length();
-          global_timer.stop("ecb_2_left_update");
-        }
-
-        // 🌟 B. 右側防護與切割
         if (localEnd < currentLen &&
             (currentLen - localEnd) <= SLICE_SNAP_THRESHOLD) {
           out_right_snap = currentLen - localEnd; // 記錄右邊多吃的
           localEnd = currentLen;
         }
 
-        if (localEnd < currentLen) {
+        // 🌟 B. 決定單切或一刀雙切 (Single-pass Double-split)
+        if (localStart > 0 && localEnd < currentLen) {
+          global_timer.start("ecb_double_split");
+          auto parts = mergedSet->splitDoubleBlock(targetId, localStart, localEnd);
+          global_timer.stop("ecb_double_split");
+          global_timer.start("ecb_double_update");
+          coordMgr.updateAfterDoubleSplit(targetId, parts.leftID, parts.midID, parts.rightID, localStart, localEnd);
+          targetId = parts.midID;
+          global_timer.stop("ecb_double_update");
+        } else if (localStart > 0) {
+          global_timer.start("ecb_2_left_split");
+          auto parts = mergedSet->splitSingleBlock(targetId, localStart);
+          global_timer.stop("ecb_2_left_split");
+          global_timer.start("ecb_2_left_update");
+          coordMgr.updateAfterSplit(targetId, parts.first, parts.second, localStart);
+          targetId = parts.second;
+          global_timer.stop("ecb_2_left_update");
+        } else if (localEnd < currentLen) {
           global_timer.start("ecb_3_right_split");
           auto parts = mergedSet->splitSingleBlock(targetId, localEnd);
           global_timer.stop("ecb_3_right_split");
           global_timer.start("ecb_3_right_update");
-          coordMgr.updateAfterSplit(targetId, parts.first, parts.second,
-                                    localEnd);
+          coordMgr.updateAfterSplit(targetId, parts.first, parts.second, localEnd);
           targetId = parts.first;
           global_timer.stop("ecb_3_right_update");
         }
@@ -471,6 +491,14 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       auto rBlk_ptr = mergedSet->getBlock(rCore);
       auto qBlk_ptr = mergedSet->getBlock(qCore);
 
+      if (rCore == 0 || qCore == 0 || rCore == qCore || !rBlk_ptr || !qBlk_ptr) {
+        if (DEBUG_MODE) {
+          std::cout << "  🚨 [SKIP] Invalid or identical core blocks (rCore: "
+                    << rCore << ", qCore: " << qCore << "). Bypassing merge.\n";
+        }
+        continue;
+      }
+
       int merge_mode = 0;
       CigarString finalCigar = bestAln.CIGAR;
       bool actual_merge_inverse = bestAln.inverse;
@@ -507,6 +535,20 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
               ref_after.second != qry_after.second)
             isCrossing = true;
         }
+      }
+
+      // 🌟 檢查 Ref 與 Qry 是否共享同名序列（若包含，代表為同一基因組之重複/副同源區段 Duplication，不可共線同源合併！）
+      bool hasCommonSeq = false;
+      if (rBlk_ptr && qBlk_ptr) {
+        for (const auto &kv : rBlk_ptr->getSequences()) {
+          if (qBlk_ptr->getSequences().count(kv.first)) {
+            hasCommonSeq = true;
+            break;
+          }
+        }
+      }
+      if (hasCommonSeq) {
+        isCrossing = true;
       }
 
       // ==========================================
@@ -599,7 +641,7 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
         }
       } else {
         // 情境 A3 或 B, C, D (全部觸發 Realignment)
-        if (!isCrossing) {
+        if (!isCrossing && !hasCommonSeq) {
           if (DEBUG_MODE)
             std::cout << "  [SCENARIO A3] Orthologous merge with pre-merged block (Realignment applied).\n";
           merge_mode = 1;
@@ -641,50 +683,55 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
         }
       }
 
-      // 1. 🌟 [Merge 前] 抓取真正對齊的代表性 Segment (探針)
-      auto getProbeSegment = [](BlockPtr blk, int start_pos) {
-        for (auto& seqPair : blk->getSequences()) {
-          for (auto& segPair : seqPair.second.getSegments()) {
-            if (segPair.first <= start_pos && segPair.second.getEnd() > start_pos) {
-              return std::make_pair(seqPair.first, segPair.second);
-            }
-          }
-        }
-        auto it = blk->getSequences().begin();
-        return std::make_pair(it->first, it->second.getSegments().begin()->second);
-      };
+      // 1. 🌟 [Merge 前] 直接由 CoordinateManager 取得本次 Alignment 對應的真實 Copy ID
+      int r_probe_copy = coordMgr.getCopyId(r_start, true);
+      int q_probe_copy = coordMgr.getCopyId(q_start, false);
 
-      auto r_probe = getProbeSegment(rBlk_ptr, r_start);
-      std::string r_probe_seq = r_probe.first;
-      int r_probe_local_start = r_probe.second.getStart();
-      int r_probe_copy = r_probe.second.getCopyCount();
-
-      auto q_probe = getProbeSegment(qBlk_ptr, q_start);
-      std::string q_probe_seq = q_probe.first;
-      int q_probe_local_start = q_probe.second.getStart();
-      int q_probe_copy = q_probe.second.getCopyCount();
+      int maxRefCopy = rBlk_ptr ? rBlk_ptr->getMaxCopy() : 0;
+      int maxQryCopy = qBlk_ptr ? qBlk_ptr->getMaxCopy() : 0;
+      int actual_rLen = rBlk_ptr ? rBlk_ptr->getConsensus().length() : 0;
+      int actual_qLen = qBlk_ptr ? qBlk_ptr->getConsensus().length() : 0;
 
       global_timer.start("merge_blocks");
       auto mBlk = mergedSet->mergeTwoBlocks(rBlk_ptr, qBlk_ptr, finalCigar,
                                             actual_merge_inverse, merge_mode,
-                                            r_probe_local_start, q_probe_local_start,
+                                            -1, -1,
                                             r_probe_copy, q_probe_copy);
       global_timer.stop("merge_blocks");
 
-      // 3. 🌟 [Merge 後] 在新的 mBlk 中找回那兩個探針，看它們的 Copy 變成多少
-      int r_new_copy = mBlk->getSequences()[r_probe_seq].getSegment(r_probe_local_start).getCopyCount();
-      int q_new_copy = mBlk->getSequences()[q_probe_seq].getSegment(q_probe_local_start).getCopyCount();
+      // 3. 🌟 [Merge 後] 精確計算本次 Alignment 在新 mBlk 內所獲得的 Copy ID
+      int r_new_copy = r_probe_copy;
+      int q_new_copy = q_probe_copy;
 
-      int actual_rLen = rBlk_ptr->getConsensus().length();
-      int actual_qLen = qBlk_ptr->getConsensus().length();
+      if (merge_mode == 1) {
+        q_new_copy = r_probe_copy;
+      } else if (merge_mode == 2 || merge_mode == 3) {
+        q_new_copy = q_probe_copy + std::max(0, maxRefCopy + 1);
+      } else if (merge_mode == 4) {
+        r_new_copy = r_probe_copy + std::max(0, maxQryCopy + 1);
+      } else if (merge_mode == 5) {
+        if (rBlk_ptr && qBlk_ptr && rBlk_ptr->getSequences().size() >= qBlk_ptr->getSequences().size()) {
+          q_new_copy = q_probe_copy + std::max(0, maxRefCopy + 1);
+        } else {
+          r_new_copy = r_probe_copy + std::max(0, maxQryCopy + 1);
+        }
+      }
 
-      // 4. 🎯 更新 CoordinateManager (傳入全域 r_start 與 q_start 做為探針標記)
+      // 4. 🎯 更新 CoordinateManager (套用 Plan 2 全域一致性轉換)
       global_timer.start("p2_8_coord_tracker_update");
-      bool inBoth = (merge_mode == 1 || r_new_copy == q_new_copy);
+      size_t rSegCount = 0, qSegCount = 0;
+      if (rBlk_ptr) {
+        for (const auto& kv : rBlk_ptr->getSequences()) rSegCount += kv.second.getSegments().size();
+      }
+      if (qBlk_ptr) {
+        for (const auto& kv : qBlk_ptr->getSequences()) qSegCount += kv.second.getSegments().size();
+      }
       coordMgr.updateAfterMerge(rCore, qCore, mBlk->getId(), finalCigar,
                                 actual_merge_inverse, actual_rLen, actual_qLen,
-                                r_new_copy, q_new_copy, inBoth,
-                                r_start, q_start);
+                                merge_mode, maxRefCopy, maxQryCopy,
+                                r_probe_copy, q_probe_copy,
+                                rSegCount, qSegCount);
+      global_timer.stop("p2_8_coord_tracker_update");
 
       BlockID mId = mBlk->getId();
       if (DEBUG_MODE)
@@ -762,10 +809,15 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       alnCollection.ref_coverageTracker.syncFromMap(coordMgr, true); // true 代表 Ref
       alnCollection.qry_coverageTracker.syncFromMap(coordMgr, false); // false 代表 Qry
       global_timer.stop("p2_8_coord_tracker_update");
-      // if (DEBUG_MODE) mergedSet->debugValidateSequences(this);
+      if (DEBUG_MODE) mergedSet->debugValidateCopies(true);
+      if (DEBUG_MODE) mergedSet->debugValidateSequences(this);
     }
   }
   global_timer.stop("phase2_iterative_merge");
+
+  // 🌟 釋放暫存建立的 Indexed BlockSet，避免污染 BlockManager
+  this->removeBlockSet(refIndexID);
+  this->removeBlockSet(qryIndexID);
 
   if (DEBUG_MODE)
     std::cout << "\n  -> Processed " << mergeCounter << " valid alignments.\n";
@@ -782,6 +834,7 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       continue;
     blk->normalizeStrand();
   }
+  mergedSet->debugValidateCopies(true);
 
   for (auto &seq : refSet->getSequences())
     mergedSet->addSequenceName(seq);
@@ -801,7 +854,9 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
 
   global_timer.start("phase5_5_self_align");
   mergedSet->selfAlignDistant(*option, &coordMgr);
+  // mergedSet->debugValidateCopies(true);
   mergedSet->selfAlign(*option, &coordMgr);
+  // mergedSet->debugValidateCopies(true);
   global_timer.stop("phase5_5_self_align");
 
   mergedSet->rebuildLinearGraph(coordMgr);

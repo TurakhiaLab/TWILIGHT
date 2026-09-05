@@ -104,7 +104,7 @@ constexpr int MAX_NW_LENGTH = 300;
 constexpr int MIN_DIST_2_BOUNDARY = 100;
 
 // Default tree lookdown depth for finding distant/ancestral blocks
-constexpr int DEFAULT_LOOKDOWN_DEPTH = 3;
+constexpr int DEFAULT_LOOKDOWN_DEPTH = 5;
 
 // Default minimum alignment length threshold for merging (bp)
 constexpr int DEFAULT_L_MIN = 100;

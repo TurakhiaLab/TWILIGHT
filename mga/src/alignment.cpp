@@ -906,26 +906,42 @@ static void evaluateCutClusters(
         }
 
         global_timer.start("ecc_2_sandbox_extract");
-        BlockSet tempBlockSet("temp");
-        std::shared_ptr<Block> rawRefBlock;
-        if (bd_ref_start < bd_ref_end) {
-            rawRefBlock = refBlockSet->extractBlock(bd_ref_start, bd_ref_end);
-        } else {
-            rawRefBlock = std::make_shared<Block>(999998, "");
+        // 🌟 輕量化沙盒 (Option 1): 直接由 bd_subCIGAR 與邊界構造極速評分 Block，省去全圖解構與重構開銷
+        std::string dummy_cons(std::max(1, bd_merged_len), 'N');
+        auto mergedLocalBlock = std::make_shared<Block>(999990, std::move(dummy_cons));
+
+        int ref_total_len = bd_ref_end - bd_ref_start;
+        int qry_total_len = bd_qry_end - bd_qry_start;
+
+        Sequence refSeq("Ref");
+        Sequence qrySeq("Qry");
+
+        Segment refSeg(0, ref_total_len);
+        Segment qrySeg(0, qry_total_len);
+
+        int curr_pos = 0;
+        for (auto op : bd_subCIGAR) {
+            int len = op.first;
+            char type = op.second;
+
+            if (type == 'I') {
+                refSeg.getVariants().push_back(Variant::createGap(curr_pos, curr_pos + len));
+            } else if (type == 'D') {
+                qrySeg.getVariants().push_back(Variant::createGap(curr_pos, curr_pos + len));
+            }
+
+            curr_pos += len;
         }
 
-        std::shared_ptr<Block> rawQryBlock;
-        if (bd_qry_start < bd_qry_end) {
-            rawQryBlock = qryBlockSet->extractBlock(bd_qry_start, bd_qry_end);
-        } else {
-            rawQryBlock = std::make_shared<Block>(999999, "");
-        }
+        refSeq.getSegments()[0] = std::move(refSeg);
+        qrySeq.getSegments()[0] = std::move(qrySeg);
+
+        mergedLocalBlock->getSequences()["Ref"] = std::move(refSeq);
+        mergedLocalBlock->getSequences()["Qry"] = std::move(qrySeq);
         global_timer.stop("ecc_2_sandbox_extract");
 
         global_timer.start("ecc_2_sandbox_merge");
-        auto localRefBlock = tempBlockSet.addBlock(rawRefBlock);
-        auto localQryBlock = tempBlockSet.addBlock(rawQryBlock);
-        auto mergedLocalBlock = tempBlockSet.mergeTwoBlocks(localRefBlock, localQryBlock, bd_subCIGAR, best.inverse, 0);
+        // 輕量沙盒模式下合流已在 Extract 中完成
         global_timer.stop("ecc_2_sandbox_merge");
 
         global_timer.start("ecc_3_calc_split_scores");
@@ -1007,11 +1023,13 @@ static void evaluateCutClusters(
 }
 
 Alignments AlignmentCollection::getBestAlignments(BlockSet* refBlockSet, BlockSet* qryBlockSet, CoordinateManager& coordMgr, int L_min) {
-    bool debug = true; 
-    // bool debug = false; 
+    // bool debug = true; 
+    bool debug = false; 
     
     std::vector<Alignment> final_results;
 
+    // ⚠️ 必須用值拷貝而非引用！index-mode Consensus 在 buildCaches 過程中會
+    //    重建原始 BlockSet 的 ancestral_seq_cache，導致引用懸空。
     const std::string& refSeq = refBlockSet->getAncestralSequence();
     const std::string& qrySeq = qryBlockSet->getAncestralSequence();
 

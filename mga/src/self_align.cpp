@@ -79,7 +79,7 @@ static CigarString adjustCigarForRefInsertions(const CigarString &origCigar,
 }
 
 Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, double min_ratio) {
-    bool DEBUG_MODE = true;
+    bool DEBUG_MODE = false;
 
     // 1. 分類 Blocks：
     // - distant_blocks (Queries)：完全 distant 的 block (所有 copy 均為 distant)
@@ -453,7 +453,7 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
 }
 
 Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMgr, double min_ratio) {
-    bool DEBUG_MODE = true;
+    bool DEBUG_MODE = false;
 
     // 1. 分類出所有 distant blocks (Queries & References 均為 distant blocks)
     uint64_t total_distant_len = 0;

@@ -208,6 +208,9 @@ endif()
 # 				src_mga/realignShallowBlocks.cpp
 # 				src_mga/refine.cpp)
 
+find_package(CapnProto REQUIRED)
+capnp_generate_cpp(CAPNP_SRCS CAPNP_HDRS mga/internal/panman.capnp)
+
 add_executable (twilight_mga
 				mga/src/twilight_mga-main.cpp
 				mga/src/option.cpp
@@ -231,11 +234,14 @@ add_executable (twilight_mga
 				mga/src/refine.cpp
 				mga/src/global_alignment.cpp
 				mga/src/self_align.cpp
+				mga/src/panmanCodec.cpp
+				mga/src/panmanWriter.cpp
+				${CAPNP_SRCS}
 				)
 
-find_package(Boost COMPONENTS program_options system filesystem REQUIRED)
+find_package(Boost COMPONENTS program_options system filesystem iostreams REQUIRED)
 find_package(ZLIB REQUIRED)
-include_directories(${ZLIB_INCLUDE_DIR} mga/internal ${CMAKE_CURRENT_SOURCE_DIR}/minimap2)
+include_directories(${ZLIB_INCLUDE_DIR} mga/internal ${CMAKE_CURRENT_SOURCE_DIR}/minimap2 ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/mga/internal)
 find_package(TBB REQUIRED CONFIG)
 get_target_property(TBB_INC_DIRS TBB::tbb INTERFACE_INCLUDE_DIRECTORIES)
 if(TBB_INC_DIRS)
@@ -252,8 +258,11 @@ target_link_libraries(twilight_mga PRIVATE
     ${Boost_LIBRARIES} 
     ${ZLIB_LIBRARIES} 
     TBB::tbb
+    CapnProto::capnp
+    CapnProto::kj
     pthread
     m
+    lzma
 )
 
 

@@ -107,6 +107,8 @@ public:
   void rebuildAllPointers();
   bool detectVBlockCycle(const CoordinateManager &coordMgr, bool verbose = false) const;
   void rebuildLinearGraph(const CoordinateManager &coordMgr);
+  void normalizeCopyCounts();
+  void insertDistantBlockInPlace();
   BlockPtr createBlockWithId(BlockID id, Consensus consensus) {
     auto new_block = std::make_shared<Block>(id, std::move(consensus));
     blocks[id] = new_block;
@@ -144,11 +146,21 @@ public:
 
   std::pair<BlockID, BlockID> splitSingleBlock(int parentID, int localCut);
 
+  struct DoubleSplitParts {
+    BlockID leftID;
+    BlockID midID;
+    BlockID rightID;
+  };
+  using ExtractResult = DoubleSplitParts;
+  DoubleSplitParts splitDoubleBlock(int parentID, int cut1, int cut2);
+  ExtractResult extractSubBlock(int parentID, int localStart, int localEnd);
+
   // --- Debug/Validate ---
   void debugValidateSegments(bool verbose = false);
   void debugValidateLinkages(bool verbose = false);
   void debugValidateQuality(bool verbose = false);
   void debugValidateSequences(BlockManager *manager, bool verbose = false);
+  void debugValidateCopies(bool verbose = false);
   void debugValidateLinearizedBlocks(bool verbose = false);
   void debugValidateBlocks(bool verbose = false);
 

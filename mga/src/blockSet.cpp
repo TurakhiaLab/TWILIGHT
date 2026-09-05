@@ -36,6 +36,7 @@ void BlockSet::buildCaches() {
   }
 
   // Representative
+  ancestral_seq_cache.clear();
   for (auto vblkID : ancestral_block_cache) {
     auto blk = this->getBlock(vblkID.first);
     if (blk)
@@ -457,180 +458,74 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
     return;
   }
 
-  // 1. 識別同時間存在於 Ref 與 Qry 的 Mode 1 共享 VBlocks (inBothSet)
-  std::unordered_set<VBlockID, VBlockIDHash> inBothSet;
-  inBothSet.reserve(refList.size());
-  for (const auto &vid : refList) {
-    if (coordMgr.isVBlockInBoth(vid)) {
-      inBothSet.insert(vid);
-    }
-  }
-  // 萬一 coordMgr 標籤無資訊，做集合交集保險補強
+  // 1. 識別同時間存在於 Ref 與 Qry 的 Mode 1 共享 VBlocks，建立同步屏障 (inBothQueue)
   std::unordered_set<VBlockID, VBlockIDHash> qryVSet(qryList.begin(), qryList.end(), qryList.size(), VBlockIDHash());
+  std::queue<VBlockID> inBothQueue;
   for (const auto &vid : refList) {
-    if (qryVSet.count(vid)) {
-      inBothSet.insert(vid);
+    if (coordMgr.isVBlockInBoth(vid) || qryVSet.count(vid)) {
+      if (qryVSet.count(vid)) {
+        inBothQueue.push(vid);
+      }
     }
-  }
-
-  // 預建 Hash Map 記錄 refList 與 qryList 各 VBlock 的出現索引，避免雙指標衝突時的 O(N) 線性搜尋
-  std::unordered_map<VBlockID, std::vector<size_t>, VBlockIDHash> refPosMap;
-  refPosMap.reserve(refList.size());
-  for (size_t i = 0; i < refList.size(); ++i) {
-    refPosMap[refList[i]].push_back(i);
-  }
-
-  std::unordered_map<VBlockID, std::vector<size_t>, VBlockIDHash> qryPosMap;
-  qryPosMap.reserve(qryList.size());
-  for (size_t i = 0; i < qryList.size(); ++i) {
-    qryPosMap[qryList[i]].push_back(i);
   }
 
   // 2. 雙指標 (pRef, pQry) 依序動態交錯合併 Ref/Qry 1D 順序
   std::vector<VBlockID> initialLinearVBlocks;
   initialLinearVBlocks.reserve(refList.size() + qryList.size());
 
-  size_t pRef = 0;
-  size_t pQry = 0;
   std::unordered_set<VBlockID, VBlockIDHash> processed;
   processed.reserve(refList.size() + qryList.size());
 
+  size_t pRef = 0;
+  size_t pQry = 0;
+
+  auto push_if_new = [&](const VBlockID &vid) {
+    if (processed.insert(vid).second) {
+      initialLinearVBlocks.push_back(vid);
+    }
+  };
+
   while (pRef < refList.size() || pQry < qryList.size()) {
-    if (pRef >= refList.size()) {
-      if (processed.insert(qryList[pQry]).second) {
-        initialLinearVBlocks.push_back(qryList[pQry]);
-      }
-      pQry++;
-      continue;
+    if (inBothQueue.empty()) {
+      while (pRef < refList.size()) push_if_new(refList[pRef++]);
+      while (pQry < qryList.size()) push_if_new(qryList[pQry++]);
+      break;
     }
 
-    if (pQry >= qryList.size()) {
-      if (processed.insert(refList[pRef]).second) {
-        initialLinearVBlocks.push_back(refList[pRef]);
-      }
-      pRef++;
-      continue;
-    }
+    const VBlockID &target = inBothQueue.front();
 
-    const auto &rVid = refList[pRef];
-    const auto &qVid = qryList[pQry];
+    bool rAtTarget = (pRef < refList.size() && refList[pRef] == target);
+    bool qAtTarget = (pQry < qryList.size() && qryList[pQry] == target);
 
-    if (processed.count(rVid)) {
-      pRef++;
-      continue;
-    }
-
-    if (processed.count(qVid)) {
-      pQry++;
-      continue;
-    }
-
-    // 兩邊剛好走到同一個 is_both / 共享 VBlock
-    if (rVid == qVid) {
-      initialLinearVBlocks.push_back(rVid);
-      processed.insert(rVid);
+    bool advanced = false;
+    if (rAtTarget && qAtTarget) {
+      push_if_new(target);
       pRef++;
       pQry++;
-      continue;
-    }
-
-    bool rIsShared = (inBothSet.count(rVid) > 0);
-    bool qIsShared = (inBothSet.count(qVid) > 0);
-
-    if (!rIsShared) {
-      // Ref 側目前是 unique VBlock，直接 append 並推進 Ref
-      initialLinearVBlocks.push_back(rVid);
-      processed.insert(rVid);
-      pRef++;
-    } else if (!qIsShared) {
-      // Qry 側目前是 unique VBlock，直接 append 並推進 Qry
-      initialLinearVBlocks.push_back(qVid);
-      processed.insert(qVid);
-      pQry++;
+      inBothQueue.pop();
+      advanced = true;
     } else {
-      // 兩邊都是 shared 錨點但點不一樣，尋找哪一邊的指標離對方錨點較近
-      size_t rFindQ = refList.size();
-      auto itR = refPosMap.find(qVid);
-      if (itR != refPosMap.end()) {
-        auto posIt = std::lower_bound(itR->second.begin(), itR->second.end(), pRef);
-        if (posIt != itR->second.end()) {
-          rFindQ = *posIt;
-        }
+      if (!rAtTarget && pRef < refList.size()) {
+        push_if_new(refList[pRef++]);
+        advanced = true;
       }
+      if (!qAtTarget && pQry < qryList.size()) {
+        push_if_new(qryList[pQry++]);
+        advanced = true;
+      }
+    }
 
-      size_t qFindR = qryList.size();
-      auto itQ = qryPosMap.find(rVid);
-      if (itQ != qryPosMap.end()) {
-        auto posIt = std::lower_bound(itQ->second.begin(), itQ->second.end(), pQry);
-        if (posIt != itQ->second.end()) {
-          qFindR = *posIt;
-        }
-      }
-
-      if (qFindR < qryList.size() && (rFindQ == refList.size() || qFindR - pQry <= rFindQ - pRef)) {
-        initialLinearVBlocks.push_back(qVid);
-        processed.insert(qVid);
-        pQry++;
-      } else if (rFindQ < refList.size()) {
-        initialLinearVBlocks.push_back(rVid);
-        processed.insert(rVid);
-        pRef++;
-      } else {
-        initialLinearVBlocks.push_back(rVid);
-        processed.insert(rVid);
-        pRef++;
-      }
+    if (!advanced) {
+      // 安全機制：若發生倒位(Inversion)導致一側走完但另一側卡在未來的 target，
+      // 則強制略過該 target 以打破死鎖 (Fallback)。
+      inBothQueue.pop();
     }
   }
 
   this->linear_block_cache.clear();
 
-  // 輔助 Lambda：取得特定 VBlock 在給定 Sequence 上的起點座標
-  auto getVBlockSegStart = [](const std::shared_ptr<Block>& b, int copy, const std::string& targetSeqName) -> int {
-    if (!b) return -1;
-    auto& seqs = b->getSequences();
-    auto it = seqs.find(targetSeqName);
-    if (it != seqs.end()) {
-      for (auto& segPair : it->second.getSegments()) {
-        if (segPair.second.getCopyCount() == copy) {
-          return std::min(segPair.second.getStart(), segPair.second.getEnd());
-        }
-      }
-      if (!it->second.getSegments().empty()) {
-        auto& seg = it->second.getSegments().begin()->second;
-        return std::min(seg.getStart(), seg.getEnd());
-      }
-    }
-    return -1;
-  };
-
-  // 4. 🌟 將所有 Distant VBlocks 根據實體 Sequence 上最近的錨點 Block 插進線性順序中
-  struct AnchorPos {
-    int start;
-    int index;
-  };
-  std::unordered_map<std::string, std::vector<AnchorPos>> seqAnchorsMap;
-
-  for (int i = 0; i < (int)initialLinearVBlocks.size(); ++i) {
-    auto anchorBlk = this->getBlock(initialLinearVBlocks[i].first);
-    int anchorCopy = initialLinearVBlocks[i].second;
-    if (!anchorBlk) continue;
-
-    for (const auto &seqPair : anchorBlk->getSequences()) {
-      int startPos = getVBlockSegStart(anchorBlk, anchorCopy, seqPair.first);
-      if (startPos != -1) {
-        seqAnchorsMap[seqPair.first].push_back({startPos, i});
-      }
-    }
-  }
-
-  // 使用雙向鏈表建構最終順序，維持 O(1) 節點插入
-  std::list<VBlockID> linearList(initialLinearVBlocks.begin(), initialLinearVBlocks.end());
-  std::vector<std::list<VBlockID>::iterator> nodeIterators;
-  nodeIterators.reserve(initialLinearVBlocks.size());
-  for (auto it = linearList.begin(); it != linearList.end(); ++it) {
-    nodeIterators.push_back(it);
-  }
+  std::vector<VBlockID> finalLinearVBlocks(initialLinearVBlocks.begin(), initialLinearVBlocks.end());
+  std::unordered_set<VBlockID, VBlockIDHash> inLinearSet(initialLinearVBlocks.begin(), initialLinearVBlocks.end());
 
   for (auto &blkWeak : this->getAllBlocks()) {
     auto blk = blkWeak.lock();
@@ -638,67 +533,25 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
 
     int maxCopy = blk->getMaxCopy();
     for (int c = 0; c <= maxCopy; ++c) {
-      if (blk->isDistant(c)) {
-        VBlockID distVId = {blk->getId(), c};
-
-        // 尋找此 Distant Block 出現的實體序列名稱與實體座標
-        std::string sampleSeq = "";
-        int distStart = -1;
-
-        for (auto &seqPair : blk->getSequences()) {
-          for (auto &segPair : seqPair.second.getSegments()) {
-            if (segPair.second.getCopyCount() == c) {
-              sampleSeq = seqPair.first;
-              distStart = std::min(segPair.second.getStart(), segPair.second.getEnd());
-              break;
-            }
-          }
-          if (!sampleSeq.empty()) break;
-        }
-
-        if (sampleSeq.empty() && !blk->getSequences().empty()) {
-          sampleSeq = blk->getSequences().begin()->first;
-          auto &seg = blk->getSequences().begin()->second.getSegments().begin()->second;
-          distStart = std::min(seg.getStart(), seg.getEnd());
-        }
-
-        int bestInsertIdx = -1;
-        int maxPrevStart = -1;
-        int minNextStart = std::numeric_limits<int>::max();
-        int minNextIdx = -1;
-
-        auto mapIt = seqAnchorsMap.find(sampleSeq);
-        if (mapIt != seqAnchorsMap.end()) {
-          for (const auto &anchor : mapIt->second) {
-            int anchorStart = anchor.start;
-            int i = anchor.index;
-            if (anchorStart <= distStart) {
-              if (anchorStart > maxPrevStart) {
-                maxPrevStart = anchorStart;
-                bestInsertIdx = i;
-              }
-            } else {
-              if (anchorStart < minNextStart) {
-                minNextStart = anchorStart;
-                minNextIdx = i;
-              }
-            }
+      bool hasSegments = false;
+      for (const auto &seqPair : blk->getSequences()) {
+        for (const auto &segPair : seqPair.second.getSegments()) {
+          if (segPair.second.getCopyCount() == c) {
+            hasSegments = true;
+            break;
           }
         }
+        if (hasSegments) break;
+      }
 
-        // 根據找到的鄰居錨點插入 O(1)
-        if (bestInsertIdx != -1) {
-          linearList.insert(std::next(nodeIterators[bestInsertIdx]), distVId);
-        } else if (minNextIdx != -1) {
-          linearList.insert(nodeIterators[minNextIdx], distVId);
-        } else {
-          linearList.push_back(distVId);
+      if (hasSegments) {
+        VBlockID vid = {blk->getId(), c};
+        if (inLinearSet.insert(vid).second) {
+          finalLinearVBlocks.push_back(vid);
         }
       }
     }
   }
-
-  std::vector<VBlockID> finalLinearVBlocks(linearList.begin(), linearList.end());
 
   // 5. 寫回實體 Block 與 Segment 的 prev/next 指標以及 linear_block_cache
   this->linear_block_cache.reserve(finalLinearVBlocks.size());
@@ -744,6 +597,396 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
             << "' -> Linear Graph VBlocks: " << linear_block_cache.size()
             << " | Ancestral VBlocks: " << ancestral_block_cache.size()
             << " | Ancestral Seq Length: " << ancestral_seq_cache.length() << " bp\n";
+}
+
+void BlockSet::normalizeCopyCounts() {
+  for (auto &weak_blk : this->getAllBlocks()) {
+    auto blk = weak_blk.lock();
+    if (blk) {
+      for (auto &seqPair : blk->getSequences()) {
+        int c = 0;
+        for (auto &segPair : seqPair.second.getSegments()) {
+          segPair.second.setCopyCount(c++);
+        }
+      }
+    }
+  }
+}
+
+void BlockSet::insertDistantBlockInPlace() {
+  bool DEBUG_MODE = false;
+  if (this->linear_block_cache.empty()) return;
+
+  // 1. 輔助 Lambda：取得特定 (blk, copy) 所涵蓋的所有 sequence 名稱
+  auto getVBlockSequences = [this](BlockID blkId, int copy) -> std::unordered_set<std::string> {
+    std::unordered_set<std::string> seqNames;
+    auto blk = this->getBlock(blkId);
+    if (!blk) return seqNames;
+    for (const auto& seqPair : blk->getSequences()) {
+      for (const auto& segPair : seqPair.second.getSegments()) {
+        if (segPair.second.getCopyCount() == copy) {
+          seqNames.insert(seqPair.first);
+          break;
+        }
+      }
+    }
+    return seqNames;
+  };
+
+  // 2. 輔助 Lambda：精準取得特定 VBlock (blk, copy) 在給定 Sequence 上的起點座標
+  auto getVBlockSegStart = [](const std::shared_ptr<Block>& b, int copy, const std::string& targetSeqName) -> int {
+    if (!b) return -1;
+    auto& seqs = b->getSequences();
+    auto it = seqs.find(targetSeqName);
+    if (it != seqs.end()) {
+      for (auto& segPair : it->second.getSegments()) {
+        if (segPair.second.getCopyCount() == copy) {
+          return std::min(segPair.second.getStart(), segPair.second.getEnd());
+        }
+      }
+    }
+    return -1;
+  };
+
+  // 3. 統計 isDistant 的 Block 數量 (所有存在的 copy 都是 distant 的 Block)
+  int totalBlocksCount = 0;
+  int allDistantBlocksCount = 0;
+  for (auto &blkWeak : this->getAllBlocks()) {
+    auto blk = blkWeak.lock();
+    if (!blk) continue;
+    totalBlocksCount++;
+
+    int maxCopy = blk->getMaxCopy();
+    bool isAllDist = true;
+    for (int c = 0; c <= maxCopy; ++c) {
+      bool copyExists = false;
+      for (const auto &seqPair : blk->getSequences()) {
+        for (const auto &segPair : seqPair.second.getSegments()) {
+          if (segPair.second.getCopyCount() == c) {
+            copyExists = true;
+            break;
+          }
+        }
+        if (copyExists) break;
+      }
+      if (copyExists && !blk->isDistant(c)) {
+        isAllDist = false;
+        break;
+      }
+    }
+    if (isAllDist) {
+      allDistantBlocksCount++;
+    }
+  }
+
+  // 4. 分類 VBlocks：
+  // - initialLinearVBlocks (主幹錨點)：非 distant 且 copy == 0 的主幹區塊（構建初始單調骨幹）
+  // - unplacedVBlocks (待就近插回的 VBlocks)：包含所有 isDistant(copy) == true 的 VBlocks，
+  //   以及 copy > 0 的同源重複/額外拷貝 VBlocks
+  std::vector<VBlockID> initialLinearVBlocks;
+  std::vector<VBlockID> unplacedVBlocks;
+
+  std::set<VBlockID> inVBlocks;
+  std::set<BlockID> seenCoreBlockIds;
+  for (const auto& vid : this->linear_block_cache) {
+    auto blk = this->getBlock(vid.first);
+    if (!blk) continue;
+
+    bool isDist = blk->isDistant(vid.second);
+    // 🌟 每個 VBlock (BlockID, copy) 獨立判定：
+    // 若該 copy 是 Distant，或該 BlockID 的此 copy 是多重拷貝 (copy > 0 且同 Block 已經有 copy 0 做為主幹)
+    if (isDist || vid.second > 0 || seenCoreBlockIds.count(vid.first)) {
+      unplacedVBlocks.push_back(vid);
+    } else {
+      seenCoreBlockIds.insert(vid.first);
+      initialLinearVBlocks.push_back(vid);
+    }
+    inVBlocks.insert(vid);
+  }
+
+  // 🌟 安全補齊：掃描 getAllBlocks()，確保任何被 normalize 賦予新 copy (如 copy 1, 2...) 的 VBlock 也能 100% 納入 unplacedVBlocks
+  for (auto &blkWeak : this->getAllBlocks()) {
+    auto blk = blkWeak.lock();
+    if (!blk) continue;
+
+    int maxCopy = blk->getMaxCopy();
+    for (int c = 0; c <= maxCopy; ++c) {
+      bool hasSegments = false;
+      for (const auto &seqPair : blk->getSequences()) {
+        for (const auto &segPair : seqPair.second.getSegments()) {
+          if (segPair.second.getCopyCount() == c) {
+            hasSegments = true;
+            break;
+          }
+        }
+        if (hasSegments) break;
+      }
+      if (hasSegments) {
+        VBlockID vid = {blk->getId(), c};
+        if (inVBlocks.insert(vid).second) {
+          unplacedVBlocks.push_back(vid);
+        }
+      }
+    }
+  }
+
+  if (DEBUG_MODE) {
+    std::cout << "\n=================== [insertDistantBlockInPlace DEBUG MODE] ===================\n";
+    std::cout << "[DEBUG insertDistantBlockInPlace] Total Blocks count                                : " << totalBlocksCount << "\n";
+    std::cout << "[DEBUG insertDistantBlockInPlace] isDistant Blocks count (all copies are distant)   : " << allDistantBlocksCount << "\n";
+    std::cout << "[DEBUG insertDistantBlockInPlace] Core/Mixed Blocks count                           : " << (totalBlocksCount - allDistantBlocksCount) << "\n";
+    std::cout << "[DEBUG insertDistantBlockInPlace] Non-distant (initial backbone) VBlocks count      : " << initialLinearVBlocks.size() << "\n";
+    std::cout << "[DEBUG insertDistantBlockInPlace] Distant / Unplaced VBlocks count                  : " << unplacedVBlocks.size() << "\n";
+    std::cout << "[DEBUG insertDistantBlockInPlace] Total VBlocks (Non-distant + Distant)             : " << (initialLinearVBlocks.size() + unplacedVBlocks.size()) << "\n";
+    std::cout << "===============================================================================\n" << std::endl;
+  }
+
+  if (unplacedVBlocks.empty()) return;
+
+  // 5. 建立各 Sequence 的錨點座標索引表
+  struct AnchorPos {
+    int start;
+    int index;
+  };
+  std::unordered_map<std::string, std::vector<AnchorPos>> seqAnchorsMap;
+
+  for (int i = 0; i < (int)initialLinearVBlocks.size(); ++i) {
+    auto anchorBlk = this->getBlock(initialLinearVBlocks[i].first);
+    int anchorCopy = initialLinearVBlocks[i].second;
+    if (!anchorBlk) continue;
+
+    for (const auto &seqPair : anchorBlk->getSequences()) {
+      int startPos = getVBlockSegStart(anchorBlk, anchorCopy, seqPair.first);
+      if (startPos != -1) {
+        seqAnchorsMap[seqPair.first].push_back({startPos, i});
+      }
+    }
+  }
+
+  // 將每個序列的錨點依起點座標排序
+  for (auto &kv : seqAnchorsMap) {
+    std::sort(kv.second.begin(), kv.second.end(), [](const AnchorPos& a, const AnchorPos& b) {
+      return a.start < b.start;
+    });
+  }
+
+  // 6. 將待插入的 VBlocks 依 BlockID 分組，保持 BlockID 順序
+  std::map<BlockID, std::vector<int>> blkToDistantCopies;
+  for (const auto &vid : unplacedVBlocks) {
+    blkToDistantCopies[vid.first].push_back(vid.second);
+  }
+  for (auto &kv : blkToDistantCopies) {
+    std::sort(kv.second.begin(), kv.second.end());
+  }
+
+  // 7. 對每個 BlockID，先找出各 copy 的插入位置 (Slot)，並在同一個 Slot 中檢查是否能合併 copyCount
+  // Slot 定義: pair<int, int>
+  // {-1, 0}: 插入在 anchor 0 之前
+  // {0, i}: 插入在 anchor i 之後 (0 <= i < initialLinearVBlocks.size())
+  // {1, 0}: 孤兒 VBlocks (找不到 anchor，放末尾)
+  std::map<std::pair<int, int>, std::vector<VBlockID>> slotFinalVBlocks;
+  int totalMergeEvents = 0;
+
+  for (const auto &blkPair : blkToDistantCopies) {
+    BlockID blkId = blkPair.first;
+    const std::vector<int> &copies = blkPair.second;
+    auto blk = this->getBlock(blkId);
+    if (!blk) continue;
+
+    // 將同個 BlockID 的各 copy 依照 Slot 歸類
+    std::map<std::pair<int, int>, std::vector<int>> slotToCopies;
+
+    for (int c : copies) {
+      int bestInsertIdx = -1;
+      int maxPrevStart = -1;
+      int minNextStart = std::numeric_limits<int>::max();
+      int minNextIdx = -1;
+
+      for (const auto &seqPair : blk->getSequences()) {
+        for (const auto &segPair : seqPair.second.getSegments()) {
+          if (segPair.second.getCopyCount() == c) {
+            const std::string &seqName = seqPair.first;
+            int segStart = std::min(segPair.second.getStart(), segPair.second.getEnd());
+
+            auto mapIt = seqAnchorsMap.find(seqName);
+            if (mapIt != seqAnchorsMap.end()) {
+              for (const auto &anchor : mapIt->second) {
+                int anchorStart = anchor.start;
+                int i = anchor.index;
+                if (anchorStart <= segStart) {
+                  if (anchorStart > maxPrevStart) {
+                    maxPrevStart = anchorStart;
+                    bestInsertIdx = i;
+                  }
+                } else {
+                  if (anchorStart < minNextStart) {
+                    minNextStart = anchorStart;
+                    minNextIdx = i;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      std::pair<int, int> slotKey;
+      if (bestInsertIdx != -1) {
+        slotKey = {0, bestInsertIdx};
+      } else if (minNextIdx != -1) {
+        slotKey = {-1, minNextIdx};
+      } else {
+        slotKey = {1, 0};
+      }
+
+      slotToCopies[slotKey].push_back(c);
+    }
+
+    // 在同一個 Slot 中，檢查同 BlockID 的多個 copies 是否共享 sequence
+    for (const auto &slotKv : slotToCopies) {
+      const auto &slotKey = slotKv.first;
+      const auto &slotCopies = slotKv.second;
+
+      if (slotCopies.size() <= 1) {
+        slotFinalVBlocks[slotKey].push_back({blkId, slotCopies[0]});
+        continue;
+      }
+
+      // 多個 copy 插在同一個 Slot，進行無 sequence 重疊合併
+      struct CopyGroup {
+        int targetCopy;
+        std::vector<int> mergedCopies;
+        std::unordered_set<std::string> seqNames;
+      };
+
+      std::vector<CopyGroup> groups;
+      for (int c : slotCopies) {
+        std::unordered_set<std::string> curSeqs = getVBlockSequences(blkId, c);
+        bool merged = false;
+        for (auto &grp : groups) {
+          bool hasOverlap = false;
+          for (const auto &s : curSeqs) {
+            if (grp.seqNames.count(s)) {
+              hasOverlap = true;
+              break;
+            }
+          }
+          if (!hasOverlap) {
+            grp.mergedCopies.push_back(c);
+            grp.seqNames.insert(curSeqs.begin(), curSeqs.end());
+            // 🌟 直接修改該 copy 的所有 segment 的 copyCount 為 targetCopy
+            for (auto &seqPair : blk->getSequences()) {
+              for (auto &segPair : seqPair.second.getSegments()) {
+                if (segPair.second.getCopyCount() == c) {
+                  segPair.second.setCopyCount(grp.targetCopy);
+                }
+              }
+            }
+            merged = true;
+            break;
+          }
+        }
+        if (!merged) {
+          groups.push_back({c, {c}, curSeqs});
+        }
+      }
+
+      for (const auto &grp : groups) {
+        if (grp.mergedCopies.size() > 1) {
+          totalMergeEvents++;
+          if (DEBUG_MODE) {
+            std::string slotDesc = (slotKey.first == -1) ? ("before anchor 0") :
+                                   (slotKey.first == 0)  ? ("after anchor " + std::to_string(slotKey.second)) :
+                                                           ("orphan at end");
+            std::cout << "[DEBUG insertDistantBlockInPlace] Merge Event #" << totalMergeEvents 
+                      << " for BlockID " << blkId << " at position [" << slotDesc << "]:\n";
+            std::cout << "  Merged copies [ ";
+            for (int mc : grp.mergedCopies) std::cout << mc << " ";
+            std::cout << "] into single copy " << grp.targetCopy << " with sequences: [ ";
+            for (const auto &sq : grp.seqNames) std::cout << sq << " ";
+            std::cout << "]\n";
+          }
+        }
+        slotFinalVBlocks[slotKey].push_back({blkId, grp.targetCopy});
+      }
+    }
+  }
+
+  if (DEBUG_MODE) {
+    if (totalMergeEvents == 0) {
+      std::cout << "[DEBUG insertDistantBlockInPlace] No co-located distant copies without shared sequences were found for merging.\n";
+    } else {
+      std::cout << "[DEBUG insertDistantBlockInPlace] Total merge events performed: " << totalMergeEvents << "\n";
+    }
+  }
+
+  // 8. 組裝最終的 finalLinearVBlocks
+  std::vector<VBlockID> finalLinearVBlocks;
+
+  for (int i = 0; i < (int)initialLinearVBlocks.size(); ++i) {
+    // (1) 插入在 anchor i 之前的 VBlocks {-1, i}
+    auto preIt = slotFinalVBlocks.find({-1, i});
+    if (preIt != slotFinalVBlocks.end()) {
+      finalLinearVBlocks.insert(finalLinearVBlocks.end(), preIt->second.begin(), preIt->second.end());
+    }
+
+    // (2) 插入 anchor i 本身
+    finalLinearVBlocks.push_back(initialLinearVBlocks[i]);
+
+    // (3) 插入在 anchor i 之後的 VBlocks {0, i}
+    auto postIt = slotFinalVBlocks.find({0, i});
+    if (postIt != slotFinalVBlocks.end()) {
+      finalLinearVBlocks.insert(finalLinearVBlocks.end(), postIt->second.begin(), postIt->second.end());
+    }
+  }
+
+  // (4) 孤兒 VBlocks (找不到任何前後 anchor，放末尾)
+  auto orphanIt = slotFinalVBlocks.find({1, 0});
+  if (orphanIt != slotFinalVBlocks.end()) {
+    finalLinearVBlocks.insert(finalLinearVBlocks.end(), orphanIt->second.begin(), orphanIt->second.end());
+  }
+
+  // 9. 更新 linear_block_cache 與各 block 的前後指標
+  this->linear_block_cache.clear();
+  this->linear_block_cache.reserve(finalLinearVBlocks.size());
+
+  for (size_t i = 0; i < finalLinearVBlocks.size(); ++i) {
+    VBlockID currVId = finalLinearVBlocks[i];
+    auto currBlk = this->getBlock(currVId.first);
+    int currCopy = currVId.second;
+
+    if (currBlk) {
+      this->linear_block_cache.push_back(currVId);
+      auto prevBlkPtr = (i > 0) ? this->getBlock(finalLinearVBlocks[i - 1].first) : nullptr;
+      auto nextBlkPtr = (i + 1 < finalLinearVBlocks.size()) ? this->getBlock(finalLinearVBlocks[i + 1].first) : nullptr;
+
+      currBlk->setPrevBlock(currCopy, prevBlkPtr);
+      currBlk->setNextBlock(currCopy, nextBlkPtr);
+
+      for (auto &seqPair : currBlk->getSequences()) {
+        for (auto &segPairInner : seqPair.second.getSegments()) {
+          Segment &seg = segPairInner.second;
+          if (seg.getCopyCount() == currCopy) {
+            if (!seg.isReverse()) {
+              seg.setPrevBlock(prevBlkPtr);
+              seg.setNextBlock(nextBlkPtr);
+            } else {
+              seg.setPrevBlock(nextBlkPtr);
+              seg.setNextBlock(prevBlkPtr);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // 10. 重建緩存並標記 is_cached = true
+  this->buildCaches();
+
+  if (DEBUG_MODE) {
+    std::cout << "[DEBUG insertDistantBlockInPlace] Finished inserting distant VBlocks. Final linear VBlocks count: "
+              << this->linear_block_cache.size() << "\n" << std::endl;
+  }
 }
 
 const VBlockIDs &BlockSet::getLinearizeBlocks() {
@@ -1445,6 +1688,420 @@ std::pair<BlockID, BlockID> BlockSet::splitSingleBlock(int parentID, int localCu
   return {left->getId(), right->getId()};
 }
 
+BlockSet::DoubleSplitParts BlockSet::splitDoubleBlock(int parentID, int cut1, int cut2) {
+  auto parent = this->getBlock(parentID);
+
+  if (!parent || cut1 <= 0 || cut2 <= cut1)
+    return {0, 0, 0};
+
+  int parentLen = parent->getConsensus().length();
+  if (cut2 >= parentLen)
+    return {0, 0, 0};
+
+  // 1. 建立三個新 Block (Left, Mid, Right)
+  auto left = this->createBlock(parent->getConsensus().substr(0, cut1));
+  auto mid = this->createBlock(parent->getConsensus().substr(cut1, cut2 - cut1));
+  auto right = this->createBlock(parent->getConsensus().substr(cut2));
+
+  // 2. TBB 平行化：切割 Sequence 與 Segment
+  std::vector<std::string> seqIDs;
+  seqIDs.reserve(parent->getSequences().size());
+  for (auto &kv : parent->getSequences()) {
+    seqIDs.push_back(kv.first);
+  }
+
+  struct DoubleSplitResult {
+    Sequence leftSeq;
+    Sequence midSeq;
+    Sequence rightSeq;
+    bool hasLeft = false;
+    bool hasMid = false;
+    bool hasRight = false;
+  };
+  std::vector<DoubleSplitResult> splitResults(seqIDs.size());
+
+  tbb::parallel_for(
+      tbb::blocked_range<size_t>(0, seqIDs.size()),
+      [&](const tbb::blocked_range<size_t> &r) {
+        for (size_t i = r.begin(); i != r.end(); ++i) {
+          const std::string &seqID = seqIDs[i];
+          auto &parentSeqInfo = parent->getSequences().at(seqID);
+
+          Sequence leftSeqInfo(seqID);
+          Sequence midSeqInfo(seqID);
+          Sequence rightSeqInfo(seqID);
+
+          for (auto &segPair : parentSeqInfo.getSegments()) {
+            Segment oldSeg = segPair.second; // 拷貝出來處理
+
+            auto p1 = oldSeg.split(cut1);
+            Segment leftSeg = p1.first;
+            Segment remSeg = p1.second;
+
+            auto p2 = remSeg.split(cut2 - cut1);
+            Segment midSeg = p2.first;
+            Segment rightSeg = p2.second;
+
+            bool validLeft = (leftSeg.getStart() != leftSeg.getEnd());
+            bool validMid = (midSeg.getStart() != midSeg.getEnd());
+            bool validRight = (rightSeg.getStart() != rightSeg.getEnd());
+
+            auto prevBlock = oldSeg.getPrevBlock().lock();
+            auto nextBlock = oldSeg.getNextBlock().lock();
+
+            if (!oldSeg.isReverse()) {
+              if (validLeft) {
+                leftSeg.setPrevBlock(prevBlock);
+                if (validMid) leftSeg.setNextBlock(mid);
+                else if (validRight) leftSeg.setNextBlock(right);
+                else leftSeg.setNextBlock(nextBlock);
+              }
+              if (validMid) {
+                if (validLeft) midSeg.setPrevBlock(left);
+                else midSeg.setPrevBlock(prevBlock);
+                if (validRight) midSeg.setNextBlock(right);
+                else midSeg.setNextBlock(nextBlock);
+              }
+              if (validRight) {
+                if (validMid) rightSeg.setPrevBlock(mid);
+                else if (validLeft) rightSeg.setPrevBlock(left);
+                else rightSeg.setPrevBlock(prevBlock);
+                rightSeg.setNextBlock(nextBlock);
+              }
+            } else {
+              if (validRight) {
+                rightSeg.setPrevBlock(prevBlock);
+                if (validMid) rightSeg.setNextBlock(mid);
+                else if (validLeft) rightSeg.setNextBlock(left);
+                else rightSeg.setNextBlock(nextBlock);
+              }
+              if (validMid) {
+                if (validRight) midSeg.setPrevBlock(right);
+                else midSeg.setPrevBlock(prevBlock);
+                if (validLeft) midSeg.setNextBlock(left);
+                else midSeg.setNextBlock(nextBlock);
+              }
+              if (validLeft) {
+                if (validMid) leftSeg.setPrevBlock(mid);
+                else if (validRight) leftSeg.setPrevBlock(right);
+                else leftSeg.setPrevBlock(prevBlock);
+                leftSeg.setNextBlock(nextBlock);
+              }
+            }
+
+            if (validLeft) {
+              leftSeqInfo.getSegments()[leftSeg.getStart()] = leftSeg;
+            }
+            if (validMid) {
+              midSeqInfo.getSegments()[midSeg.getStart()] = midSeg;
+            }
+            if (validRight) {
+              rightSeqInfo.getSegments()[rightSeg.getStart()] = rightSeg;
+            }
+          }
+
+          splitResults[i].leftSeq = std::move(leftSeqInfo);
+          splitResults[i].midSeq = std::move(midSeqInfo);
+          splitResults[i].rightSeq = std::move(rightSeqInfo);
+          splitResults[i].hasLeft = !splitResults[i].leftSeq.getSegments().empty();
+          splitResults[i].hasMid = !splitResults[i].midSeq.getSegments().empty();
+          splitResults[i].hasRight = !splitResults[i].rightSeq.getSegments().empty();
+        }
+      });
+
+  for (size_t i = 0; i < seqIDs.size(); ++i) {
+    if (splitResults[i].hasLeft)
+      left->addSequence(std::move(splitResults[i].leftSeq));
+    if (splitResults[i].hasMid)
+      mid->addSequence(std::move(splitResults[i].midSeq));
+    if (splitResults[i].hasRight)
+      right->addSequence(std::move(splitResults[i].rightSeq));
+  }
+
+  // 3. 鄰居重連 (Neighbors Rewiring)
+  std::unordered_set<std::shared_ptr<Block>> neighbors;
+  neighbors.insert(left);
+  neighbors.insert(mid);
+  neighbors.insert(right);
+
+  for (auto &seqPair : parent->getSequences()) {
+    for (auto &segPair : seqPair.second.getSegments()) {
+      if (auto p = segPair.second.getPrevBlock().lock())
+        neighbors.insert(p);
+      if (auto n = segPair.second.getNextBlock().lock())
+        neighbors.insert(n);
+    }
+  }
+  neighbors.erase(parent);
+
+  std::vector<std::shared_ptr<Block>> neighbor_vec(neighbors.begin(), neighbors.end());
+  std::atomic<int> rewiredCount{0};
+
+  tbb::parallel_for(
+      tbb::blocked_range<size_t>(0, neighbor_vec.size()),
+      [&](const tbb::blocked_range<size_t> &r) {
+        int local_rewired = 0;
+        for (size_t i = r.begin(); i != r.end(); ++i) {
+          auto currentBlock = neighbor_vec[i];
+
+          for (auto &seqPair : currentBlock->getSequences()) {
+            std::string seqID = seqPair.first;
+            for (auto &segPair : seqPair.second.getSegments()) {
+              Segment &seg = segPair.second;
+
+              if (seg.getPrevBlock().lock() == parent) {
+                bool found = false;
+                std::shared_ptr<Block> candidates[3] = {left, mid, right};
+                for (auto &cand : candidates) {
+                  if (cand->getSequences().count(seqID)) {
+                    for (auto &cSeg : cand->getSequences().at(seqID).getSegments()) {
+                      if (cSeg.second.getEnd() == seg.getStart()) {
+                        seg.setPrevBlock(cand);
+                        found = true;
+                        local_rewired++;
+                        break;
+                      }
+                    }
+                  }
+                  if (found) break;
+                }
+              }
+
+              if (seg.getNextBlock().lock() == parent) {
+                bool found = false;
+                std::shared_ptr<Block> candidates[3] = {left, mid, right};
+                for (auto &cand : candidates) {
+                  if (cand->getSequences().count(seqID)) {
+                    for (auto &cSeg : cand->getSequences().at(seqID).getSegments()) {
+                      if (cSeg.second.getStart() == seg.getEnd()) {
+                        seg.setNextBlock(cand);
+                        found = true;
+                        local_rewired++;
+                        break;
+                      }
+                    }
+                  }
+                  if (found) break;
+                }
+              }
+            }
+          }
+        }
+        rewiredCount += local_rewired;
+      });
+
+  this->deleteBlock(parent->getId());
+
+  return {left->getId(), mid->getId(), right->getId()};
+}
+
+BlockSet::ExtractResult BlockSet::extractSubBlock(int parentID, int localStart, int localEnd) {
+  auto parent = this->getBlock(parentID);
+  if (!parent) return {0, 0, 0};
+
+  bool cutLeft = (localStart > 0);
+  int currentLen = parent->getConsensus().length();
+  bool cutRight = (localEnd < currentLen);
+
+  if (!cutLeft && !cutRight) {
+    return {0, parent->getId(), 0};
+  }
+
+  BlockPtr left = nullptr;
+  BlockPtr mid = nullptr;
+  BlockPtr right = nullptr;
+  BlockID leftID = 0;
+  BlockID midID = 0;
+  BlockID rightID = 0;
+
+  std::string cons = parent->getConsensus().getConsensusString();
+  
+  if (cutLeft) {
+    left = this->createBlock(cons.substr(0, localStart));
+    leftID = left->getId();
+  }
+  mid = this->createBlock(cons.substr(localStart, localEnd - localStart));
+  midID = mid->getId();
+  if (cutRight) {
+    right = this->createBlock(cons.substr(localEnd));
+    rightID = right->getId();
+  }
+
+  std::vector<std::string> seqIDs;
+  seqIDs.reserve(parent->getSequences().size());
+  for (auto &kv : parent->getSequences()) {
+    seqIDs.push_back(kv.first);
+  }
+
+  struct SplitResult {
+    Sequence leftSeq;
+    Sequence midSeq;
+    Sequence rightSeq;
+    bool hasLeft = false;
+    bool hasMid = false;
+    bool hasRight = false;
+  };
+  std::vector<SplitResult> splitResults(seqIDs.size());
+
+  tbb::parallel_for(
+      tbb::blocked_range<size_t>(0, seqIDs.size()),
+      [&](const tbb::blocked_range<size_t> &r) {
+        for (size_t i = r.begin(); i != r.end(); ++i) {
+          const std::string &seqID = seqIDs[i];
+          auto &parentSeqInfo = parent->getSequences().at(seqID);
+
+          Sequence leftSeqInfo(seqID);
+          Sequence midSeqInfo(seqID);
+          Sequence rightSeqInfo(seqID);
+
+          for (auto &segPair : parentSeqInfo.getSegments()) {
+            Segment oldSeg = segPair.second;
+            Segment leftSeg, midSeg, rightSeg;
+            bool validLeft = false, validMid = false, validRight = false;
+
+            if (cutLeft && cutRight) {
+              auto p1 = oldSeg.split(localStart);
+              leftSeg = p1.first;
+              auto p2 = p1.second.split(localEnd - localStart);
+              midSeg = p2.first;
+              rightSeg = p2.second;
+            } else if (cutLeft) {
+              auto p1 = oldSeg.split(localStart);
+              leftSeg = p1.first;
+              midSeg = p1.second;
+            } else if (cutRight) {
+              auto p1 = oldSeg.split(localEnd);
+              midSeg = p1.first;
+              rightSeg = p1.second;
+            }
+
+            validLeft = (cutLeft && leftSeg.getStart() != leftSeg.getEnd());
+            validMid = (midSeg.getStart() != midSeg.getEnd());
+            validRight = (cutRight && rightSeg.getStart() != rightSeg.getEnd());
+
+            std::vector<std::pair<Segment*, BlockPtr>> pieces;
+            if (!oldSeg.isReverse()) {
+                if (validLeft) pieces.push_back({&leftSeg, left});
+                if (validMid) pieces.push_back({&midSeg, mid});
+                if (validRight) pieces.push_back({&rightSeg, right});
+            } else {
+                if (validRight) pieces.push_back({&rightSeg, right});
+                if (validMid) pieces.push_back({&midSeg, mid});
+                if (validLeft) pieces.push_back({&leftSeg, left});
+            }
+            
+            for (size_t p = 0; p < pieces.size(); ++p) {
+                if (p == 0) pieces[p].first->setPrevBlock(oldSeg.getPrevBlock().lock());
+                else pieces[p].first->setPrevBlock(pieces[p-1].second);
+                
+                if (p == pieces.size() - 1) pieces[p].first->setNextBlock(oldSeg.getNextBlock().lock());
+                else pieces[p].first->setNextBlock(pieces[p+1].second);
+            }
+
+            if (validLeft) leftSeqInfo.getSegments()[leftSeg.getStart()] = leftSeg;
+            if (validMid) midSeqInfo.getSegments()[midSeg.getStart()] = midSeg;
+            if (validRight) rightSeqInfo.getSegments()[rightSeg.getStart()] = rightSeg;
+          }
+
+          splitResults[i].leftSeq = std::move(leftSeqInfo);
+          splitResults[i].midSeq = std::move(midSeqInfo);
+          splitResults[i].rightSeq = std::move(rightSeqInfo);
+          splitResults[i].hasLeft = !splitResults[i].leftSeq.getSegments().empty();
+          splitResults[i].hasMid = !splitResults[i].midSeq.getSegments().empty();
+          splitResults[i].hasRight = !splitResults[i].rightSeq.getSegments().empty();
+        }
+      });
+
+  for (size_t i = 0; i < seqIDs.size(); ++i) {
+    if (cutLeft && splitResults[i].hasLeft) left->addSequence(std::move(splitResults[i].leftSeq));
+    if (splitResults[i].hasMid) mid->addSequence(std::move(splitResults[i].midSeq));
+    if (cutRight && splitResults[i].hasRight) right->addSequence(std::move(splitResults[i].rightSeq));
+  }
+
+  std::unordered_set<std::shared_ptr<Block>> neighbors;
+  if (cutLeft) neighbors.insert(left);
+  neighbors.insert(mid);
+  if (cutRight) neighbors.insert(right);
+
+  for (auto &seqPair : parent->getSequences()) {
+    for (auto &segPair : seqPair.second.getSegments()) {
+      if (auto p = segPair.second.getPrevBlock().lock()) neighbors.insert(p);
+      if (auto n = segPair.second.getNextBlock().lock()) neighbors.insert(n);
+    }
+  }
+  neighbors.erase(parent);
+
+  std::vector<std::shared_ptr<Block>> neighbor_vec(neighbors.begin(), neighbors.end());
+
+  tbb::parallel_for(
+      tbb::blocked_range<size_t>(0, neighbor_vec.size()),
+      [&](const tbb::blocked_range<size_t> &r) {
+        for (size_t i = r.begin(); i != r.end(); ++i) {
+          auto currentBlock = neighbor_vec[i];
+          for (auto &seqPair : currentBlock->getSequences()) {
+            std::string seqID = seqPair.first;
+            for (auto &segPair : seqPair.second.getSegments()) {
+              Segment &seg = segPair.second;
+
+              if (seg.getPrevBlock().lock() == parent) {
+                bool found = false;
+                if (cutLeft && left->getSequences().count(seqID)) {
+                  for (auto &lSeg : left->getSequences().at(seqID).getSegments()) {
+                    if (lSeg.second.getEnd() == seg.getStart()) {
+                      seg.setPrevBlock(left); found = true; break;
+                    }
+                  }
+                }
+                if (!found && mid->getSequences().count(seqID)) {
+                  for (auto &mSeg : mid->getSequences().at(seqID).getSegments()) {
+                    if (mSeg.second.getEnd() == seg.getStart()) {
+                      seg.setPrevBlock(mid); found = true; break;
+                    }
+                  }
+                }
+                if (!found && cutRight && right->getSequences().count(seqID)) {
+                  for (auto &rSeg : right->getSequences().at(seqID).getSegments()) {
+                    if (rSeg.second.getEnd() == seg.getStart()) {
+                      seg.setPrevBlock(right); break;
+                    }
+                  }
+                }
+              }
+
+              if (seg.getNextBlock().lock() == parent) {
+                bool found = false;
+                if (cutLeft && left->getSequences().count(seqID)) {
+                  for (auto &lSeg : left->getSequences().at(seqID).getSegments()) {
+                    if (lSeg.second.getStart() == seg.getEnd()) {
+                      seg.setNextBlock(left); found = true; break;
+                    }
+                  }
+                }
+                if (!found && mid->getSequences().count(seqID)) {
+                  for (auto &mSeg : mid->getSequences().at(seqID).getSegments()) {
+                    if (mSeg.second.getStart() == seg.getEnd()) {
+                      seg.setNextBlock(mid); found = true; break;
+                    }
+                  }
+                }
+                if (!found && cutRight && right->getSequences().count(seqID)) {
+                  for (auto &rSeg : right->getSequences().at(seqID).getSegments()) {
+                    if (rSeg.second.getStart() == seg.getEnd()) {
+                      seg.setNextBlock(right); break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+
+  this->deleteBlock(parent->getId());
+  return {leftID, midID, rightID};
+}
+
+
 void BlockSet::print(std::ostream &os) const {
   os << "\n===================================================================="
         "======\n";
@@ -1898,7 +2555,22 @@ BlockSet *BlockSet::createIndexedCopy(BlockManager *manager, const BlockSetID &n
     indexedSet->addSequenceName(seq);
   }
 
-  int current_offset = 0;
+  // Ensure caches are built so we can map blocks to their offset in ancestral_seq_cache
+  if (!this->is_cached) {
+    this->buildCaches();
+  }
+
+  // Create a mapping from BlockID to its first encountered offset in ancestral_seq_cache
+  std::unordered_map<BlockID, int> blockToAncestralOffset;
+  for (const auto &pair : this->ancestral_offset_cache) {
+    // pair.first is the offset in ancestral_seq_cache
+    // pair.second is VBlockID (pair.second.first is BlockID)
+    BlockID blkId = pair.second.first;
+    if (blockToAncestralOffset.find(blkId) == blockToAncestralOffset.end()) {
+      blockToAncestralOffset[blkId] = pair.first;
+    }
+  }
+
   for (const auto &blkPair : this->blocks) {
     BlockID origId = blkPair.first;
     std::shared_ptr<Block> origBlk = blkPair.second;
@@ -1906,23 +2578,71 @@ BlockSet *BlockSet::createIndexedCopy(BlockManager *manager, const BlockSetID &n
       continue;
 
     int consLen = origBlk->getConsensus().getConsensusString().length();
-    int start_idx = current_offset;
-    int end_idx = current_offset + consLen;
-    current_offset = end_idx;
+    BlockPtr newBlk = nullptr;
 
-    // 建立指向 *this (原 BlockSet) 的 index/reference 模式 Consensus (零大字串複製)
-    Consensus indexedCons(this, start_idx, end_idx);
-
-    // 強制保留原來的 BlockID
-    BlockPtr newBlk = indexedSet->createBlockWithId(origId, std::move(indexedCons));
+    auto offsetIt = blockToAncestralOffset.find(origId);
+    if (offsetIt != blockToAncestralOffset.end()) {
+      // Block is in ancestral_seq_cache, safe to use zero-copy index mode
+      int start_idx = offsetIt->second;
+      int end_idx = start_idx + consLen;
+      Consensus indexedCons(this, start_idx, end_idx);
+      newBlk = indexedSet->createBlockWithId(origId, std::move(indexedCons));
+    } else {
+      // Block is distant (not in ancestral_seq_cache). Cannot use index mode pointing to 'this'.
+      // Must use copied string mode!
+      Consensus copiedCons(origBlk->getConsensus().getConsensusString());
+      newBlk = indexedSet->createBlockWithId(origId, std::move(copiedCons));
+    }
 
     // 複製 Sequences 與 Segments
     for (const auto &seqPair : origBlk->getSequences()) {
       newBlk->addSequence(seqPair.second);
     }
+
+    // 複製 Distant 狀態
+    int maxCopy = origBlk->getMaxCopy();
+    for (int c = 0; c <= maxCopy; ++c) {
+      newBlk->setDistant(origBlk->isDistant(c), c);
+    }
   }
 
-  indexedSet->rebuildAllPointers();
+  // 直接繼承原始 BlockSet 的線性圖譜與 ancestral cache，保持 100% 一致性且零字串複製開銷
+  indexedSet->linear_block_cache = this->linear_block_cache;
+  indexedSet->ancestral_block_cache = this->ancestral_block_cache;
+  indexedSet->ancestral_seq_cache = this->ancestral_seq_cache;
+  indexedSet->ancestral_offset_cache = this->ancestral_offset_cache;
+  indexedSet->is_cached = true;
+
+  // 依據繼承的線性圖譜骨幹重新連接 Block 與 Segment 的前後指標
+  for (size_t i = 0; i < indexedSet->linear_block_cache.size(); ++i) {
+    const auto &currVId = indexedSet->linear_block_cache[i];
+    auto currBlk = indexedSet->getBlock(currVId.first);
+    int currCopy = currVId.second;
+
+    if (currBlk) {
+      auto prevBlkPtr = (i > 0) ? indexedSet->getBlock(indexedSet->linear_block_cache[i - 1].first) : nullptr;
+      auto nextBlkPtr = (i + 1 < indexedSet->linear_block_cache.size()) ? indexedSet->getBlock(indexedSet->linear_block_cache[i + 1].first) : nullptr;
+
+      currBlk->setPrevBlock(currCopy, prevBlkPtr);
+      currBlk->setNextBlock(currCopy, nextBlkPtr);
+
+      for (auto &seqPair : currBlk->getSequences()) {
+        for (auto &segPairInner : seqPair.second.getSegments()) {
+          Segment &seg = segPairInner.second;
+          if (seg.getCopyCount() == currCopy) {
+            if (!seg.isReverse()) {
+              seg.setPrevBlock(prevBlkPtr);
+              seg.setNextBlock(nextBlkPtr);
+            } else {
+              seg.setPrevBlock(nextBlkPtr);
+              seg.setNextBlock(prevBlkPtr);
+            }
+          }
+        }
+      }
+    }
+  }
+
   return indexedSet;
 }
 
