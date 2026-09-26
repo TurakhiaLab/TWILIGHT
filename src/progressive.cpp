@@ -26,10 +26,12 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
             if (children.empty() && node->seqsIncluded.empty()) {
                 node->grpID = -2;
                 postStack.pop();
-                for (auto it = node->parent->children.begin(); it != node->parent->children.end(); ++it) {
-                    if ((*it)->identifier == node->identifier) {
-                        node->parent->children.erase(it);
-                        break;
+                if (node->parent != nullptr) {
+                    for (auto it = node->parent->children.begin(); it != node->parent->children.end(); ++it) {
+                        if ((*it)->identifier == node->identifier) {
+                            node->parent->children.erase(it);
+                            break;
+                        }
                     }
                 }
                 continue;
@@ -74,7 +76,9 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
                 NodeAlnOrder[node->children[0]->identifier] = maxIdx;
                 alnOrder.push_back(std::make_pair(std::make_pair(node, node->children[0]), maxIdx));
             }
-            NodeAlnOrder[node->identifier] = NodeAlnOrder[children[0]->identifier];
+            if (!children.empty()) {
+                NodeAlnOrder[node->identifier] = NodeAlnOrder[children[0]->identifier];
+            }
             postStack.pop();
         }
     }
@@ -95,10 +99,12 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
             if (children.empty() && node->alnNum == 0) {
                 node->grpID = -2;
                 postStack.pop();
-                for (auto it = node->parent->children.begin(); it != node->parent->children.end(); ++it) {
-                    if ((*it)->identifier == node->identifier) {
-                        node->parent->children.erase(it);
-                        break;
+                if (node->parent != nullptr) {
+                    for (auto it = node->parent->children.begin(); it != node->parent->children.end(); ++it) {
+                        if ((*it)->identifier == node->identifier) {
+                            node->parent->children.erase(it);
+                            break;
+                        }
                     }
                 }
                 continue;
@@ -143,7 +149,9 @@ void msa::progressive::getProgressivePairs(std::vector<std::pair<NodePair,int>>&
                 NodeAlnOrder[node->children[0]->identifier] = maxIdx;
                 alnOrder.push_back(std::make_pair(std::make_pair(node, node->children[0]), maxIdx));
             }
-            NodeAlnOrder[node->identifier] = NodeAlnOrder[children[0]->identifier];
+            if (!children.empty()) {
+                NodeAlnOrder[node->identifier] = NodeAlnOrder[children[0]->identifier];
+            }
             postStack.pop();
         }
     }
@@ -288,7 +296,16 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
     std::cerr << "============================\n";
     // Scheduling
     std::vector<msa::NodePairVec> alnPairsPerLevel; 
-    int mode = (option->alnMode == PLACE_WO_TREE) ? 2 : ((database->currentTask == 0) ? 0 : 1);
+    bool isMergeTree = false;
+    if (T && T->root) {
+        for (const auto& pair : T->allNodes) {
+            if (pair.second && pair.second->alnNum > 0) {
+                isMergeTree = true;
+                break;
+            }
+        }
+    }
+    int mode = (option->alnMode == PLACE_WO_TREE) ? 2 : ((database->currentTask == 2 || isMergeTree) ? 1 : 0);
     scheduling(T->root, alnPairsPerLevel, mode);
     auto scheduleEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds scheduleTime = scheduleEnd - progressiveStart;
@@ -298,7 +315,7 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
     msa::progressive::progressiveAlignment(T, database, option, alnPairsPerLevel, param, alignmentKernel);
     if (option->alnMode == PLACE_WO_TREE) msa::alignment_helper::mergeInsertions(database, T->root);
     // Push msa results to roots of the tree
-    if (database->currentTask == 0) {
+    if (database->currentTask == 0 && !alnPairsPerLevel.empty() && !alnPairsPerLevel.back().empty()) {
         Node* lastAligned = alnPairsPerLevel.back()[0].first;
         T->root->seqsIncluded = lastAligned->seqsIncluded;
         if (!lastAligned->msaFreq.empty()) T->root->msaFreq = lastAligned->msaFreq;
@@ -308,7 +325,7 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
         lastAligned->seqsIncluded.clear();
         lastAligned->msaFreq.clear();
     }
-    if ((option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE) && database->fallback_nodes.empty()) updateAlignment(T->root, database);
+    if ((option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE || option->alnMode == ACCURATE_ALN) && database->fallback_nodes.empty()) updateAlignment(T->root, database);
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds progressiveTime = progressiveEnd - progressiveStart;
     if (option->alnMode == PLACE_WO_TREE) {
@@ -322,7 +339,15 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
         else std::cerr<< "Alignment on " << T->allNodes.size() << " subalignments (length: " << T->root->getAlnLen(database->currentTask) << ") in " << progressiveTime.count() / 1000000 << " ms\n";
     }
     if (database->fallback_nodes.empty()) {
-        database->accurateState.reset();
+        if (option->accurate && database->accurateState) {
+            auto freeStart = std::chrono::high_resolution_clock::now();
+            tbb::spin_rw_mutex::scoped_lock lock(database->mapMutex);
+            if (database->accurateState) {
+                database->accurateState.reset();
+            }
+            auto freeEnd = std::chrono::high_resolution_clock::now();
+            if (option->printDetail) std::cerr << "Free consistency library in " << (freeEnd - freeStart).count() / 1000000 << " ms\n";
+        }
         return;
     }
         
@@ -344,7 +369,7 @@ void msa::progressive::msaOnSubtree(Tree *T, SequenceDB *database, Option *optio
     std::cerr << "Realign profiles that have been deferred. Total profiles/sequences: " << database->fallback_nodes.size() << " / " << badSeqBefore << '\n';
     database->fallback_nodes.clear();
     progressiveAlignment(T, database, option, alnPairsPerLevel,param, cpu::alignmentKernel_CPU);
-    if (option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE) updateAlignment(T->root, database);
+    if (option->alnMode == DEFAULT_ALN || option->alnMode == PLACE_W_TREE || option->alnMode == ACCURATE_ALN) updateAlignment(T->root, database);
     // Reset currentTask
     database->currentTask = 0;
     auto badEnd = std::chrono::high_resolution_clock::now();

@@ -18,6 +18,8 @@
 #include <unordered_set>
 #include <array>
 #include <memory>
+#include <functional>
+#include <cassert>
 
 #include <boost/program_options.hpp>
 #include <tbb/spin_rw_mutex.h>
@@ -37,10 +39,12 @@ namespace msa
 
     
     enum Type {
-        DEFAULT_ALN = 0,
-        MERGE_MSA   = 1,
+        DEFAULT_ALN   = 0,
+        MERGE_MSA     = 1,
         PLACE_WO_TREE = 2,
-        PLACE_W_TREE  = 3
+        PLACE_W_TREE  = 3,
+        ACCURATE_ALN  = 4,
+        ACCURATE      = 4
     };
     
     using Node = phylogeny::Node;
@@ -60,6 +64,7 @@ namespace msa
     using alnPath = std::vector<int8_t>;
     using alnPathVec = std::vector<alnPath>;
     using Profile = std::vector<std::vector<float>>;
+    using alnFunction = std::function<void(Tree *, NodePairVec &, SequenceDB *, Option *, Params &)>;
 
     namespace accurate
     {
@@ -76,12 +81,152 @@ namespace msa
             std::vector<AlignedResiduePair> alignedPairs;
         };
 
-        class Aligner
-        {
+        // ---------------------------------------------------------------------
+        // Local Homology Upper-Triangular Table (MAFFT consistency memory layout)
+        // ---------------------------------------------------------------------
+        class LocalHomTable {
         public:
+            // Contiguous ungapped alignment block between sequence i and sequence j
+            struct Segment {
+                int start1 = 0;   // 0-based start index in sequence 1 (inclusive)
+                int end1 = 0;     // 0-based end index in sequence 1 (inclusive)
+                int start2 = 0;   // 0-based start index in sequence 2 (inclusive)
+                int end2 = 0;     // 0-based end index in sequence 2 (inclusive)
+                float optScore = 0.0f;    // Raw or normalized pairwise alignment score
+                float importance = 0.0f;  // Forward coverage-weighted importance score (computed in Step 2)
+                float rimportance = 0.0f; // Reverse coverage-weighted importance score (computed in Step 2)
+
+                inline int length() const { return end1 - start1 + 1; }
+            };
+
+            // Alignment result for pair (i, j)
+            struct PairResult {
+                int score = 0;
+                float identity = 0.0f;
+                std::vector<Segment> segments;
+
+                PairResult() = default;
+                PairResult(int s, float id, std::vector<Segment>&& segs)
+                    : score(s), identity(id), segments(std::move(segs)) {}
+                
+                PairResult(PairResult&&) noexcept = default;
+                PairResult& operator=(PairResult&&) noexcept = default;
+                PairResult(const PairResult&) = default;
+                PairResult& operator=(const PairResult&) = default;
+            };
+
+        private:
+            int numSeqs;
+            size_t totalPairs;
+            std::vector<PairResult> matrix; // 1D upper-triangular storage: N * (N - 1) / 2
+            std::vector<int> groupSeqIndices; // Map local index (0..N-1) to global SequenceDB index
+            std::unordered_map<int, int> globalToLocal; // Map global SequenceDB index to local index (0..N-1)
+
+        public:
+            LocalHomTable() : numSeqs(0), totalPairs(0) {}
+            
+            // 1. Constructor: given N sequences, allocate upper-triangular memory
+            explicit LocalHomTable(int n) : numSeqs(n), totalPairs((size_t)n * (n - 1) / 2) {
+                matrix.resize(totalPairs);
+            }
+
+            // Constructor with sequence indices for global-to-local mapping
+            LocalHomTable(int n, const std::vector<int>& globalIndices)
+                : numSeqs(n), totalPairs((size_t)n * (n - 1) / 2), groupSeqIndices(globalIndices) {
+                matrix.resize(totalPairs);
+                for (int loc = 0; loc < n; ++loc) {
+                    globalToLocal[globalIndices[loc]] = loc;
+                }
+            }
+
+            // Upper triangle index calculation for pair (i, j) with i < j
+            inline size_t pairIndex(int i, int j) const {
+                assert(i != j && i >= 0 && j >= 0 && i < numSeqs && j < numSeqs);
+                if (i > j) std::swap(i, j);
+                return (size_t)i * (2 * numSeqs - i - 1) / 2 + (j - i - 1);
+            }
+
+            // Accessors
+            inline PairResult& getPairResult(int i, int j) {
+                return matrix[pairIndex(i, j)];
+            }
+
+            inline const PairResult& getPairResult(int i, int j) const {
+                return matrix[pairIndex(i, j)];
+            }
+
+            inline PairResult& operator()(int i, int j) {
+                return matrix[pairIndex(i, j)];
+            }
+
+            inline const PairResult& operator()(int i, int j) const {
+                return matrix[pairIndex(i, j)];
+            }
+
+            // 3. Assign result into its memory location using move (zero-copy)
+            inline void setPairResult(int i, int j, PairResult&& res) {
+                matrix[pairIndex(i, j)] = std::move(res);
+            }
+
+            inline int getNumSeqs() const { return numSeqs; }
+            inline size_t getTotalPairs() const { return totalPairs; }
+            inline std::vector<PairResult>& getRawMatrix() { return matrix; }
+            inline const std::vector<PairResult>& getRawMatrix() const { return matrix; }
+
+            inline int getLocalIndex(int globalIdx) const {
+                auto it = globalToLocal.find(globalIdx);
+                return (it != globalToLocal.end()) ? it->second : -1;
+            }
+
+            inline int getGlobalIndex(int localIdx) const {
+                if (localIdx >= 0 && localIdx < (int)groupSeqIndices.size()) {
+                    return groupSeqIndices[localIdx];
+                }
+                return -1;
+            }
+
+            // Positional coverage importance [localSeqIdx][residuePos]
+            std::vector<std::vector<float>> positionImportance;
+
+            inline void setPositionImportance(std::vector<std::vector<float>>&& posImp) {
+                positionImportance = std::move(posImp);
+            }
+
+            inline const std::vector<std::vector<float>>& getPositionImportance() const {
+                return positionImportance;
+            }
+
+            inline float getResidueImportance(int localSeqIdx, int resPos) const {
+                if (localSeqIdx >= 0 && localSeqIdx < (int)positionImportance.size() &&
+                    resPos >= 0 && resPos < (int)positionImportance[localSeqIdx].size()) {
+                    return positionImportance[localSeqIdx][resPos];
+                }
+                return 0.0f;
+            }
+        };
+
+        struct Aligner
+        {
+            // Reusable DP scratchpad buffers to eliminate per-pair heap allocations
+            std::vector<int> score_0;
+            std::vector<int> score_1;
+            std::vector<int> score_2;
+            std::vector<int> E_buf;
+            std::vector<uint8_t> tb_buf;
+            std::vector<int> qry_idx_buf;
+            std::vector<AlignedResiduePair> aligned_pairs_buf;
+            std::vector<std::pair<int, int>> pair_idx_buf;
+            std::vector<int> score_mat;
+            std::vector<uint8_t> used_ref_buf;
+            std::vector<uint8_t> used_qry_buf;
+            std::vector<std::pair<int, int>> sub_pair_buf;
+
             AlignmentResult align(const std::string& reference, const std::string& query, char type, Params& params);
             AlignmentResult align_affine(const std::string& reference, const std::string& query, char type, Params& params);
             AlignmentResult align_affine_local(const std::string& reference, const std::string& query, char type, Params& params);
+            AlignmentResult align_linear_local (const std::string& reference, const std::string& query, char type, Params& params);
+            LocalHomTable::PairResult align_affine_local_segments(const std::string& reference, const std::string& query, char type, Params& params);
+            LocalHomTable::PairResult align_affine_local_segments_banded(const std::string& reference, const std::string& query, char type, Params& params, int bandWidth);
         };
 
         struct ResidueInstance
@@ -113,13 +258,16 @@ namespace msa
             
             int totalSequence;
             int totalPairs; // N * (N-1) / 2
+            
             std::vector<std::vector<float>> residueSupport;
+            std::vector<std::vector<float>> residueSupportRep; // 🔥 新增：只記錄 Rep 與 Rep 之間的 Support
+            
             std::vector<int> active_seqs; 
             std::vector<int> global_to_local;
 
-            static constexpr int DENSE_LIMIT = 100;
-            static constexpr int TARGET_CLUSTERS = 100;
-            static constexpr int REPS_PER_CLUSTER = 3;
+            static constexpr int DENSE_LIMIT = 500;          // N <= 500 時觸發 Dense Mode
+            static constexpr int MAX_CLUSTER_SIZE = 100;     // 每個 Cluster 的最大 Size
+            static constexpr int TARGET_TOTAL_REPS = 500;    // 目標 Reps 總數，用來動態計算 reps_per_cluster
         
             // Lookup Table
             // index: idx(refID, qryID), value: recordIndex
@@ -175,6 +323,126 @@ namespace msa
         std::vector<std::vector<float>> buildConsistencyTable( const ColumnProvenance& refProvenance, const ColumnProvenance& qryProvenance, msa::accurate::SubtreeAccurateState& accurateState);    
         std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, Tree* tree, int subtreeIdx, Params& params);
         std::vector<int> gatherClustersFromTree(Node* node, SequenceDB* database, std::size_t targetSize, std::vector<std::vector<int>>& clusters);
+        void msaOnSubtree_accurate(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree = -1);
+
+        struct Representative {
+            int globalSeqID = -1;
+            int subtreeID = -1;
+            std::string name;
+            std::string unalignedSeq;
+            int originGroupID = -1;
+            int localIdxInChild = -1;
+            float centralityScore = 0.0f;
+            std::vector<int> colInSubAln; // Residue index -> column index in subalignment
+        };
+
+        static inline uint64_t makeGlobalPairKey(int g1, int g2) {
+            if (g1 > g2) std::swap(g1, g2);
+            return ((uint64_t)(uint32_t)g1 << 32) | (uint64_t)(uint32_t)g2;
+        }
+
+        struct HierarchyGroup {
+            int layer;                         // 1-based layer index (1 = base subtrees)
+            int groupID;                       // 0-based group index within this layer
+            std::string rootIdentifier;        // Root node identifier in the tree (for Layer 1 subtree)
+            std::vector<int> subtreeIDs;       // Subtree IDs (grpID) covered by this group
+            std::vector<int> childGroupIDs;    // Group IDs from layer - 1 that compose this group
+            size_t totalSequences;             // Total sequences represented in this group
+            size_t repCount;                   // Number of representative sequences in this group for all-to-all alignment
+            size_t nextRepCount;               // Representatives contributed to next layer (ceil(repCount * sampleRate))
+            std::vector<int> repSeqIndices;    // Sequence indices of representatives for this group
+            std::vector<std::string> repSeqNames; // Sequence names of representatives for this group
+            std::vector<Representative> representatives; // Stored representative sequences for inter-layer consistency
+
+            // Pass-forward cache: stores precalculated pairwise results among representatives of this group
+            // Key: makeGlobalPairKey(globalSeqID1, globalSeqID2)
+            std::unordered_map<uint64_t, accurate::LocalHomTable::PairResult> repPairwiseCache;
+        };
+
+        struct HierarchyPlan {
+            int totalLayers;
+            size_t totalSequences;
+            float sampleRate;
+            int maxGroupReps;                  // Maximum reps per group (default 1000)
+            std::vector<std::vector<HierarchyGroup>> layers; // layers[0] = Layer 1, layers[1] = Layer 2, etc.
+
+            void printSummary(bool verbose = false) const;
+        };
+
+        HierarchyPlan computeHierarchyPlan(Tree* T, PartitionInfo* P, Tree* subRoot_T, Option* option);
+        std::vector<int> selectRepresentativeIndices(Node* root, size_t targetReps, SequenceDB* database);
+        std::vector<Representative> extractRepresentatives(Node* root, size_t targetReps, SequenceDB* database, int subtreeID);
+        std::vector<Representative> extractRepresentativesByCentrality(
+            Node* root,
+            size_t targetReps,
+            SequenceDB* database,
+            int subtreeID,
+            const std::vector<float>& centralityScores,
+            const LocalHomTable& localHomTable,
+            int alnLen
+        );
+
+        // Group-level progressive alignment with consistency pipeline
+        std::shared_ptr<LocalHomTable> alignGroupPairwiseAllToAll(
+            HierarchyGroup& group,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            const std::vector<HierarchyGroup>* prevLayerGroups = nullptr
+        );
+        std::vector<float> buildGroupConsistencyLibrary(
+            const HierarchyGroup& group,
+            std::shared_ptr<LocalHomTable> localHomTable,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param
+        );
+        std::vector<std::vector<float>> buildConsistencyTableFromLocalHom(
+            const ColumnProvenance& refProvenance,
+            const ColumnProvenance& qryProvenance,
+            const LocalHomTable& localHomTable
+        );
+        void alignmentKernel_Accurate_CPU(
+            Tree* tree,
+            NodePairVec& nodes,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            std::shared_ptr<LocalHomTable> localHomTable,
+            std::unordered_map<std::string, ColumnProvenance>* subrootProvenance = nullptr
+        );
+        void progressiveAlignGroupWithConsistency(
+            HierarchyGroup& group,
+            std::shared_ptr<LocalHomTable> localHomTable,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            alnFunction alignmentKernel,
+            std::unordered_map<std::string, ColumnProvenance>* subrootProvenance = nullptr
+        );
+        void msaOnGroup_accurate(
+            HierarchyGroup& group,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            alnFunction alignmentKernel,
+            const std::vector<HierarchyGroup>* prevLayerGroups = nullptr,
+            std::unordered_map<std::string, ColumnProvenance>* subrootProvenance = nullptr
+        );
+        void executeHierarchyPlan(
+            HierarchyPlan& plan,
+            Tree* T,
+            PartitionInfo* P,
+            Tree* subRoot_T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            alnFunction alignmentKernel
+        );
 
         namespace gpu {
             std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_GPU(SequenceDB* database, Option* option, Tree* tree, int subtreeIdx, Params& params);
@@ -188,7 +456,7 @@ namespace msa
     struct Option
     {
         // Mode Options
-        int alnMode; // 0: MSA from raw sequences, 1: merge multiple MSA files, 2: add new sequences to existing MSA
+        int alnMode; // 0: MSA from raw sequences, 1: merge multiple MSA files, 2: add new sequences to existing MSA, 3: place with tree, 4: accurate mode
         // Hardware Options
         int gpuNum;
         int cpuNum;
@@ -209,9 +477,12 @@ namespace msa
         bool compressed;
         char type; // 'n' for dna/rna, 'p' for protein
         bool alignGappy;
+        bool noSeqWeighting;
         // -------
         bool accurate;
         float consistencyWeight;
+        float accSampleRate;
+        int accMaxGroup;
         // -------
         // File Names
         std::string treeFile;
@@ -238,12 +509,16 @@ namespace msa
         float gapExtend;   // for gap-affine
         float gapBoundary; // gap penalty at ends
         float gapTerminal;
+        float localGapOpen;   // Gap-open penalty for pairwise local alignment
+        float localGapExtend; // Gap-extend penalty for pairwise local alignment
         float xdrop;       // optional for now
         float scaleFactor;
+        float offset;      // Matrix offset in internal units
         float **scoringMatrix;
         int matrixSize;
         Params(po::variables_map &vm, char type);
         ~Params();
+        void normalizeScoringMatrix(float targetScore = 60.0f, float offset = 0.0f); 
     };
 
     struct SequenceDB
@@ -313,17 +588,38 @@ namespace msa
         void writeFinalMSA(SequenceDB* database, Option* option, int alnLen);
     }
 
-    using alnFunction = std::function<void(Tree *, NodePairVec &, SequenceDB *, Option *, Params &)>;
+    struct FAMSAProfile {
+        int width = 0;
+        float totalWeight = 0.0f;
+        int numSeqs = 0;
+        std::vector<float> counters; // (width + 1) * 32
+        std::vector<float> scores;   // (width + 1) * 32
+
+        inline float* get_counters(int col) { return &counters[col * 32]; }
+        inline const float* get_counters(int col) const { return &counters[col * 32]; }
+        inline float* get_scores(int col) { return &scores[col * 32]; }
+        inline const float* get_scores(int col) const { return &scores[col * 32]; }
+    };
 
     namespace alignment_helper
     {
-        constexpr int _CAL_PROFILE_TH = 1000;
-        constexpr int _UPDATE_SEQ_TH = 1000;
+        constexpr int _CAL_PROFILE_TH = 100000;
+        constexpr int _UPDATE_SEQ_TH = 100000;
 
         void calculateProfile(float *profile, NodePair &nodes, SequenceDB *database, Option *option, int32_t memLen);
         void removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask);
         void calculatePSGP(float *hostFreq, float *hostGapOp, float *hostGapEx, NodePair &nodes, SequenceDB* database, Option *option, int memLen, IntPair offset, IntPair lens, Params &param);
-        void calculatePSGP_MAFFT(float* hostGapOp, float* hostGapEx, NodePair& nodes, SequenceDB* database, int memLen, IntPair lens, Params& param);
+        void calculatePSGP_MAFFT_new(float* hostGapOp, float* hostGapEx, NodePair& nodes, SequenceDB* database, int memLen, IntPair lens, Params& param);
+        void calculatePSGP_FAMSA(
+            FAMSAProfile& profRef,
+            FAMSAProfile& profQry,
+            NodePair& nodes,
+            SequenceDB* database,
+            Option* option,
+            const Params& param,
+            IntPair lens,
+            const std::pair<IntPairVec, IntPairVec>& gappyColumns
+        );
         void getConsensus(Option *option, float *profile, std::string &consensus, int len);
         void pairwiseGlobal(const std::string &seq1, const std::string &seq2, alnPath &alnPath, Params &param);
         void addGappyColumnsBack(alnPath &aln_before, alnPath &aln_after, std::pair<IntPairVec, IntPairVec> &gappyColumns, Params &param, IntPair rgcLens, stringPair orgSeqs);
@@ -446,6 +742,49 @@ namespace msa
         const std::vector<std::vector<float>>& gapEx,
         const std::pair<float, float>& num,
         msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
+
+    std::vector<int8_t> alignProfile_global_banded(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        int bandWidth,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
+
+    std::vector<int8_t> alignProfile_global_tiling(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
+
+
+    std::vector<int8_t> alignProfile_MAFFT(
+        const std::vector<std::vector<float>>& refProfile,
+        const std::vector<std::vector<float>>& qryProfile,
+        const std::vector<std::vector<float>>& gapOp,
+        const std::vector<std::vector<float>>& gapEx,
+        const std::pair<float, float>& num,
+        msa::Params& param,
+        const std::vector<std::vector<float>>* consistencyTable = nullptr,
+        float consistencyWeight = 0.0f
+    );
+
+    std::vector<int8_t> alignProfile_FAMSA(
+        const FAMSAProfile& profile1,
+        const FAMSAProfile& profile2,
+        const Params& param,
         const std::vector<std::vector<float>>* consistencyTable = nullptr,
         float consistencyWeight = 0.0f
     );

@@ -293,99 +293,312 @@ void msa::alignment_helper::calculatePSGP(float *hostFreq, float *hostGapOp, flo
     return;
 }
 
-void msa::alignment_helper::calculatePSGP_MAFFT(float* hostGapOp, float* hostGapEx, NodePair& nodes, SequenceDB* database, int memLen, IntPair lens, Params& param)
+/*
+void msa::alignment_helper::calculatePSGP_MAFFT_new(float* hostGapOp, float* hostGapEx, NodePair& nodes, SequenceDB* database, int memLen, IntPair lens, Params& param) 
 {
-    // Profile 1 (Reference)
-    {
-        const int refLen = lens.first;
-        const float totalWeight = nodes.first->alnWeight;
-        if (refLen > 0 && totalWeight > 0.0f) {
-            std::vector<float> gap_starts(refLen, 0.0f);
-            std::vector<float> gap_ends(refLen, 0.0f);
+    // Helper lambda to process one profile (Ref or Qry)
+    // hostGapOp 會儲存 Gap Open Penalty (O_i)
+    // hostGapEx 會儲存 Gap Close/End Penalty (C_i)
+    auto process_profile = [&](const std::vector<int>& seqs_included, float total_weight, int aln_len, float* gap_op_ptr, float* gap_end_ptr) {
+        std::vector<float> gap_starts(aln_len, 0.0f);
+        std::vector<float> gap_extends(aln_len, 0.0f);
+        std::vector<float> gap_terminals(aln_len, 0.0f);
+        for (int sIdx : seqs_included) {
+            if (sIdx < 0) continue; // Skip subtree nodes for now
+            auto* seq = database->sequences[sIdx];
+            const float w = seq->weight;
+            const char* aln = seq->alnStorage[seq->storage];
+            if (aln_len == 0) continue;
+            
+            // Get terminals
+            int first_nongap = -1, last_nongap = -1;
+            for (int i = 0; i < aln_len; ++i) {
+                if (aln[i] != '-') {
+                    first_nongap = i;
+                    break;
+                }
+            }
+            for (int i = aln_len-1; i >= 0; --i) {
+                if (aln[i] != '-') {
+                    last_nongap = i;
+                    break;
+                }
+            }
+            bool in_gap = (aln[0] == '-');
+            for (int i = 1; i < aln_len; ++i) {
+                bool current_is_gap = (aln[i] == '-');
+                if (current_is_gap && (i < first_nongap || i > last_nongap)) {
+                    gap_terminals[i] += w;
+                }
+                else if (!in_gap && current_is_gap) { 
+                    gap_starts[i] += w;      // gap opens before position i
+                } else if (in_gap && current_is_gap) { 
+                    gap_extends[i] += w;    // gap closes after position i-1
+                }
+                in_gap = current_is_gap;
+            }
+        }
+        for (int i = 0; i < aln_len; ++i) {
+            float g_start_freq   = param.gapOpen * (1 - (gap_starts[i] / total_weight));
+            float g_extend_freq  = param.gapExtend * (1 - (gap_extends[i] / total_weight));
+            float g_terminal_fre = param.gapTerminal * (1 - (gap_terminals[i] / total_weight));
+            gap_op_ptr[i]  = g_start_freq;
+            gap_end_ptr[i] = g_extend_freq;
+            // std::cout << g_start_freq << " " << g_extend_freq << " " << g_terminal_fre << "\n";
+        }
+    };
+    process_profile(nodes.first->seqsIncluded, nodes.first->alnWeight, lens.first, hostGapOp, hostGapEx);
+    process_profile(nodes.second->seqsIncluded, nodes.second->alnWeight, lens.second, hostGapOp + memLen, hostGapEx + memLen);
+}
+*/
 
-            for (int sIdx : nodes.first->seqsIncluded) {
-                if (sIdx < 0) continue; // Skip subtree nodes
-                auto* seq = database->sequences[sIdx];
-                const float w = seq->weight;
-                const char* aln = seq->alnStorage[seq->storage];
-                
-                if (refLen == 0) continue;
+void msa::alignment_helper::calculatePSGP_MAFFT_new(float* hostGapOp, float* hostGapEx, NodePair& nodes, SequenceDB* database, int memLen, IntPair lens, Params& param) 
+{
+    if (database->currentTask == 2 || database->sequences.empty()) {
+        return;
+    }
 
-                bool in_gap = (aln[0] == '-');
+    // Helper lambda to process one profile (Ref or Qry)
+    // hostGapOp stores Gap Open Penalty (O_i)
+    // hostGapEx stores Gap Close/End Penalty (C_i)
+    auto process_profile = [&](const std::vector<int>& seqs_included, float total_weight, int aln_len, float* gap_op_ptr, float* gap_end_ptr) {
+        std::vector<float> gap_starts(aln_len, 0.0f);
+        std::vector<float> gap_extends(aln_len, 0.0f);
+        std::vector<float> gap_ends(aln_len, 0.0f);
+        std::vector<float> gap_terminals(aln_len, 0.0f);
+        for (int sIdx : seqs_included) {
+            if (sIdx < 0 || sIdx >= static_cast<int>(database->sequences.size())) continue;
+            auto* seq = database->sequences[sIdx];
+            if (!seq) continue;
+            const float w = seq->weight;
+            const char* aln = seq->alnStorage[seq->storage];
+            if (!aln || aln_len == 0) continue;
+            
+            // Get terminals
+            int first_nongap = -1, last_nongap = -1;
+            for (int i = 0; i < aln_len; ++i) {
+                if (aln[i] != '-') {
+                    first_nongap = i;
+                    break;
+                }
+            }
+            for (int i = aln_len-1; i >= 0; --i) {
+                if (aln[i] != '-') {
+                    last_nongap = i;
+                    break;
+                }
+            }
+            bool in_gap = (aln[0] == '-');
+            for (int i = 1; i < aln_len; ++i) {
+                bool current_is_gap = (aln[i] == '-');
+                if (current_is_gap && (i < first_nongap || i > last_nongap)) {
+                    gap_terminals[i] += w;
+                } else if (!in_gap && current_is_gap) { 
+                    gap_starts[i] += w;      // gap opens before position i
+                } else if (in_gap && !current_is_gap) { 
+                    gap_ends[i-1] += w;    // gap closes after position i-1
+                } else if (in_gap && current_is_gap) {
+                    gap_extends[i] += w;    // gap extend
+                }
+                in_gap = current_is_gap;
+            }
+        }
+        for (int i = 0; i < aln_len; ++i) {
+            // float g_start_freq   = (param.gapOpen * 0.5) * (1 - (gap_starts[i] / total_weight));
+            // float g_start_freq = (param.gapOpen * 0.5) * std::max(0.0f, (1 - (gap_starts[i] / total_weight)));
+            // float g_end_freq  = (param.gapOpen * 0.5) * (1 - (gap_ends[i] / total_weight));
+            // float g_extend_freq  = param.gapExtend * std::max(0.0f, (1 - (gap_extends[i] / total_weight)));
+            // float g_terminal_freq = param.gapTerminal * (1 - (gap_terminals[i] / total_weight));
+            float g_start_freq = (gap_starts[i] / total_weight);
+            float g_end_freq  = (gap_extends[i] / total_weight);
+            gap_op_ptr[i]  = g_start_freq;
+            gap_end_ptr[i] = g_end_freq;
+            // std::cout << gap_op_ptr[i] << " " << gap_end_ptr[i] << "\n";
+        }
+    };
+    process_profile(nodes.first->seqsIncluded, nodes.first->alnWeight, lens.first, hostGapOp, hostGapEx);
+    process_profile(nodes.second->seqsIncluded, nodes.second->alnWeight, lens.second, hostGapOp + memLen, hostGapEx + memLen);
+}
 
-                for (int i = 1; i < refLen; ++i) {
-                    bool current_is_gap = (aln[i] == '-');
-                    if (!in_gap && current_is_gap) { // 0 -> 1 transition: gap starts
-                        gap_starts[i] += w;
-                    } else if (in_gap && !current_is_gap) { // 1 -> 0 transition: gap ends
-                        gap_ends[i - 1] += w;
+static constexpr int FAMSA_GAP_OPEN       = 25;
+static constexpr int FAMSA_GAP_EXT        = 26;
+static constexpr int FAMSA_GAP_TERM_EXT   = 27;
+static constexpr int FAMSA_GAP_TERM_OPEN  = 28;
+static constexpr int FAMSA_NO_SYMBOLS     = 32;
+static constexpr int FAMSA_NO_AMINOACIDS  = 21; // 0..19 standard AA, 20 is X
+
+void msa::alignment_helper::calculatePSGP_FAMSA(
+    FAMSAProfile& profRef,
+    FAMSAProfile& profQry,
+    NodePair& nodes,
+    SequenceDB* database,
+    Option* option,
+    const Params& param,
+    IntPair lens,
+    const std::pair<IntPairVec, IntPairVec>& gappyColumns)
+{
+    float famsa_gap_open = param.gapOpen;
+    float famsa_gap_ext = param.gapExtend;
+    float famsa_gap_term_open = (param.gapTerminal != 0.0f) ? param.gapTerminal : (famsa_gap_open * (0.66f / 14.85f));
+    float famsa_gap_term_ext = (param.gapTerminal != 0.0f) ? param.gapTerminal : (famsa_gap_ext * (0.66f / 1.25f));
+
+    auto process_profile = [&](FAMSAProfile& prof, Node* node, int aln_len, const IntPairVec& gappyCols) {
+        prof.width = aln_len;
+        if (aln_len <= 0) {
+            prof.totalWeight = 0.0f;
+            prof.numSeqs = 0;
+            return;
+        }
+
+        const auto& seqs_included = node->seqsIncluded;
+        prof.numSeqs = seqs_included.size();
+        float total_weight = (node->alnWeight > 0.0f) ? node->alnWeight : static_cast<float>(node->getAlnNum(database->currentTask));
+        prof.totalWeight = (total_weight > 0.0f) ? total_weight : static_cast<float>(prof.numSeqs);
+
+        prof.counters.assign((aln_len + 1) * FAMSA_NO_SYMBOLS, 0.0f);
+        prof.scores.assign((aln_len + 1) * FAMSA_NO_SYMBOLS, 0.0f);
+
+        int orig_aln_len = node->getAlnLen(database->currentTask);
+
+        for (int sIdx : seqs_included) {
+            if (sIdx < 0 || sIdx >= static_cast<int>(database->sequences.size())) continue;
+            auto* seq = database->sequences[sIdx];
+            if (!seq) continue;
+
+            const float w = (total_weight > 0.0f) ? (seq->weight / total_weight * prof.totalWeight) : 1.0f;
+            const char* raw_aln = seq->alnStorage[seq->storage];
+            if (!raw_aln) continue;
+
+            // Extract aligned sequence slice taking gappyColumns into account
+            std::string s;
+            s.reserve(aln_len);
+            if (gappyCols.empty()) {
+                s.append(raw_aln, aln_len);
+            } else {
+                int raw_idx = 0;
+                int gc_idx = 0;
+                while (static_cast<int>(s.size()) < aln_len && raw_idx < orig_aln_len) {
+                    if (gc_idx < static_cast<int>(gappyCols.size()) && raw_idx == gappyCols[gc_idx].first) {
+                        raw_idx += gappyCols[gc_idx].second;
+                        gc_idx++;
+                    } else {
+                        s.push_back(raw_aln[raw_idx++]);
                     }
-                    in_gap = current_is_gap;
                 }
             }
 
-            for (int i = 0; i < refLen; ++i) {
-                float g_start_freq = gap_starts[i] / totalWeight;
-                float g_end_freq = gap_ends[i] / totalWeight;
-                float modulation = 1.0f - (g_start_freq + g_end_freq) / 2.0f;
-                
-                if (modulation < 0.0f) modulation = 0.0f;
-
-                hostGapOp[i] = param.gapOpen * modulation;
-                hostGapEx[i] = param.gapExtend * modulation;
+            if (static_cast<int>(s.size()) != aln_len) {
+                s.resize(aln_len, '-');
             }
-        } else { // if no sequences or zero weight, use base penalties
-             for (int i = 0; i < refLen; ++i) {
-                hostGapOp[i] = param.gapOpen;
-                hostGapEx[i] = param.gapExtend;
+
+            // Find first and last non-gap positions (1-indexed)
+            int first_non_gap = -1;
+            int last_non_gap = -1;
+            for (int i = 0; i < aln_len; ++i) {
+                if (s[i] != '-' && s[i] != '.') {
+                    first_non_gap = i + 1;
+                    break;
+                }
             }
-        }
-    }
-
-    // Profile 2 (Query)
-    {
-        const int qryLen = lens.second;
-        const float totalWeight = nodes.second->alnWeight;
-        if (qryLen > 0 && totalWeight > 0.0f) {
-            std::vector<float> gap_starts(qryLen, 0.0f);
-            std::vector<float> gap_ends(qryLen, 0.0f);
-
-            for (int sIdx : nodes.second->seqsIncluded) {
-                if (sIdx < 0) continue; // Skip subtree nodes
-                auto* seq = database->sequences[sIdx];
-                const float w = seq->weight;
-                const char* aln = seq->alnStorage[seq->storage];
-
-                if (qryLen == 0) continue;
-
-                bool in_gap = (aln[0] == '-');
-                for (int i = 1; i < qryLen; ++i) {
-                    bool current_is_gap = (aln[i] == '-');
-                    if (!in_gap && current_is_gap) {
-                        gap_starts[i] += w;
-                    } else if (in_gap && !current_is_gap) {
-                        gap_ends[i - 1] += w;
-                    }
-                    in_gap = current_is_gap;
+            for (int i = aln_len - 1; i >= 0; --i) {
+                if (s[i] != '-' && s[i] != '.') {
+                    last_non_gap = i + 1;
+                    break;
                 }
             }
 
-            for (int i = 0; i < qryLen; ++i) {
-                float g_start_freq = gap_starts[i] / totalWeight;
-                float g_end_freq = gap_ends[i] / totalWeight;
-                float modulation = 1.0f - (g_start_freq + g_end_freq) / 2.0f;
-                if (modulation < 0.0f) modulation = 0.0f;
-
-                hostGapOp[memLen + i] = param.gapOpen * modulation;
-                hostGapEx[memLen + i] = param.gapExtend * modulation;
+            // If sequence is entirely gaps
+            if (first_non_gap == -1) {
+                prof.counters[1 * FAMSA_NO_SYMBOLS + FAMSA_GAP_TERM_OPEN] += w;
+                for (int i = 2; i <= aln_len; ++i) {
+                    prof.counters[i * FAMSA_NO_SYMBOLS + FAMSA_GAP_TERM_EXT] += w;
+                }
+                continue;
             }
-        } else {
-            for (int i = 0; i < qryLen; ++i) {
-                hostGapOp[memLen + i] = param.gapOpen;
-                hostGapEx[memLen + i] = param.gapExtend;
+
+            // Set counters for terminal gaps at front
+            if (first_non_gap > 1) {
+                prof.counters[1 * FAMSA_NO_SYMBOLS + FAMSA_GAP_TERM_OPEN] += w;
+                for (int i = 2; i < first_non_gap; ++i) {
+                    prof.counters[i * FAMSA_NO_SYMBOLS + FAMSA_GAP_TERM_EXT] += w;
+                }
+            }
+
+            // Set counters for terminal gaps at back
+            if (last_non_gap < aln_len) {
+                prof.counters[(last_non_gap + 1) * FAMSA_NO_SYMBOLS + FAMSA_GAP_TERM_OPEN] += w;
+                for (int i = last_non_gap + 2; i <= aln_len; ++i) {
+                    prof.counters[i * FAMSA_NO_SYMBOLS + FAMSA_GAP_TERM_EXT] += w;
+                }
+            }
+
+            // Set counters for internal symbols and gaps
+            bool in_gap = false;
+            for (int i = first_non_gap; i <= last_non_gap; ++i) {
+                char c = s[i - 1];
+                bool is_gap = (c == '-' || c == '.');
+                if (is_gap) {
+                    if (!in_gap) {
+                        prof.counters[i * FAMSA_NO_SYMBOLS + FAMSA_GAP_OPEN] += w;
+                    } else {
+                        prof.counters[i * FAMSA_NO_SYMBOLS + FAMSA_GAP_EXT] += w;
+                    }
+                    in_gap = true;
+                } else {
+                    in_gap = false;
+                    int aa = letterIdx(option->type, toupper(c));
+                    if (aa < 0 || aa >= FAMSA_NO_AMINOACIDS) aa = 20; // Ambiguous residue
+                    prof.counters[i * FAMSA_NO_SYMBOLS + aa] += w;
+                }
             }
         }
-    }
+
+        // Calculate scores matrix for the profile
+        float* s0 = prof.get_scores(0);
+        s0[FAMSA_GAP_OPEN]      = prof.totalWeight * famsa_gap_open;
+        s0[FAMSA_GAP_EXT]       = prof.totalWeight * famsa_gap_ext;
+        s0[FAMSA_GAP_TERM_EXT]  = prof.totalWeight * famsa_gap_term_ext;
+        s0[FAMSA_GAP_TERM_OPEN] = prof.totalWeight * famsa_gap_term_open;
+
+        for (int i = 1; i <= aln_len; ++i) {
+            const float* c_col = prof.get_counters(i);
+            float* s_col = prof.get_scores(i);
+
+            float n_gap_open      = c_col[FAMSA_GAP_OPEN];
+            float n_gap_term_open = c_col[FAMSA_GAP_TERM_OPEN];
+            float n_gap_ext       = c_col[FAMSA_GAP_EXT];
+            float n_gap_term_ext  = c_col[FAMSA_GAP_TERM_EXT];
+
+            float gap_cost = 0.0f;
+            if (n_gap_open > 0.0f)      gap_cost += n_gap_open * famsa_gap_open;
+            if (n_gap_term_open > 0.0f) gap_cost += n_gap_term_open * famsa_gap_term_open;
+            if (n_gap_ext > 0.0f)       gap_cost += n_gap_ext * famsa_gap_ext;
+            if (n_gap_term_ext > 0.0f)  gap_cost += n_gap_term_ext * famsa_gap_term_ext;
+
+            for (int a = 0; a < FAMSA_NO_AMINOACIDS; ++a) {
+                s_col[a] += gap_cost;
+            }
+
+            float tot_n_sym = 0.0f;
+            for (int sym = 0; sym < FAMSA_NO_AMINOACIDS; ++sym) {
+                float n_sym = c_col[sym];
+                if (n_sym > 0.0f) {
+                    tot_n_sym += n_sym;
+                    for (int a = 0; a < FAMSA_NO_AMINOACIDS; ++a) {
+                        s_col[a] += n_sym * param.scoringMatrix[sym][a];
+                    }
+                }
+            }
+
+            s_col[FAMSA_GAP_OPEN]      = tot_n_sym * famsa_gap_open;
+            s_col[FAMSA_GAP_TERM_OPEN] = tot_n_sym * famsa_gap_term_open;
+            s_col[FAMSA_GAP_EXT]       = tot_n_sym * famsa_gap_ext;
+            s_col[FAMSA_GAP_TERM_EXT]  = tot_n_sym * famsa_gap_term_ext;
+        }
+    };
+
+    process_profile(profRef, nodes.first, lens.first, gappyColumns.first);
+    process_profile(profQry, nodes.second, lens.second, gappyColumns.second);
 }
 
 void msa::alignment_helper::getConsensus(Option *option, float *profile, std::string &consensus, int len)

@@ -78,6 +78,7 @@ namespace phylogeny {
         std::string newInternalNodeId() { return "node_" + std::to_string(++m_currInternalNode);}
         Node* root;
         std::unordered_map<std::string, Node*> allNodes;
+        static inline bool s_noSeqWeighting = false;
 
         void calLeafNum();
         void calSeqWeight();
@@ -105,6 +106,9 @@ namespace phylogeny {
     void pruneTree(Tree*& T, std::unordered_set<std::string>& seqs);
     Tree* constructTreeFromPartitions(Node* root, PartitionInfo* P);
     Tree* constructTreeFromPartitions_new(Node* root, PartitionInfo* P);
+    Node* buildInducedTree(Node* origNode, 
+                           const std::unordered_map<std::string, std::pair<Node*, size_t>>& targetNodes, 
+                           Tree* T);
     void updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx);
     Tree* getPlacementTree(Tree*);
     void updateLevels(Node* node, size_t currentLevel);

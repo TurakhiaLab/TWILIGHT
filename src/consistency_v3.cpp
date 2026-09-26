@@ -53,22 +53,16 @@ int msa::accurate::DirectPairLibrary::createRecord(int refID, int qryID, int ref
 void msa::accurate::DirectPairLibrary::init (int sequenceCount, std::vector<int>& activeSeqIdx, std::vector<int>& seqLengths) {
     this->totalSequence = sequenceCount;
     totalPairs = sequenceCount * (sequenceCount - 1) / 2;
+    
     pair_to_record_idx.assign(totalPairs, -1);
     
-    if (sequenceCount <= DENSE_LIMIT) {
-        records.reserve(totalPairs);
-    } else {
-        size_t rep_pairs = (TARGET_CLUSTERS * (TARGET_CLUSTERS - 1)) / 2;
-        size_t avg_cluster_size = std::max(1, sequenceCount / TARGET_CLUSTERS) + 1; 
-        size_t internal_pairs_per_cluster = (avg_cluster_size * (avg_cluster_size - 1)) / 2;
-        size_t total_cluster_pairs = TARGET_CLUSTERS * internal_pairs_per_cluster;
-        size_t expected_total_pairs = rep_pairs + total_cluster_pairs;
-        records.reserve(std::min(static_cast<size_t>(totalPairs), expected_total_pairs));
-    }
+    records.clear(); 
 
     residueSupport.resize(sequenceCount);
+    residueSupportRep.resize(sequenceCount);
     for (int i = 0; i < sequenceCount; ++i) {
         residueSupport[i].assign(seqLengths[i], 0.0f);
+        residueSupportRep[i].assign(seqLengths[i], 0.0f);
     }
 
     active_seqs = activeSeqIdx;
@@ -151,11 +145,7 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
         if (!sequences[seqIdx]->lowQuality || option->noFilter) activeSeqIdx.push_back(seqIdx);
     }
 
-    // activeSeqIdx: vectorIdx -> seqIdx
-    // currentSequences: seqIdx -> raw sequence
-
     std::vector<std::string> currentSequences(sequences.size());
-    int maxLength = 0;
     int maxSeqID = 0;
     
     std::vector<int> seqLengths(activeSeqIdx.size());
@@ -169,20 +159,67 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
 
     int maxSeqID_add_1 = maxSeqID + 1;
     auto accurateState = std::make_shared<SubtreeAccurateState>(subtreeIdx, maxSeqID_add_1, activeSeqIdx, seqLengths);
-    
     auto& ConsistencyLibrary = accurateState->directLib;
 
-    std::vector<std::pair<std::size_t, std::size_t>> pairJobs;
-    
-    auto addPair = [&](std::size_t a, std::size_t b) {
-        if (ConsistencyLibrary.idx(a, b) == -1) return;
-        if (a > b) std::swap(a, b);
-        if (a != b) pairJobs.push_back({a, b});
+    // DENSE Mde or Not
+    bool is_dense = (activeSeqIdx.size() <= ConsistencyLibrary.DENSE_LIMIT);
+
+    // =========================================================================
+    // All-to-all Pairwise Alignment
+    // =========================================================================
+    auto alignJobs = [&](const std::vector<std::pair<std::size_t, std::size_t>>& jobs, const std::string& phaseName) {
+        if (jobs.empty()) return;
+        
+        size_t start_idx = ConsistencyLibrary.records.size();
+        ConsistencyLibrary.records.resize(start_idx + jobs.size());
+        
+        for (size_t i = 0; i < jobs.size(); ++i) {
+            int refID = jobs[i].first;
+            int qryID = jobs[i].second;
+            int pairId = ConsistencyLibrary.idx(refID, qryID);
+
+            ConsistencyLibrary.pair_to_record_idx[pairId] = start_idx + i;
+            ConsistencyLibrary.records[start_idx + i].forward.assign(currentSequences[refID].size(), -1);
+            ConsistencyLibrary.records[start_idx + i].backward.assign(currentSequences[qryID].size(), -1);
+        }
+
+        std::atomic<size_t> progress{0};
+        std::mutex cout_mutex;
+        size_t total = jobs.size();
+
+        tbb::parallel_for( tbb::blocked_range<std::size_t>(0, total), [&](const tbb::blocked_range<std::size_t>& range) {
+            Aligner aligner;
+            for (std::size_t pairIdx = range.begin(); pairIdx < range.end(); ++pairIdx) {
+                const auto [refIdx, qryIdx] = jobs[pairIdx];
+                
+                auto alignment = aligner.align_affine_local(
+                    currentSequences[refIdx], currentSequences[qryIdx], option->type, params
+                );
+
+                // auto alignment = aligner.align_linear_local(
+                //     currentSequences[refIdx], currentSequences[qryIdx], option->type, params
+                // );
+                
+                
+                ConsistencyLibrary.addLocalAlignmentResult(refIdx, qryIdx, alignment);
+
+                size_t current = ++progress;
+                if ((current % 10 == 0 || current == total) && pairIdx == range.begin()) {
+                    double percent = 100.0 * current / total;
+                    std::lock_guard<std::mutex> lock(cout_mutex);
+                    std::cout << phaseName << " [" << current << "/" << total << "] ("
+                              << std::fixed << std::setprecision(1) << percent << "%)\r" << std::flush;
+                }
+            }
+        });
+        std::cout << std::endl;
     };
 
+    if (is_dense) {
+        // [Dense Mode]: All-to-all
+        size_t exact_pairs = (activeSeqIdx.size() * (activeSeqIdx.size() - 1)) / 2;
+        ConsistencyLibrary.records.reserve(exact_pairs);
 
-    if (activeSeqIdx.size() <= ConsistencyLibrary.DENSE_LIMIT) {
-        // Dense Mode
         ConsistencyLibrary.cluster_members.push_back({});
         for (std::size_t seqIdx : activeSeqIdx) {
             ConsistencyLibrary.cluster_members[0].push_back(seqIdx);
@@ -192,131 +229,179 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
         }
         ConsistencyLibrary.cluster_reps.push_back(ConsistencyLibrary.cluster_members[0]);
         
-        pairJobs.reserve((activeSeqIdx.size() * (activeSeqIdx.size() - 1)) / 2);
+        std::vector<std::pair<std::size_t, std::size_t>> denseJobs;
+        denseJobs.reserve((activeSeqIdx.size() * (activeSeqIdx.size() - 1)) / 2);
         for (std::size_t i = 0; i < activeSeqIdx.size(); ++i) {
             for (std::size_t j = i + 1; j < activeSeqIdx.size(); ++j) {
-                addPair(activeSeqIdx[i], activeSeqIdx[j]);
+                std::size_t u = activeSeqIdx[i], v = activeSeqIdx[j];
+                if (u > v) std::swap(u, v);
+                denseJobs.push_back({u, v});
             }
         }
-    } else {
-        // Sparse Mode
-        std::size_t targetClusters = ConsistencyLibrary.TARGET_CLUSTERS;
-        std::size_t targetSize = std::max(static_cast<std::size_t>(1), activeSeqIdx.size() / targetClusters);
+        alignJobs(denseJobs, "1. [Dense  Mode] All-to-all Alignment:");
+    } 
+    else {
+        // [Sparse Mode]: 2-Phase
+        size_t est_reps_pairs = (ConsistencyLibrary.TARGET_TOTAL_REPS * ConsistencyLibrary.TARGET_TOTAL_REPS) / 2;
+        size_t est_num_clusters = std::max((size_t)1, activeSeqIdx.size() / ConsistencyLibrary.MAX_CLUSTER_SIZE);
+        size_t est_intra_pairs_per_cluster = (ConsistencyLibrary.MAX_CLUSTER_SIZE * ConsistencyLibrary.MAX_CLUSTER_SIZE) / 2;
+        size_t total_est_pairs = est_reps_pairs + (est_num_clusters * est_intra_pairs_per_cluster);
         
+        ConsistencyLibrary.records.reserve(total_est_pairs * 1.1);
+
         std::vector<std::vector<int>> clusters;
-        auto leftover = gatherClustersFromTree(tree->root, database, targetSize, clusters);
+        auto leftover = gatherClustersFromTree(tree->root, database, ConsistencyLibrary.MAX_CLUSTER_SIZE, clusters);
         if (!leftover.empty()) {
             if (clusters.empty()) clusters.push_back(leftover);
             else clusters.back().insert(clusters.back().end(), leftover.begin(), leftover.end());
         }
 
-        int max_reps_per_cluster = ConsistencyLibrary.REPS_PER_CLUSTER;
-        std::vector<int> representatives;
-        representatives.reserve(clusters.size() * max_reps_per_cluster);
-        
-        int cluster_id = 0;
-        for (const auto& cl : clusters) {
-            std::vector<int> current_members;
-            std::vector<int> current_reps;
+        // =========================================================================
+        // 🔥 動態配額分配 (Dynamic Quota Allocation)
+        // =========================================================================
+        int num_clusters = clusters.size();
+        std::vector<int> allocated_reps(num_clusters, 0);
+
+        if (num_clusters >= ConsistencyLibrary.TARGET_TOTAL_REPS) {
+            // 情境 1：Cluster 數量爆炸 (>= 500)
+            // 為了保證多樣性，每個 Cluster 強制給 1 個代表，允許總數超過 500
+            for (int i = 0; i < num_clusters; ++i) {
+                allocated_reps[i] = 1;
+            }
+        } else {
+            int base_quota = ConsistencyLibrary.TARGET_TOTAL_REPS / num_clusters;
+            int remainder_quota = ConsistencyLibrary.TARGET_TOTAL_REPS % num_clusters;
+            std::vector<std::pair<int, int>> size_priority;
+            for (int i = 0; i < num_clusters; ++i) {
+                size_priority.push_back({clusters[i].size(), i});
+            }
+            std::sort(size_priority.rbegin(), size_priority.rend());
+
+            for (int i = 0; i < num_clusters; ++i) {
+                int c_idx = size_priority[i].second;
+                int c_size = clusters[c_idx].size();
+                int expected_quota = base_quota + (i < remainder_quota ? 1 : 0);
+                allocated_reps[c_idx] = std::min(expected_quota, c_size);
+            }
+        }
+        // =========================================================================
+        // --- Phase 1: Intra-cluster Alignment ---
+        std::vector<std::pair<std::size_t, std::size_t>> intraJobs;
+        for (int cluster_id = 0; cluster_id < num_clusters; ++cluster_id) {
+            const auto& cl = clusters[cluster_id];
+            ConsistencyLibrary.cluster_members.push_back(cl);
             
             for (std::size_t s : cl) {
-                int local_s = ConsistencyLibrary.global_to_local[s];
-                ConsistencyLibrary.seq_to_cluster[local_s] = cluster_id;
-                current_members.push_back(s);
+                ConsistencyLibrary.seq_to_cluster[ConsistencyLibrary.global_to_local[s]] = cluster_id;
             }
-            ConsistencyLibrary.cluster_members.push_back(current_members);
 
-            if (cl.size() <= static_cast<std::size_t>(max_reps_per_cluster)) {
-                for (std::size_t s : cl) current_reps.push_back(s);
-            } else {
-                std::size_t chunk_size = cl.size() / max_reps_per_cluster;
-                for (int i = 0; i < max_reps_per_cluster; ++i) {
-                    std::size_t start = i * chunk_size;
-                    std::size_t end = (i == max_reps_per_cluster - 1) ? cl.size() : (start + chunk_size);
-                    std::size_t best_seq = cl[start];
-                    int max_len = -1;
-                    for (std::size_t j = start; j < end; ++j) {
-                        int l = currentSequences[cl[j]].size();
-                        if (l > max_len) { max_len = l; best_seq = cl[j]; }
-                    }
-                    current_reps.push_back(best_seq);
+            // Cluster Size <= reps_per_cluster
+            if (cl.size() <= allocated_reps[cluster_id]) {
+                continue; 
+            }
+
+            // Intra-cluster All-to-all
+            for (size_t i = 0; i < cl.size(); ++i) {
+                for (size_t j = i + 1; j < cl.size(); ++j) {
+                    size_t u = cl[i], v = cl[j];
+                    if (u > v) std::swap(u, v);
+                    intraJobs.push_back({u, v});
                 }
             }
+        }
+        std::sort(intraJobs.begin(), intraJobs.end());
+        intraJobs.erase(std::unique(intraJobs.begin(), intraJobs.end()), intraJobs.end());
+
+        alignJobs(intraJobs, "1-1. Intra-cluster Alignment:");
+
+        // --- Rep Selection ---
+        for (int cluster_id = 0; cluster_id < num_clusters; ++cluster_id) {
+            const auto& cl = ConsistencyLibrary.cluster_members[cluster_id];
+            std::vector<std::pair<float, int>> scores; 
             
-            for (int r : current_reps) {
-                representatives.push_back(r);
-                int local_r = ConsistencyLibrary.global_to_local[r];
-                ConsistencyLibrary.all_reps.push_back(local_r);
-                ConsistencyLibrary.is_rep[local_r] = true;
+            for (int seqA : cl) {
+                float total_score = 0.0f;
+                for (int seqB : cl) {
+                    if (seqA == seqB) continue;
+                    int pId = ConsistencyLibrary.idx(seqA, seqB);
+                    int rId = ConsistencyLibrary.pair_to_record_idx[pId];
+                    if (rId != -1) {
+                        int aln_len = 0;
+                        const auto& rec = ConsistencyLibrary.records[rId];
+                        const auto& map_array = (seqA < seqB) ? rec.forward : rec.backward;
+                        
+                        for (int pos : map_array) {
+                            if (pos != -1) aln_len++;
+                        }
+                        // Criteria: local alignment length * identity
+                        total_score += aln_len * rec.weight; 
+                    }
+                }
+                float avg_score = (cl.size() > 1) ? total_score / (cl.size() - 1) : 0.0f;
+                scores.push_back({avg_score, seqA});
+            }
+            
+            std::sort(scores.rbegin(), scores.rend());
+            
+            std::vector<int> current_reps;
+            int reps_to_pick = allocated_reps[cluster_id];
+            for (int i = 0; i < reps_to_pick; ++i) {
+                int rep_id = scores[i].second;
+                current_reps.push_back(rep_id);
+                ConsistencyLibrary.all_reps.push_back(ConsistencyLibrary.global_to_local[rep_id]);
+                ConsistencyLibrary.is_rep[ConsistencyLibrary.global_to_local[rep_id]] = true;
             }
             ConsistencyLibrary.cluster_reps.push_back(current_reps);
-            cluster_id++;
+        }
+
+        // =========================================================================
+        // 🔥 Sparse Mode Debug Message
+        // =========================================================================
+        if (option->printDetail) {
+            int total_seqs_in_sparse = 0;
+            int total_reps_picked = 0;
+
+            std::cerr << "\n--- [Sparse Mode Allocation Info] ---\n";
+            std::cerr << "Total Clusters      : " << num_clusters << "\n";
             
-            // Cluster: All-to-all
-            for (std::size_t i = 0; i < cl.size(); ++i) {
-                for (std::size_t j = i + 1; j < cl.size(); ++j) {
-                    addPair(cl[i], cl[j]);
+            for (int i = 0; i < num_clusters; ++i) {
+                int c_size = ConsistencyLibrary.cluster_members[i].size();
+                int r_picked = ConsistencyLibrary.cluster_reps[i].size();
+                
+                total_seqs_in_sparse += c_size;
+                total_reps_picked += r_picked;
+
+                std::cerr << "  - Cluster " << std::setw(3) << i 
+                          << " | Size: " << std::setw(4) << c_size 
+                          << " | Reps picked: " << std::setw(4) << r_picked << "\n";
+            }
+            
+            std::cerr << "-------------------------------------\n";
+            std::cerr << "Total Sequences       : " << total_seqs_in_sparse << "\n";
+            std::cerr << "Total Target Reps (T) : " << total_reps_picked 
+                      << " (Target Limit: " << ConsistencyLibrary.TARGET_TOTAL_REPS << ")\n\n";
+        }
+        // =========================================================================
+
+        // --- Phase 2: Inter-Rep Alignment ---
+        std::vector<std::pair<std::size_t, std::size_t>> repJobs;
+        for (size_t i = 0; i < ConsistencyLibrary.all_reps.size(); ++i) {
+            for (size_t j = i + 1; j < ConsistencyLibrary.all_reps.size(); ++j) {
+                int u = activeSeqIdx[ConsistencyLibrary.all_reps[i]];
+                int v = activeSeqIdx[ConsistencyLibrary.all_reps[j]];
+                if (u > v) std::swap(u, v);
+                
+                // If already compared in a cluster, then skip
+                if (ConsistencyLibrary.pair_to_record_idx[ConsistencyLibrary.idx(u, v)] == -1) {
+                    repJobs.push_back({u, v});
                 }
             }
         }
-        
-        // Rep: All-to-all
-        for (std::size_t i = 0; i < representatives.size(); ++i) {
-            for (std::size_t j = i + 1; j < representatives.size(); ++j) {
-                addPair(representatives[i], representatives[j]);
-            }
-        }
-        std::sort(pairJobs.begin(), pairJobs.end());
-        pairJobs.erase(std::unique(pairJobs.begin(), pairJobs.end()), pairJobs.end());
+        std::sort(repJobs.begin(), repJobs.end());
+        repJobs.erase(std::unique(repJobs.begin(), repJobs.end()), repJobs.end());
+
+        alignJobs(repJobs, "1-2. Inter-Rep Alignment:");
     }
-
-    std::atomic<size_t> progress{0};
-    std::mutex cout_mutex;
-    size_t total = pairJobs.size();
-
-    // Preallocate memory before TBB parallel_for
-    ConsistencyLibrary.records.resize(pairJobs.size());
-    for (size_t i = 0; i < pairJobs.size(); ++i) {
-        
-        int refID = pairJobs[i].first;
-        int qryID = pairJobs[i].second;
-        int pairId = ConsistencyLibrary.idx(refID, qryID);
-        // std::cout << refID << " " << qryID << " " << pairId << " " << ConsistencyLibrary.pair_to_record_idx.size() << std::endl;
-
-        ConsistencyLibrary.pair_to_record_idx[pairId] = i;
-        ConsistencyLibrary.records[i].forward.assign(currentSequences[refID].size(), -1);
-        ConsistencyLibrary.records[i].backward.assign(currentSequences[qryID].size(), -1);
-    }
-
-    tbb::parallel_for( tbb::blocked_range<std::size_t>(0, total), [&](const tbb::blocked_range<std::size_t>& range) {
-        for (std::size_t pairIdx = range.begin(); pairIdx < range.end(); ++pairIdx) {
-            const auto [refIdx, qryIdx] = pairJobs[pairIdx];
-            
-            auto alignment = aligner.align_affine_local(
-                currentSequences[refIdx],
-                currentSequences[qryIdx],
-                option->type,
-                params
-            );
-            
-            ConsistencyLibrary.addLocalAlignmentResult(refIdx, qryIdx, alignment);
-
-            // print progress
-            size_t current = ++progress;
-            if ((current % 10 == 0 || current == total) && pairIdx == range.begin()) {
-                double percent = 100.0 * current / total;
-                std::lock_guard<std::mutex> lock(cout_mutex);
-                std::cout << "1. All-to-all Pairwise Alignment: ["
-                          << current << "/" << total
-                          << " pairs aligned] ("
-                          << std::fixed << std::setprecision(1)
-                          << percent << "%)\r"
-                          << std::flush;
-            }
-        }
-    });
-
-    std::cout << std::endl;
 
     auto time1 = std::chrono::high_resolution_clock::now();
     accurateState.get()->directLib.computeResidueSupport();
@@ -345,6 +430,7 @@ void msa::accurate::DirectPairLibrary::computeResidueSupport() {
     std::cerr << "2. Compute Residue Support: ";
 
     for (int u = 0; u < totalSequence; ++u) {
+        bool isRepU = is_rep[u]; // 提取身份
         for (int v = u + 1; v < totalSequence; ++v) {
             int pairId = u * totalSequence - u * (u + 1) / 2 + (v - u - 1);
             int recordIdx = pair_to_record_idx[pairId];
@@ -355,11 +441,21 @@ void msa::accurate::DirectPairLibrary::computeResidueSupport() {
             float w = rec.weight;
             if (w <= 0.0f) continue;
 
+            bool isRepV = is_rep[v]; // 提取身份
+            bool bothReps = (isRepU && isRepV); // 判斷是否皆為 Rep
+
             for (size_t posI = 0; posI < rec.forward.size(); ++posI) {
                 int posJ = rec.forward[posI];
                 if (posJ != -1) {
+                    // 全域 Support (維持原樣)
                     residueSupport[u][posI] += w; 
                     residueSupport[v][posJ] += w;
+
+                    // 🔥 純 Rep Support (只有兩人都是 Rep 時才記錄)
+                    if (bothReps) {
+                        residueSupportRep[u][posI] += w;
+                        residueSupportRep[v][posJ] += w;
+                    }
                 }
             }
         }
@@ -404,7 +500,7 @@ std::vector<std::vector<float>> msa::accurate::buildConsistencyTable(
     std::vector<std::vector<float>> consistencyTable(refLen, std::vector<float>(qryLen, 0.0f));
 
     struct QryResInfo {
-        int qryCol; int seqB; int localB; int posB; float weight; float S_B;
+        int qryCol; int seqB; int localB; int posB; float weight; float S_B; float S_B_rep;
     };
     std::vector<QryResInfo> qryResList;
     std::vector<std::vector<int>> qryMap(totalSeq);
@@ -426,8 +522,9 @@ std::vector<std::vector<float>> msa::accurate::buildConsistencyTable(
             int posB = qryRes.residueIndex;
             int qID = qryResList.size();
             float S_B = directLib.residueSupport[localB][posB]; 
+            float S_B_rep = directLib.residueSupportRep[localB][posB];
             
-            qryResList.push_back({qryCol, seqB, localB, posB, qryRes.weight, S_B});
+            qryResList.push_back({qryCol, seqB, localB, posB, qryRes.weight, S_B, S_B_rep});
             qryMap[localB][posB] = qID;
             qryColWeightSum[qryCol] += qryRes.weight;
             
@@ -620,9 +717,42 @@ std::vector<std::vector<float>> msa::accurate::buildConsistencyTable(
                     num_B[qID] = 0.0f; 
 
                     const auto& qInfo = qryResList[qID];
+                    int localB = qInfo.localB;
                     float S_B = qInfo.S_B;
+                    float S_B_rep = qInfo.S_B_rep; // 🔥 取出 S_B_rep
 
+                    // 預設使用全域的 min
                     float denom = std::min(S_A, S_B);
+
+                    if (!is_dense) {
+                        bool isRepB = directLib.is_rep[localB];
+                        int clusterB = directLib.seq_to_cluster[localB];
+
+                        // Cross-Cluster
+                        if (clusterA != clusterB) {
+                            if (isRepA && isRepB) {
+                                float S_A_rep = directLib.residueSupportRep[localA][posA];
+                                // denom = std::min(S_A_rep, S_B_rep);
+                                denom = (S_A_rep + S_B_rep) / 2.0f;
+                            }
+                            else if (isRepA && !isRepB) {
+                                denom = static_cast<float>(directLib.cluster_reps[clusterB].size());
+                            } 
+                            else if (!isRepA && isRepB) {
+                                denom = static_cast<float>(directLib.cluster_reps[clusterA].size());
+                            }
+                        }
+                        else {
+                            if ((isRepA && isRepB) || (!isRepA && !isRepB)) {
+                                float S_A = directLib.residueSupport[localA][posA];
+                                denom = (S_A + S_B) / 2.0f;
+                            }
+                        }
+                    }
+                    else {
+                        denom = (S_A + S_B) / 2.0f;
+                    }
+                    // =========================================================
                     float tcs = (denom > 0.0f) ? std::clamp(num / denom, 0.0f, 1.0f) : 0.0f;
                     col_scores[qInfo.qryCol] += wA * qInfo.weight * tcs;
                 }
@@ -652,7 +782,6 @@ void msa::accurate::DirectPairLibrary::computePairWeights() {
     } else {
         std::cerr << "3. Compute Pair Weights (Sparse Mode - Rep Highway):\n";
         target_locals = all_reps;
-        
         std::sort(target_locals.begin(), target_locals.end());
         target_locals.erase(std::unique(target_locals.begin(), target_locals.end()), target_locals.end());
     }
@@ -661,89 +790,126 @@ void msa::accurate::DirectPairLibrary::computePairWeights() {
     std::mutex cout_mutex;
     size_t total_targets = target_locals.size();
 
+    // 輔助函式：快速計算 Pair ID
+    auto get_pair_id = [this](int a, int b) {
+        int _a = std::min(a, b);
+        int _b = std::max(a, b);
+        return _a * totalSequence - _a * (_a + 1) / 2 + (_b - _a - 1);
+    };
+
     tbb::parallel_for(tbb::blocked_range<size_t>(0, total_targets), [&](const tbb::blocked_range<size_t>& range) {
+        
+        // 🔥 優化 2：Thread-Local 緩衝區，避免頻繁 Heap Allocation
+        std::vector<float> num_V;
+        std::vector<int> active_V;
+        
+        // 定義快取結構，使用 Raw Pointer 達到極致速度
+        struct BridgeCache {
+            const int* uc_map;
+            int uc_size;
+            const int* cv_map;
+            int cv_size;
+            float weight;
+        };
+        std::vector<BridgeCache> valid_bridges;
+
         for (size_t i = range.begin(); i < range.end(); ++i) {
             int u = target_locals[i];
             for (size_t j = i + 1; j < total_targets; ++j) {
                 int v = target_locals[j];
                 
-                // 現在有了修復 1，u 絕對小於 v，這個數學公式 100% 安全
-                int pairId = u * totalSequence - u * (u + 1) / 2 + (v - u - 1);
-                int recIdx = pair_to_record_idx[pairId];
-                if (recIdx == -1) continue;
+                int pId_uv = get_pair_id(u, v);
+                int rIdx_uv = pair_to_record_idx[pId_uv];
+                if (rIdx_uv == -1) continue;
 
-                auto& rec = records[recIdx];
-                int lenU = rec.forward.size();
-                int lenV = rec.backward.size();
+                auto& rec_uv = records[rIdx_uv];
+                int lenU = rec_uv.forward.size();
+                int lenV = rec_uv.backward.size();
 
-                rec.extendedForward.assign(lenU, std::vector<ExtendedWeight>());
-                rec.extendedBackward.assign(lenV, std::vector<ExtendedWeight>());
+                rec_uv.extendedForward.assign(lenU, std::vector<ExtendedWeight>());
+                rec_uv.extendedBackward.assign(lenV, std::vector<ExtendedWeight>());
 
-                std::vector<float> num_V(lenV, 0.0f);
-                std::vector<int> active_V;
-                active_V.reserve(lenV);
+                // 複用 Thread-Local 緩衝區
+                // 只需要確保陣列夠大就好。
+                if (num_V.size() < lenV) {
+                    num_V.resize(lenV, 0.0f); 
+                }
+                active_V.clear();
+                valid_bridges.clear();
 
-                float w_uv = rec.weight;
+                // 🔥 優化 1：將 Bridge 的查表與權重計算「提取」到 posU 迴圈外部
+                for (int c : target_locals) {
+                    if (c == u || c == v) continue;
 
-                for (size_t posU = 0; posU < lenU; ++posU) {
-                    int directV = rec.forward[posU];
+                    int rIdx_uc = pair_to_record_idx[get_pair_id(u, c)];
+                    if (rIdx_uc == -1) continue;
+                    
+                    int rIdx_cv = pair_to_record_idx[get_pair_id(c, v)];
+                    if (rIdx_cv == -1) continue;
+
+                    float w_uc = records[rIdx_uc].weight;
+                    float w_cv = records[rIdx_cv].weight;
+                    
+                    if (w_uc > 0.0f && w_cv > 0.0f) {
+                        BridgeCache cache;
+                        cache.weight = std::min(w_uc, w_cv);
+
+                        // 判斷方向並獲取 Raw Pointer 與 Size
+                        const auto& rec_uc = records[rIdx_uc];
+                        if (u < c) {
+                            cache.uc_map = rec_uc.forward.data();
+                            cache.uc_size = rec_uc.forward.size();
+                        } else {
+                            cache.uc_map = rec_uc.backward.data();
+                            cache.uc_size = rec_uc.backward.size();
+                        }
+
+                        const auto& rec_cv = records[rIdx_cv];
+                        if (c < v) {
+                            cache.cv_map = rec_cv.forward.data();
+                            cache.cv_size = rec_cv.forward.size();
+                        } else {
+                            cache.cv_map = rec_cv.backward.data();
+                            cache.cv_size = rec_cv.backward.size();
+                        }
+
+                        valid_bridges.push_back(cache); // 只把有用的橋樑存起來
+                    }
+                }
+
+                float w_uv = rec_uv.weight;
+
+                // 🔥 優化 3：極速的最內層迴圈
+                for (int posU = 0; posU < lenU; ++posU) {
+                    int directV = rec_uv.forward[posU];
                     if (directV != -1) {
                         num_V[directV] = w_uv;
                         active_V.push_back(directV);
                     }
 
-                    for (int c : target_locals) {
-                        if (c == u || c == v) continue;
-
-                        auto getPos = [&](int a, int b, int posA) {
-                            if (a > b) {
-                                int pId = b * totalSequence - b * (b + 1) / 2 + (a - b - 1);
-                                int rId = pair_to_record_idx[pId];
-                                if (rId == -1) return -1;
-                                // 🔥 【修復 2】：加上強制的陣列邊界防護，遇到異常直接略過
-                                if (posA < 0 || posA >= records[rId].backward.size()) return -1;
-                                return records[rId].backward[posA];
-                            } else {
-                                int pId = a * totalSequence - a * (a + 1) / 2 + (b - a - 1);
-                                int rId = pair_to_record_idx[pId];
-                                if (rId == -1) return -1;
-                                // 🔥 【修復 2】：加上強制的陣列邊界防護
-                                if (posA < 0 || posA >= records[rId].forward.size()) return -1;
-                                return records[rId].forward[posA];
-                            }
-                        };
-
-                        int posC = getPos(u, c, posU);
-                        if (posC == -1) continue;
+                    // 現在只需遍歷「確定有連接」的橋樑，且只剩下純粹的陣列索引操作
+                    for (const auto& bc : valid_bridges) {
+                        if (posU >= bc.uc_size) continue;
                         
-                        int posV = getPos(c, v, posC);
-                        if (posV == -1) continue;
+                        int posC = bc.uc_map[posU];
+                        if (posC == -1 || posC >= bc.cv_size) continue;
                         
-                        // 雙重保險：確保算出來的 posV 不會超過 num_V 邊界
-                        if (posV < 0 || posV >= lenV) continue;
+                        int posV = bc.cv_map[posC];
+                        if (posV == -1 || posV < 0 || posV >= lenV) continue;
 
-                        auto getW = [&](int a, int b) {
-                            int _a = std::min(a, b); int _b = std::max(a, b);
-                            int pId = _a * totalSequence - _a * (_a + 1) / 2 + (_b - _a - 1);
-                            int rId = pair_to_record_idx[pId];
-                            return (rId == -1) ? 0.0f : records[rId].weight;
-                        };
-                        
-                        float w_uc = getW(u, c);
-                        float w_cv = getW(c, v);
-                        if (w_uc > 0.0f && w_cv > 0.0f) {
-                            if (num_V[posV] == 0.0f && directV != posV) active_V.push_back(posV);
-                            num_V[posV] += std::min(w_uc, w_cv);
+                        if (num_V[posV] == 0.0f && directV != posV) {
+                            active_V.push_back(posV);
                         }
+                        num_V[posV] += bc.weight;
                     }
 
                     for (int posV : active_V) {
                         float w = num_V[posV];
                         if (w > 0.0f) {
-                            rec.extendedForward[posU].push_back({posV, w});
-                            rec.extendedBackward[posV].push_back({static_cast<int32_t>(posU), w});
+                            rec_uv.extendedForward[posU].push_back({posV, w});
+                            rec_uv.extendedBackward[posV].push_back({static_cast<int32_t>(posU), w});
                         }
-                        num_V[posV] = 0.0f;
+                        num_V[posV] = 0.0f; // 寫完立刻歸零，省去 memset 開銷
                     }
                     active_V.clear();
                 }

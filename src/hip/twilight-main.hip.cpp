@@ -42,7 +42,7 @@ void parseArguments(int argc, char** argv)
     po::options_description alignDesc("Alignment Options and Parameters");
     alignDesc.add_options()
         ("type", po::value<std::string>(), "Data type. n: nucleotide, p: protein. Will be automatically inferred if not provided.")
-        ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree.")
+        ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree for divide-and-conquer memory control. Default: unlimited.")
         ("remove-gappy,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
         ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
         ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)")
@@ -66,17 +66,22 @@ void parseArguments(int argc, char** argv)
         ("match", po::value<float>()->default_value(18), "Match score.")
         ("mismatch", po::value<float>()->default_value(-8), "Mismatch penalty for transversions.")
         ("transition", po::value<float>()->default_value(-4), "Score for transitions.")
-        ("gap-open", po::value<float>()->default_value(-50), "Gap-Open penalty.")
-        ("gap-extend", po::value<float>()->default_value(-5), "Gap-Extend penalty.")
+        ("gap-open", po::value<float>()->default_value(-1.80f), "Gap-Open penalty in normalized units (relative to average match = 1.0).")
+        ("gap-extend", po::value<float>()->default_value(-0.18f), "Gap-Extend penalty in normalized units (relative to average match = 1.0).")
         ("gap-ends", po::value<float>(), "Gap penalty at ends, default set to the same as the gap extension penalty.")
+        ("offset", po::value<float>()->default_value(0.0f), "Matrix offset in normalized units (default: 0.0, MAFFT profile: 0.123, local: 0.10).")
         ("xdrop", po::value<float>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty.")
         ("matrix,x", po::value<std::string>(), "Use a user-defined substitution matrix (only for nucleotide).")
-        ("blosum,b", po::value<int>()->default_value(62), "BLOSUM matrix to use for protein sequences: 45, 62, or 80.");
+        ("blosum,b", po::value<int>()->default_value(62), "Substitution matrix to use for protein sequences: 45, 62, 80, or 99 (MIQS).");
 
     po::options_description generalDesc("General");
     generalDesc.add_options()
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
         ("verbose,v", "Print out every detail process.")
+        ("accurate", "Enable subtree-local accurate mode with direct pairwise-library construction.")
+        ("acc-max-group", po::value<int>()->default_value(1000), "Maximum number of sequences in a consistency group for accurate mode (default: 1000). Controls all-to-all pairwise complexity.")
+        ("acc-sample-rate", po::value<float>()->default_value(0.1f), "Sample rate for hierarchical consistency representative selection (must be >0, <1; restricted to: 0.5, 0.2, 0.1, 0.05, 0.02, 0.01).")
+        ("consistency-weight", po::value<float>()->default_value(1.0f), "Weight multiplier for consistency bonus in accurate mode (default: 1.0).")
         ("help,h", "Print help messages.")
         ("version,V", "Show program version.");
 

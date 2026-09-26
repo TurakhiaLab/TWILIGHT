@@ -100,7 +100,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     gzclose(f_rd);
 
     // Prune Tree if necessary
-    if (tree->m_numLeaves != seqNum && option->alnMode == DEFAULT_ALN) {
+    if (tree->m_numLeaves != seqNum && (option->alnMode == DEFAULT_ALN || option->alnMode == ACCURATE_ALN)) {
         printf("Warning: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
         int kk = 0;
         for (auto node: tree->allNodes) {
@@ -362,7 +362,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
     bool nochange = false;
     char gapType = (option->alnMode == PLACE_WO_TREE) ? '.' : '-';
     stringPairVec seqs_before, seqs_after;
-    if (option->alnMode == DEFAULT_ALN && option->compressed) fileName += ".gz";
+    if ((option->alnMode == DEFAULT_ALN || option->alnMode == ACCURATE_ALN) && option->compressed) fileName += ".gz";
     fs::path p(fileName);
     std::string filename = p.stem().string();
     std::string finalAlnFileName = option->tempDir + "/" + filename + ".final.aln";
@@ -443,7 +443,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
         int delResult = system(command.c_str());
         if (delResult != 0) std::cerr << "ERROR: Unable to copy " << fileName << " to " << finalAlnFileName << ".\n";
     }
-    if (option->deleteTemp && option->alnMode == 0) {
+    if (option->deleteTemp && (option->alnMode == 0 || option->alnMode == ACCURATE_ALN)) {
         std::string command = "rm " + fileName;
         int delResult = system(command.c_str());
         if (delResult != 0) std::cerr << "ERROR: Unable to delete " << fileName << ".\n";

@@ -65,9 +65,10 @@ phylogeny::Tree* phylogeny::getPlacementTree(Tree* T) {
 }
 
 
-phylogeny::Node* buildInducedTree(phylogeny::Node* origNode, 
-                                  std::unordered_map<std::string, std::pair<phylogeny::Node*, size_t>>& targetNodes, 
-                                  phylogeny::Tree* T) {
+phylogeny::Node* phylogeny::buildInducedTree(
+    phylogeny::Node* origNode, 
+    const std::unordered_map<std::string, std::pair<phylogeny::Node*, size_t>>& targetNodes, 
+    phylogeny::Tree* T) {
     if (origNode == nullptr) return nullptr;
 
     std::vector<phylogeny::Node*> validChildrenCopies;

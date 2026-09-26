@@ -289,6 +289,7 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> msa::accurate::buildSubtree
     }
 
     tbb::parallel_for( tbb::blocked_range<std::size_t>(0, total), [&](const tbb::blocked_range<std::size_t>& range) {
+        Aligner aligner;
         for (std::size_t pairIdx = range.begin(); pairIdx < range.end(); ++pairIdx) {
             const auto [refIdx, qryIdx] = pairJobs[pairIdx];
             

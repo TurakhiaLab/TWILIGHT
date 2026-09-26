@@ -135,7 +135,7 @@ else()
 					      src/cuda/gpu-info.cu
 				          src/cuda/alignment-gpu.cu
 				          src/cuda/device-function.cu
-					      src/cuda/consistency_v2.cu
+					  # src/cuda/consistency_v2.cu
 					      src/phylogeny.cpp
 					      src/tree.cpp
 					      src/partitionInfo.cpp
@@ -144,7 +144,8 @@ else()
 					      src/io.cpp
 					      src/option.cpp
 					      src/local-align.cpp
-					      src/consistency_v2.cpp
+					      src/consistency_v3.cpp
+					      src/accurate.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
@@ -176,6 +177,7 @@ else()
 					      src/option.cpp
 					      src/local-align.cpp
 					      src/consistency.cpp
+					      src/accurate.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
@@ -195,6 +197,7 @@ else()
 					      src/option.cpp
 					      src/local-align.cpp
 					      src/consistency_v2.cpp
+					      src/accurate.cpp
 					      src/sequencedb.cpp
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp

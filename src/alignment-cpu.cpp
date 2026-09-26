@@ -101,7 +101,10 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
             
         }
         // -------
-        alignment_helper::calculatePSGP(hostFreq, hostGapOp, hostGapEx, nodes[nIdx], database, option, memLen, {0,0}, lens, param);
+        // alignment_helper::calculatePSGP(hostFreq, hostGapOp, hostGapEx, nodes[nIdx], database, option, memLen, {0,0}, lens, param);
+        // alignment_helper::calculatePSGP_MAFFT_new(hostGapOp, hostGapEx, nodes[nIdx], database, memLen, lens, param);
+        msa::FAMSAProfile profRef, profQry;
+        alignment_helper::calculatePSGP_FAMSA(profRef, profQry, nodes[nIdx], database, option, param, lens, gappyColumns);
         
         auto preEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds pTime = preEnd - preStart;
@@ -129,7 +132,7 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
         if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_wo_gc.push_back(2);
         bool lowQ_r = (option->alnMode == MERGE_MSA) ? false : ((refNum > 1) ? false : database->sequences[nodes[nIdx].first->seqsIncluded[0]]->lowQuality);
         bool lowQ_q = (option->alnMode == MERGE_MSA) ? false : ((qryNum > 1) ? false : database->sequences[nodes[nIdx].second->seqsIncluded[0]]->lowQuality);
-       if (!lowQ_r && !lowQ_q) {
+        if (!lowQ_r && !lowQ_q) {
             auto talcoStart = std::chrono::high_resolution_clock::now();
             while (aln_wo_gc.empty()) {
                 int16_t errorType = 0;
@@ -149,16 +152,56 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 //     aln_wo_gc,
                 //     errorType
                 // );
-                aln_wo_gc = alignProfile_global (
-                    freqRef,
-                    freqQry,
-                    gapOp,
-                    gapEx,
-                    num,
-                    param,
-                    (option->accurate && database->currentTask == 0 && database->accurateState && !consistencyTable.empty()) ? &consistencyTable : nullptr,
-                    (option->accurate && database->currentTask == 0 && database->accurateState) ? option->consistencyWeight : 0.0f                
-                );
+                int minL = std::min(lens.first, lens.second);
+                int maxL = std::max(lens.first, lens.second);
+                int diff = maxL - minL;
+                const auto* cTable = (option->accurate && database->currentTask == 0 && database->accurateState && !consistencyTable.empty()) ? &consistencyTable : nullptr;
+                float cWeight = (option->accurate && database->currentTask == 0 && database->accurateState) ? option->consistencyWeight : 0.0f;
+
+                /*
+                // Criterion 3: Banded optimization for long profiles (minL >= 500) with similar lengths (diff <= 15% of minL)
+                if (0 > 1) {
+                // if (minL >= 500 && (static_cast<float>(diff) / static_cast<float>(minL) <= 0.15f)) {
+                    int bandWidth = diff + std::max(128, static_cast<int>(0.10f * minL));
+                    if (bandWidth < minL) {
+                        aln_wo_gc = alignProfile_global_banded (
+                            freqRef,
+                            freqQry,
+                            gapOp,
+                            gapEx,
+                            num,
+                            param,
+                            bandWidth,
+                            cTable,
+                            cWeight
+                        );
+                    } else {
+                        aln_wo_gc = alignProfile_global (
+                            freqRef,
+                            freqQry,
+                            gapOp,
+                            gapEx,
+                            num,
+                            param,
+                            cTable,
+                            cWeight
+                        );
+                    }
+                } else {
+                    aln_wo_gc = alignProfile_global (
+                        freqRef,
+                        freqQry,
+                        gapOp,
+                        gapEx,
+                        num,
+                        param,
+                        cTable,
+                        cWeight
+                    );
+                }
+                */
+                // FAMSA profile alignment DP kernel
+                aln_wo_gc = alignProfile_FAMSA(profRef, profQry, param, cTable, cWeight);
                 // if (freqRef.size() == 430 && freqQry.size() == 1238) {
                 //     for (auto& a: aln_wo_gc) std::cout << (a & 0xFFFF);
                 //     std::cout << std::endl;

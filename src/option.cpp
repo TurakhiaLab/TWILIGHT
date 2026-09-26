@@ -2,6 +2,7 @@
 #include "msa.hpp"
 #endif
 
+#include <cmath>
 #include <zlib.h>
 #include <sys/stat.h>
 #include <boost/filesystem.hpp>
@@ -90,12 +91,20 @@ msa::Option::Option(po::variables_map& vm) {
 
     
     this->reroot = !vm.count("rooted");
+    this->noSeqWeighting = vm.count("no-seq-weighting");
+    phylogeny::Tree::s_noSeqWeighting = this->noSeqWeighting;
     this->debug = vm.count("check");
     this->cpuOnly = vm.count("cpu-only");
     this->printDetail = vm.count("verbose");
     // -------
     this->accurate = vm.count("accurate");
-    this->consistencyWeight = 1.0f;
+    this->consistencyWeight = (vm.count("consistency-weight")) ? vm["consistency-weight"].as<float>() : 1.0f;
+    this->accSampleRate = (vm.count("acc-sample-rate")) ? vm["acc-sample-rate"].as<float>() : 0.1f;
+    this->accMaxGroup = (vm.count("acc-max-group")) ? vm["acc-max-group"].as<int>() : 1000;
+    if (this->accMaxGroup <= 1) {
+        std::cerr << "ERROR: Invalid value for --acc-max-group. The value of --acc-max-group should be > 1 (got " << this->accMaxGroup << ").\n";
+        exit(1);
+    }
     // -------
     this->deleteTemp = !vm.count("keep-temp");
     this->alignGappy = !vm.count("no-align-gappy");
@@ -104,11 +113,28 @@ msa::Option::Option(po::variables_map& vm) {
     this->writeFiltered = vm.count("write-filtered");
     // -------
     if (this->accurate) {
-        if (this->alnMode != DEFAULT_ALN) {
+        if (this->alnMode != DEFAULT_ALN && this->alnMode != ACCURATE_ALN) {
             std::cerr << "ERROR: --accurate is currently supported only for guide-tree alignment from unaligned sequences.\n";
             exit(1);
         }
-        if (!(vm.count("max-subtree"))) this->maxSubtree = 1000;
+        this->alnMode = ACCURATE_ALN;
+    }
+    if (this->accSampleRate <= 0.0f || this->accSampleRate >= 1.0f) {
+        std::cerr << "ERROR: --acc-sample-rate must be greater than 0 and less than 1 (got " << this->accSampleRate << ").\n";
+        exit(1);
+    }
+    const std::vector<float> allowedRates = {0.5f, 0.2f, 0.1f, 0.05f, 0.02f, 0.01f};
+    bool validRate = false;
+    for (float rate : allowedRates) {
+        if (std::abs(this->accSampleRate - rate) < 1e-4f) {
+            validRate = true;
+            this->accSampleRate = rate;
+            break;
+        }
+    }
+    if (!validRate) {
+        std::cerr << "ERROR: --acc-sample-rate must be restricted to one of: 0.5, 0.2, 0.1, 0.05, 0.02, 0.01 (got " << this->accSampleRate << ").\n";
+        exit(1);
     }
     // -------
 
@@ -220,7 +246,7 @@ msa::Option::Option(po::variables_map& vm) {
     
 
     // Create Temporary Directory if Needed
-    if (this->maxSubtree < INT32_MAX || vm.count("files") || this->alnMode == 2) {
+    if (this->maxSubtree < INT32_MAX || (this->accurate && this->accMaxGroup < INT32_MAX) || vm.count("files") || this->alnMode == 2) {
         std::string tempDir;
         if (!vm.count("temp-dir")) {
             int idx = 1;
@@ -255,7 +281,7 @@ msa::Option::Option(po::variables_map& vm) {
     
     std::cerr << "====== Configuration =======\n";
     // -------
-    if (this->accurate) std::cerr << "Accurate mode: enabled (forcing max-subtree to 200, consistency weight=" << this->consistencyWeight << ")\n";
+    if (this->accurate) std::cerr << "Accurate mode: enabled (acc-max-group=" << this->accMaxGroup << ", acc-sample-rate=" << this->accSampleRate << ", consistency weight=" << this->consistencyWeight << ")\n";
     // -------
     if (this->maxSubtree != INT32_MAX) 
     std::cerr << "Max-subtree: " << this->maxSubtree << '\n';

@@ -315,28 +315,32 @@ void phylogeny::Tree::calLeafNum() {
 };
 
 void phylogeny::Tree::calSeqWeight() {
-    float maxWeight = 0;
+    if (s_noSeqWeighting) {
+        for (auto node: this->allNodes) {
+            if (!node.second->is_leaf()) continue;
+            this->allNodes[node.second->identifier]->weight = 1.0f;
+        }
+        return;
+    }
+
+    float maxWeight = 0.0f;
     for (auto node: this->allNodes) {
         if (!node.second->is_leaf()) continue;
-        float w = 0;
+        float w = 0.0f;
         Node* current = node.second;
         while (true) {
             w += current->branchLength / current->numLeaves;
-            // w += 1.0 / current->numLeaves;
             current = current->parent;
             if (current == nullptr) break; 
         }
-        // w = 1.0;
         this->allNodes[node.second->identifier]->weight = w;
         if (w > maxWeight) maxWeight = w;
     }
-    float normFactor = maxWeight / 1.0;
+    float normFactor = (maxWeight > 0.0f) ? (maxWeight / 1.0f) : 1.0f;
     for (auto node: this->allNodes) {
         if (!node.second->is_leaf()) continue;
         this->allNodes[node.second->identifier]->weight /= normFactor;
     }
-    
-    
     return;
 };
 

@@ -32,9 +32,7 @@
 
 #define I_BOUNDARY -2
 #define D_BOUNDARY -3
-// -------
-static constexpr float CONSISTENCY_ALPHA = 30.0f;
-// -------
+
 
 Talco_xdrop::Params::Params(msa::Params& param) {
     this->matrixSize = param.matrixSize;
@@ -464,7 +462,7 @@ void Talco_xdrop::Tile (
                     if (consistencyTable != nullptr &&
                         reference_idx + j < static_cast<int32_t>(consistencyTable->size()) &&
                         query_idx + i < static_cast<int32_t>((*consistencyTable)[reference_idx + j].size())) {
-                        consistencyBonus = CONSISTENCY_ALPHA * consistencyWeight * (*consistencyTable)[reference_idx + j][query_idx + i];
+                        consistencyBonus = consistencyWeight * (*consistencyTable)[reference_idx + j][query_idx + i];
                         // if (consistencyBonus > 0) std::cout << similarScore << ' ' << consistencyBonus << ' ' << consistencyWeight << ' ' << (*consistencyTable)[reference_idx + j][query_idx + i] << '\n';
                     }
                     // -------

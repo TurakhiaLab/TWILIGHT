@@ -142,8 +142,14 @@ __global__ void buildLibrary_GPU(
     }
 }
 
-// 🚀 極速版 Sparse Sub-Matrix：徹底消滅 O(L^2) 的龐大記憶體消耗
-__global__ void computePairWeight_GPU_SparseRow(
+// 在 global 範圍宣告 BridgeCache 結構 (或是放進 kernel 內)
+struct BridgeCache {
+    const int32_t* map_uc; // 直接指向 Global Memory 的指標
+    const int32_t* map_cv;
+    float weight;
+};
+
+__global__ void computePairWeight_GPU_SparseRow_Opt(
     int num_jobs,
     int2* d_computeJobs,        
     int* d_target_locals,       
@@ -161,7 +167,6 @@ __global__ void computePairWeight_GPU_SparseRow(
     int max_edges_per_pair,
     int max_seq_len
 ) {
-
     int bx = blockIdx.x;
     for (int job_idx = bx; job_idx < num_jobs; job_idx += gridDim.x) {
 
@@ -173,47 +178,93 @@ __global__ void computePairWeight_GPU_SparseRow(
         int id_uv = get_idx(u, v, totalSequence);
         float w_uv = d_weights[id_uv];
 
-        // 🔥 神奇魔法：宣告動態 Shared Memory
-        extern __shared__ float s_num_V[]; 
+        // ====================================================================
+        // 🔥 動態 Shared Memory 配置：同時容納 s_num_V 與 BridgeCache
+        // ====================================================================
+        extern __shared__ char smem[];
         
-        __shared__ int edge_count;
-        if (threadIdx.x == 0) edge_count = 0;
+        // 1. 前半段給 s_num_V
+        float* s_num_V = (float*)smem;
+        
+        // 2. 確保 8-Bytes 對齊，因為我們要把 64-bit 指標存入 BridgeCache
+        size_t s_num_V_bytes = (max_seq_len * sizeof(float) + 7) & ~7;
+        BridgeCache* s_bridges = (BridgeCache*)(smem + s_num_V_bytes);
 
-        // 初始化 s_num_V
-        for (int i = threadIdx.x; i < lenV; i += blockDim.x) {
-            s_num_V[i] = 0.0f;
+        __shared__ int s_num_bridges;
+        __shared__ int s_edge_count;
+
+        if (threadIdx.x == 0) {
+            s_num_bridges = 0;
+            s_edge_count = 0;
         }
         __syncthreads();
 
+        // ====================================================================
+        // 🌟 Phase 1: 預先篩選橋樑 (由 Thread 0 循序處理，保證順序一致)
+        // ====================================================================
+        if (threadIdx.x == 0) {
+            int b_idx = 0;
+            for (int c_idx = 0; c_idx < num_targets; ++c_idx) {
+                int c = d_target_locals[c_idx];
+                if (c == u || c == v) continue;
+
+                int id_uc = get_idx(u, c, totalSequence);
+                int id_cv = get_idx(c, v, totalSequence);
+                float w_uc = d_weights[id_uc];
+                float w_cv = d_weights[id_cv];
+
+                if (w_uc > 0.0f && w_cv > 0.0f) {
+                    uint64_t offset_uc = d_pairOffsets[id_uc];
+                    uint64_t offset_cv = d_pairOffsets[id_cv];
+                    
+                    s_bridges[b_idx].map_uc = (u < c) ? &d_forward[offset_uc] : &d_backward[offset_uc];
+                    s_bridges[b_idx].map_cv = (c < v) ? &d_forward[offset_cv] : &d_backward[offset_cv];
+                    s_bridges[b_idx].weight = fminf(w_uc, w_cv);
+                    b_idx++;
+                }
+            }
+            s_num_bridges = b_idx;
+        }
+        __syncthreads();
+
+        // 取得 Direct Edge 的指標
+        uint64_t offset_uv = d_pairOffsets[id_uv];
+        const int32_t* ptr_uv_direct = &d_forward[offset_uv]; // u 永遠小於 v，所以一定是 forward
+
+        // ====================================================================
+        // 🌟 Phase 2: 極速版最內層迴圈
+        // ====================================================================
+        int total_valid_bridges = s_num_bridges;
+
         for (int posU = 0; posU < lenU; ++posU) {
             
+            // 初始化 s_num_V
+            for (int i = threadIdx.x; i < lenV; i += blockDim.x) {
+                s_num_V[i] = 0.0f;
+            }
+            __syncthreads();
+
             // 1. Direct Edge
-            int directV = get_pos_GPU(u, v, posU, totalSequence, d_pairOffsets, d_forward, d_backward);
             if (threadIdx.x == 0) {
+                int directV = ptr_uv_direct[posU];
                 if (directV != -1 && directV >= 0 && directV < lenV) {
-                    s_num_V[directV] = w_uv; 
+                    s_num_V[directV] = w_uv;
                 }
             }
             __syncthreads();
 
-            // 2. Highway Extension
-            for (int c_idx = threadIdx.x; c_idx < num_targets; c_idx += blockDim.x) {
-                int c = d_target_locals[c_idx];
-                if (c == u || c == v) continue;
-            
-                float w_uc = d_weights[get_idx(u, c, totalSequence)];
-                if (w_uc > 0.0f) {
-                    int posC = get_pos_GPU(u, c, posU, totalSequence, d_pairOffsets, d_forward, d_backward);
-                    if (posC != -1) {
-                        float w_cv = d_weights[get_idx(c, v, totalSequence)];
-                        if (w_cv > 0.0f) {
-                            int posV = get_pos_GPU(c, v, posC, totalSequence, d_pairOffsets, d_forward, d_backward);
-                            if (posV != -1 && posV >= 0 && posV < lenV) {
-                                float min_w = fminf(w_uc, w_cv);
-                                // 🔥 這裡的 atomicAdd 是在 Shared Memory 執行，快如閃電！
-                                atomicAdd(&s_num_V[posV], min_w);
-                            }
-                        }
+            // 2. Highway Extension (🔥 這裡現在快得不可思議)
+            // Thread 平行遍歷「確定有效」的橋樑，且只做純指標存取
+            for (int i = threadIdx.x; i < total_valid_bridges; i += blockDim.x) {
+                const int32_t* map_uc = s_bridges[i].map_uc;
+                int posC = map_uc[posU];
+                
+                if (posC != -1) {
+                    const int32_t* map_cv = s_bridges[i].map_cv;
+                    int posV = map_cv[posC];
+                    
+                    if (posV != -1 && posV >= 0 && posV < lenV) {
+                        atomicAdd(&s_num_V[posV], s_bridges[i].weight);
                     }
                 }
             }
@@ -223,22 +274,20 @@ __global__ void computePairWeight_GPU_SparseRow(
             for (int i = threadIdx.x; i < lenV; i += blockDim.x) {
                 float w = s_num_V[i];
                 if (w > 0.0f) {
-                    // 這裡的 atomicAdd 是針對 __shared__ 變數，一樣超快
-                    int write_idx = atomicAdd(&edge_count, 1);
+                    int write_idx = atomicAdd(&s_edge_count, 1);
                     if (write_idx < max_edges_per_pair) {
                         uint64_t base_idx = (uint64_t)job_idx * max_edges_per_pair + write_idx;
                         d_sparse_posU[base_idx] = posU;
                         d_sparse_posV[base_idx] = i;
                         d_sparse_weight[base_idx] = w;
                     }
-                    s_num_V[i] = 0.0f; // 重置
                 }
             }
             __syncthreads();
         }
 
         if (threadIdx.x == 0) {
-            d_sparse_counts[job_idx] = (edge_count < max_edges_per_pair) ? edge_count : max_edges_per_pair;
+            d_sparse_counts[job_idx] = (s_edge_count < max_edges_per_pair) ? s_edge_count : max_edges_per_pair;
         }
     }
 }
@@ -1033,6 +1082,7 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
 
     auto time2 = std::chrono::high_resolution_clock::now();
 
+    
     // -------------------------------------------------------------
     // [區塊 4]：🚀 GPU 趁熱打鐵！啟動 Sparse Compaction Chunking 運算！
     // -------------------------------------------------------------
@@ -1066,8 +1116,8 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
     // 🔥 全新 VRAM 配置：再也不用擔心 OOM！
     // ====================================================================
     // 因為改成了 Row-by-row，記憶體負擔極小，我們可以安全地將 Chunk 放大，並調高 Edge 容量上限
-    int max_jobs_per_chunk = 10000; 
-    int max_edges_per_pair = 20000; // 提升兩倍，避免 Dense 區域被截斷
+    int max_jobs_per_chunk = 5000; 
+    int max_edges_per_pair = 100000; // 提升兩倍，避免 Dense 區域被截斷
 
     float* d_global_num_V;
     cudaMalloc(&d_global_num_V, (size_t)max_jobs_per_chunk * max_seq_len * sizeof(float));
@@ -1117,10 +1167,20 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
         // 🚀 啟動極速 Row-by-Row Kernel
         // 一個 Block 處理一個 job，所以 Grid Size 必須等於 chunk_job_count
         // 只需要計算 num_V 需要的 bytes 數
-        size_t shared_mem_size = max_seq_len * sizeof(float);
+        // size_t shared_mem_size = max_seq_len * sizeof(float);
 
-        computePairWeight_GPU_SparseRow<<<chunk_job_count, 256, shared_mem_size>>>(
-        // computePairWeight_GPU_SparseRow<<<chunk_job_count, 256>>>(
+        // 🚀 計算精準的 Shared Memory Size
+        // 1. s_num_V 需要的空間，並保證對齊 8 Bytes
+        size_t s_num_V_bytes = (max_seq_len * sizeof(float) + 7) & ~7;
+        // 2. BridgeCache 陣列需要的空間 (最慘情況：所有的 target_locals 都是有效的橋樑)
+        size_t s_bridges_bytes = target_locals.size() * sizeof(BridgeCache);
+        size_t shared_mem_size = s_num_V_bytes + s_bridges_bytes;
+
+        // 🔥 如果 Shared Memory 超過 48KB，必須呼叫這個 API 解除限制
+        // (現代 GPU 通常支援到 64KB 甚至 96KB 的 Shared Memory)
+        cudaFuncSetAttribute(computePairWeight_GPU_SparseRow_Opt, cudaFuncAttributeMaxDynamicSharedMemorySize, shared_mem_size);
+
+        computePairWeight_GPU_SparseRow_Opt<<<chunk_job_count, 256, shared_mem_size>>>(
             chunk_job_count, d_computeJobs, gpu_ptrs.deviceTargetLocals, target_locals.size(),
             sequenceCount, d_seqLengths, gpu_ptrs.deviceForward, gpu_ptrs.deviceBackward,
             gpu_ptrs.deviceWeights, gpu_ptrs.devicePairOffsets,
@@ -1157,6 +1217,9 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
                 auto& rec = ConsistencyLibrary.records[rId];
                 
                 int edge_count = h_sparse_counts[p];
+                if (h_sparse_counts[p] >= max_edges_per_pair) {
+                    std::cerr << "\n🚨 警告：有一對序列的邊數超過了 " << max_edges_per_pair << " 被截斷了！\n";
+                }
                 uint64_t base_idx = (uint64_t)p * max_edges_per_pair;
             
                 // --- 1. 預先計算容量 (Counting Pass) ---
@@ -1188,8 +1251,8 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
         });
 
          auto cpu_en = std::chrono::high_resolution_clock::now();
-         std::cout << "GPU time: " << std::chrono::duration_cast<std::chrono::milliseconds>(cpu_st - gpu_st).count() << " ms\n";
-         std::cout << "CPU time: " << std::chrono::duration_cast<std::chrono::milliseconds>(cpu_en - cpu_st).count() << " ms\n";
+         // std::cout << "GPU time: " << std::chrono::duration_cast<std::chrono::milliseconds>(cpu_st - gpu_st).count() << " ms\n";
+         // std::cout << "CPU time: " << std::chrono::duration_cast<std::chrono::milliseconds>(cpu_en - cpu_st).count() << " ms\n";
 
 
         current_job_idx += chunk_job_count;
@@ -1198,7 +1261,6 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
                   << std::fixed << std::setprecision(1) << percent << "%)\r" << std::flush;
     }
     std::cerr << "\n";
-
     cudaFreeHost(h_sparse_posU); cudaFreeHost(h_sparse_posV);
     cudaFreeHost(h_sparse_weight); cudaFreeHost(h_sparse_counts);
 
@@ -1208,6 +1270,11 @@ std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_G
     cudaFree(d_sparse_weight);
     cudaFree(d_sparse_counts);
     cudaFree(d_computeJobs);
+    
+
+    // ConsistencyLibrary.computePairWeights();
+
+    
     
     gpu_ptrs.freeMemory();
     auto time3 = std::chrono::high_resolution_clock::now();
