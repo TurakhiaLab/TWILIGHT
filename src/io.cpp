@@ -100,7 +100,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     gzclose(f_rd);
 
     // Prune Tree if necessary
-    if (tree->m_numLeaves != seqNum && option->alnMode == DEFAULT_ALN) {
+    if (tree->m_numLeaves != seqNum && (option->alnMode == DEFAULT_ALN || option->alnMode == ACCURATE_ALN)) {
         printf("Warning: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
         int kk = 0;
         for (auto node: tree->allNodes) {
@@ -128,8 +128,11 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
 
     uint32_t avgLen = totalLen/(seqNum - seqNum_init);
     uint32_t medLen = seqsLens[(seqNum - seqNum_init)/2];
-    int minLenTh = (option->lenDev > 0) ? static_cast<int>(medLen*(1-option->lenDev)) : option->minLen;
-    int maxLenTh = (option->lenDev > 0) ? static_cast<int>(medLen*(1+option->lenDev)) : option->maxLen;
+
+    bool min_max = (option->minLen > 0 || option->maxLen < INT32_MAX);
+
+    int minLenTh = (min_max) ? option->minLen : (option->lenDev > 0) ? static_cast<int>(medLen*(1-option->lenDev)) : option->minLen;
+    int maxLenTh = (min_max) ? option->maxLen : (option->lenDev > 0) ? static_cast<int>(medLen*(1+option->lenDev)) : option->maxLen;
     std::atomic<int> numLowQ;
     tbb::spin_rw_mutex lowQMutex;
     stringPairVec lowQSeqs;
@@ -174,9 +177,29 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
     
     // Print summary
+    int numRead = (seqNum - seqNum_init);
+    if (option->accurate) {
+        option->resolveAccurateParams(numRead);
+        if (option->printDetail) {
+            std::string modeDesc;
+            if (option->accMode == 0) {
+                modeDesc = "0 (auto -> mode " + std::to_string(option->resolvedAccMode) + ")";
+            } else if (option->accMode == 1) {
+                modeDesc = "1 (all-to-all)";
+            } else if (option->accMode == 2) {
+                modeDesc = "2 (high sample rate)";
+            } else {
+                modeDesc = "3 (low sample rate)";
+            }
+            std::cerr << "[Accurate Mode] Resolved parameters for " << numRead << " sequences: acc-mode=" << modeDesc
+                      << ", acc-max-group=" << option->accMaxGroup
+                      << ", acc-sample-rate=" << option->accSampleRate
+                      << ", acc-sample-top=" << option->accSampleTop << "\n";
+        }
+    }
     if (option->alnMode != 3 || placed) {
         std::cerr << "===== Sequence Summary =====\n";
-        std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
+        std::cerr << "Number : " << numRead << '\n';
         std::cerr << "Max. Length: " << maxLen << '\n';
         std::cerr << "Min. Length: " << minLen << '\n';
         std::cerr << "Avg. Length: " << avgLen << '\n';
@@ -190,7 +213,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     }
     else {
         std::cerr << "==== Backbone Alignment ====\n";
-        std::cerr << "Number : " << (seqNum - seqNum_init) << '\n';
+        std::cerr << "Number : " << numRead << '\n';
         std::cerr << "Length:  " << avgLen << '\n';
         std::cerr << "Backbone alignment read in " <<  seqReadTime.count() / 1000000 << " ms\n";
         // std::cerr << "============================\n";
@@ -359,7 +382,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
     bool nochange = false;
     char gapType = (option->alnMode == PLACE_WO_TREE) ? '.' : '-';
     stringPairVec seqs_before, seqs_after;
-    if (option->alnMode == DEFAULT_ALN && option->compressed) fileName += ".gz";
+    if ((option->alnMode == DEFAULT_ALN || option->alnMode == ACCURATE_ALN) && option->compressed) fileName += ".gz";
     fs::path p(fileName);
     std::string filename = p.stem().string();
     std::string finalAlnFileName = option->tempDir + "/" + filename + ".final.aln";
@@ -440,7 +463,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
         int delResult = system(command.c_str());
         if (delResult != 0) std::cerr << "ERROR: Unable to copy " << fileName << " to " << finalAlnFileName << ".\n";
     }
-    if (option->deleteTemp && option->alnMode == 0) {
+    if (option->deleteTemp && (option->alnMode == 0 || option->alnMode == ACCURATE_ALN)) {
         std::string command = "rm " + fileName;
         int delResult = system(command.c_str());
         if (delResult != 0) std::cerr << "ERROR: Unable to delete " << fileName << ".\n";
@@ -483,6 +506,11 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen) {
         std::vector<std::pair<std::string,std::string>> seqs;
         std::cerr << "Final Alignment Length: " << alnLen << '\n';
         writeAlignment(fileName, database, alnLen, option->compressed);
+        if (option->deleteTemp && option->tempDir != "") {
+            std::string command = "rm -rf " + option->tempDir;
+            int delResult = system(command.c_str());
+            if (delResult != 0) std::cerr << "ERROR: Unable to delete temporary files.\n";
+        }
     }
     return;
 }

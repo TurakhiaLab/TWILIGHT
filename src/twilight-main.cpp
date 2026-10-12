@@ -65,12 +65,22 @@ void parseArguments(int argc, char** argv)
         ("match", po::value<float>()->default_value(18), "Match score.")
         ("mismatch", po::value<float>()->default_value(-8), "Mismatch penalty for transversions.")
         ("transition", po::value<float>()->default_value(-4), "Score for transitions.")
-        ("gap-open", po::value<float>()->default_value(-50), "Gap-Open penalty.")
-        ("gap-extend", po::value<float>()->default_value(-5), "Gap-Extend penalty.")
+        ("gap-open", po::value<float>(), "Gap-Open penalty in normalized units (relative to average match = 1.0).")
+        ("gap-extend", po::value<float>(), "Gap-Extend penalty in normalized units (relative to average match = 1.0).")
         ("gap-ends", po::value<float>(), "Gap penalty at ends, default set to the same as the gap extension penalty.")
+        ("scale", po::value<float>(), "Matrix and gap normalization scale constant (default: 600.0 for protein, 20.0 for nucleotide).")
         ("xdrop", po::value<float>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty.")
         ("matrix,x", po::value<std::string>(), "Use a user-defined substitution matrix (only for nucleotide).")
-        ("blosum,b", po::value<int>()->default_value(62), "BLOSUM matrix to use for protein sequences: 45, 62, or 80.");
+        ("blosum,b", po::value<int>()->default_value(62), "Substitution matrix to use for protein sequences: 43 (PFASUM43), 45, 62, 80, or 99 (MIQS).");
+
+    po::options_description accurateDesc("Accurate Mode Options");
+    accurateDesc.add_options()
+        ("accurate", po::value<std::string>()->implicit_value("pairwise"), "Enable accurate consistency alignment (runs pairwise consistency by default; specify 'tcs' for Transitive Consistency Score: --accurate [tcs]).")
+        ("acc-mode", po::value<int>()->default_value(0), "Accurate preset mode: 0: auto, 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast). Default: 0.")
+        ("acc-max-group", po::value<int>(), "Maximum number of sequences in a consistency group for accurate mode. Controls all-to-all pairwise complexity.")
+        ("acc-sample-rate", po::value<float>(), "Sample rate for hierarchical consistency representative selection (must be >0, <1).")
+        ("acc-sample-top", po::value<float>(), "Fraction of representative quota to select by highest centrality (must be >0, <=1).")
+        ("consistency-weight", po::value<float>()->default_value(5.0f), "Weight multiplier for consistency bonus in accurate mode (default: 5.0).");
 
     po::options_description generalDesc("General");
     generalDesc.add_options()
@@ -80,7 +90,7 @@ void parseArguments(int argc, char** argv)
         ("version,V", "Show program version.");
 
     // Setup boost::program_options
-    mainDesc.add(inputDesc).add(outputDesc).add(hardwareDesc).add(alignDesc).add(seqFilterDesc).add(scoringDesc).add(generalDesc);
+    mainDesc.add(inputDesc).add(outputDesc).add(hardwareDesc).add(alignDesc).add(seqFilterDesc).add(scoringDesc).add(accurateDesc).add(generalDesc);
 }
 
 int main(int argc, char** argv) {
@@ -118,7 +128,7 @@ int main(int argc, char** argv) {
     // option->getGpuInfo(vm);
     msa::Params* param = new msa::Params(vm, option->type);
 
-    if (option->alnMode == msa::DEFAULT_ALN) { // Twilight
+    if (option->alnMode == msa::DEFAULT_ALN || option->alnMode == msa::ACCURATE_ALN) { // Twilight Progressive Alignment
         phylogeny::Tree* T = new phylogeny::Tree(option->treeFile);
         if (vm.count("prune")) {
             std::unordered_set<std::string> seqNames;
@@ -126,9 +136,11 @@ int main(int argc, char** argv) {
             pruneTree(T, seqNames);
             if (vm.count("write-prune")) msa::io::writePrunedTree(T, option);
         }
+        T->convert2binaryTree();
+        T->calLeafNum();
         phylogeny::PartitionInfo * P = new phylogeny::PartitionInfo(option->maxSubtree, 0, 0); 
         P->partitionTree(T->root);
-        phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions(T->root, P);
+        phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions_new(T->root, P);
         if (P->partitionsRoot.size() > 1) {
             std::cerr << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
             msa::io::writeSubtrees(T, P, option);
@@ -145,7 +157,11 @@ int main(int argc, char** argv) {
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, option->reroot);
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
             // Progressive alignment on each subtree
-            msa::progressive::msaOnSubtree(subT, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU, subtree);
+            if (!option->accurate) {
+                msa::progressive::msaOnSubtree(subT, database, option, *param, nullptr, subtree);
+            } else {
+                msa::accurate::msaOnSubtree_accurate(subT, database, option, *param, nullptr, subtree);
+            }
             // post-alignment debugging
             if (option->debug) database->debug();
             if (P->partitionsRoot.size() > 1) {
@@ -153,7 +169,12 @@ int main(int argc, char** argv) {
                 auto storeStart = std::chrono::high_resolution_clock::now();
                 database->storeSubtreeProfile(subT, option->type, subtree);
                 msa::io::writeSubAlignments(database, option, subtree, subT->root->getAlnLen(database->currentTask));
-                phylogeny::updateSubrootInfo(subRoot_T->allNodes[subT->root->identifier], subT, subtree);
+                std::string subNodeID = (subRoot_T && subRoot_T->allNodes.find(subRoot.first) != subRoot_T->allNodes.end()) ?
+                                        subRoot.first : subT->root->identifier;
+                phylogeny::updateSubrootInfo(subRoot_T->allNodes[subNodeID], subT, subtree);
+                if (database->subtreeRepresentatives.count(subT->root->identifier)) {
+                    database->subtreeRepresentatives[subNodeID] = database->subtreeRepresentatives[subT->root->identifier];
+                }
                 database->cleanSubtreeDB();
                 auto storeEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds storeTime = storeEnd - storeStart;
@@ -180,7 +201,11 @@ int main(int argc, char** argv) {
             std::cerr << "Finished all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
             // Merge subalignment
             database->currentTask = 2;
-            msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+            if (!option->accurate) {
+                msa::progressive::msaOnSubtree(subRoot_T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+            } else {
+                msa::accurate::mergeSubtreesAccurate(subRoot_T, database, option, *param);
+            }
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
             msa::io::update_and_writeAlignments(database, option, totalSeqs);
@@ -217,7 +242,11 @@ int main(int argc, char** argv) {
         msa::io::readSequences(option->seqFile, database, option, T);
         msa::io::readBackboneAlignment(T, database, option);
         // T->showTree();
-        msa::progressive::msaOnSubtree(T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+        if (!option->accurate) {
+            msa::progressive::msaOnSubtree(T, database, option, *param, msa::progressive::cpu::alignmentKernel_CPU);
+        } else {
+            msa::accurate::placeWithoutTree_Accurate(T, database, option, *param);
+        }
         if (option->debug) database->debug();
         auto outStart = std::chrono::high_resolution_clock::now();
         msa::io::update_and_writeAlignment(database, option, option->backboneAlnFile, -1);

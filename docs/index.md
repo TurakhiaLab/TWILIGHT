@@ -75,6 +75,9 @@ TWILIGHT offers multiple installation methods for different platforms and hardwa
 
 TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
 
+!!!Note
+    The Bioconda package update to v0.3.0 is currently in progress. Users wishing to use v0.3.0 (with accurate mode support) are advised to install via the [installation script](#script) or build from source in the meantime.  
+
 0. <a name="installconda"></a> Install Conda (if not installed)
     ```bash
     # Replace <PLATFORM> with the actual platform of your system
@@ -195,8 +198,11 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 ### <a name="TWILIGHT CLI"></a> **TWILIGHT Command Line Interface (CLI)**
 #### **Main Functionalities**
 1. [Build MSA from unaligned Sequences (Default Mode)](#default)
-2. [Merging Multiple MSAs](#merge-msa)
-3. [Add New Sequences to an Existing Alignment](#add-new-sequences-1)
+2. [Accurate Mode (Consistency-based Alignment)](#accurate)
+3. [Divide-and-Conquer Method](#divide-and-conquer)
+4. [Add New Sequences to an Existing Alignment](#add-new-sequences-1)
+5. [Merging Multiple MSAs](#merge-msa)
+6. [Flexible Tree Support](#flex-tree)
 
 #### **Command Line Options**
 <div name="table1" align="center"> <b>Table 1:</b> List of command line options supported by TWILIGHT </div>
@@ -215,40 +221,54 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 | `-a`, `--alignment`              | Backbone MSAs in *FASTA format* (required). | 
 | **Outputs/Files** |
 | `-o`, `--output`                 | Output MSA file name (required). |
-| `-d`, `--temp-dir`               | Directory for storing temporary files. Used when `-f` or `-m` is specified. |
+| `-d`, `--temp-dir`               | Directory for storing temporary files. |
 | `-k`, `--keep-temp`              | Keep the temporary directory (default: disabled). |
-| `--overwrite`                    | Force overwriting the temporary and output files (default: disabled). |
+| `-c`, `--compress`               | Write output files in compressed (.gz) format (default: disabled). |
+| `--overwrite`                    | Force overwriting the output file (default: disabled). |
 | `--write-prune`                  | Write the pruned tree to the output directory (must be used with `--prune`, default: disabled). |
 | **Hardware Usage** |
 | `-C`, `--cpu`                    | Number of CPU cores (default: all available cores). |
 | Options only for GPU version     |
-| `-G`, `--gpu`                    | Number of GPU (default: all available GPUs). |
-| `--gpu-index`                    | Specify the GPU to be used, separated by commas. For example, `0,2,3` uses 3 GPUs with the index 0, 2 and 3. |
+| `-G`, `--gpu`                    | Number of GPUs (default: all available GPUs). |
+| `--gpu-index`                    | Specify the GPU to be used, separated by commas. For example, `0,2,3` uses 3 GPUs with index 0, 2 and 3. |
 | `--cpu-only`                     | Run the program only using CPU. |
 | **Alignment Parameters** |
 | `--type`                         | Data type: `n` for nucleotide, `p` for protein. Automatically inferred if not specified. |
-| `-m`, `--max-subtree`            | Maximum number of leaves per subtree; enables [divide-and-conquer method](#divide-and-conquer) (default: `INT_MAX`).
-| `-r`, `--remove-gappy`           | Threshold for removing gappy columns (set to 1 to disable, default: 0.95).|
-| `--prune`                        | Prune the input guide tree based on the presence of unaligned sequences (default: disabled). |
+| `-m`, `--max-subtree`            | Maximum number of leaves per subtree; enables [divide-and-conquer method](#divide-and-conquer) (default: `INT_MAX`). |
+| `-r`, `--remove-gappy`           | Threshold for removing gappy columns (set to 1 to disable, default: 0.95). |
 | `-w`, `--wildcard`               | Treat unknown or ambiguous bases as wildcards and align them to usual letters (default: disabled). |
-| `--no-align-gappy`               | Do not align gappy columns; this will create a longer MSA (default: disabled). |
-| `--length-deviation`             | Sequences whose lengths deviate from the average by more than the specified fraction will be deferred or excluded (default: disabled). |
-| `--max-ambig`                  | Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded (default: 0.1). |
-| `--filter`                       | Exclude sequences with high ambiguity or length deviation (default: disabled.) |
-| `--merge`                        | Method to merge subtrees: `t` for Transitivity Merger and `p` for Progressive Alignment (default: `p`). |
+| `--rooted`                       | Keep the original tree root (disable automatic re-rooting for parallelism, default: disabled). |
+| `--prune`                        | Prune the input guide tree based on the presence of unaligned sequences (default: disabled). |
+| **Sequence Filtering Options** |
+| `--length-deviation`             | Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded. |
+| `--max-ambig`                    | Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded (default: 0.1). |
+| `--max-len`                      | Sequences longer than max-len will be deferred or excluded. |
+| `--min-len`                      | Sequences shorter than min-len will be deferred or excluded. |
+| `--filter`                       | Exclude sequences with high ambiguity or length deviation (default: disabled). |
+| `--write-filtered`               | Write the filtered sequences in FASTA format to the output directory. |
 | **Scoring Parameters** |
 | `--match`                        | Match score (default: 18). | 
-| `--mismatch`                     | Mismatch penalty for transversions (default: -8).   | 
-| `--transition`                   | Score for transition (default: -4). |
-| `--gap-open`                     | Gap-open penalty (default: -50).           |
-| `--gap-extend`                   | Gap-extend penalty (default: -5). |
-| `-x`, `--matrix`                 | User-specified substitution matrix path.       |
-| `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty (default: 600).     |
+| `--mismatch`                     | Mismatch penalty for transversions (default: -8). | 
+| `--transition`                   | Score for transitions (default: -4). |
+| `--gap-open`                     | Gap-open penalty in normalized units (relative to average match = 1.0). |
+| `--gap-extend`                   | Gap-extend penalty in normalized units (relative to average match = 1.0). |
+| `--gap-ends`                     | Gap penalty at ends (default: same as gap-extend). |
+| `--scale`                        | Matrix and gap normalization scale constant (default: 600.0 for protein, 20.0 for nucleotide). |
+| `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty (default: 600). |
+| `-x`, `--matrix`                 | Use a user-defined substitution matrix (only for nucleotide). |
+| `-b`, `--blosum`                 | Substitution matrix to use for protein sequences: 43 (PFASUM43), 45, 62, 80, or 99 (MIQS) (default: 62). |
+| **Accurate Mode Options** |
+| `--accurate`                     | Enable accurate consistency alignment (runs pairwise consistency by default; specify `tcs` for Transitive Consistency Score: `--accurate [tcs]`). |
+| `--acc-mode`                     | Accurate preset mode: `0`: auto, `1`: all-to-all (slow), `2`: high sample rate (med speed), `3`: low sample rate (fast) (default: 0). |
+| `--acc-max-group`                | Maximum number of sequences in a consistency group for accurate mode. |
+| `--acc-sample-rate`              | Sample rate for hierarchical consistency representative selection (must be >0, <1). |
+| `--acc-sample-top`               | Fraction of representative quota to select by highest centrality (must be >0, <=1). |
+| `--consistency-weight`           | Weight multiplier for consistency bonus in accurate mode (default: 5.0). |
 | **General** |
-| `--check`                  | Check the final alignment. Sequences with no legal alignment will be displayed.       |
+| `--check`                        | Check the final alignment. Sequences with no legal alignment will be displayed. |
 | `-v`, `--verbose`                | Print out every detail process. | 
 | `-h`, `--help`                   | Print help messages and exit. |
-| `--version`                      | Show TWILIGHT version and exit. |
+| `-V`, `--version`                | Show TWILIGHT version and exit. |
 
 
 #### **Usages and Examples**
@@ -272,17 +292,54 @@ Generate MSA by giving an unaligned sequence file and a guide tree file.
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
 ```
-##### <a name="merge-msa"></a> **Merge Multiple MSAs**  
-Assume a star-tree structure to merge multiple MSAs. Please move all MSA files to be merged into one folder.  
+
+##### <a name="accurate"></a> **Accurate Mode**  
+Incorporates consistency transformation to improve alignment accuracy. 
+
+- `--accurate`: Runs pairwise consistency alignment (default MAFFT-style consistency library).
+- `--accurate tcs`: Evaluates Transitive Consistency Score (TCS) for position reliability scoring.
+
+TWILIGHT offers different presets via `--acc-mode` to balance runtime and consistency sampling:
+- `1`: All-to-all (slowest, highest accuracy)
+- `2`: High sample rate (medium speed)
+- `3`: Low sample rate (fastest)
+*(By default, `--acc-mode 0` automatically chooses the optimal preset based on the dataset size).*
+
+!!!Note
+    Accurate mode currently executes on CPU only.
 
 * Usage syntax
 ```bash
-./twilight -f <path to the folder> -o <output file>
+./twilight -t <tree file> -i <sequence file> -o <output file> --accurate [tcs] [--acc-mode <0|1|2|3>]
 ```
 * Example
 ```bash
-./twilight -f ../dataset/RNASim_subalignments/ -o RNASim.aln
+# Pairwise consistency with automatic mode
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate
+
+# Transitive Consistency Score (TCS) with fast preset
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate tcs --acc-mode 3
 ```
+
+##### <a name="divide-and-conquer"></a> **Divide-and-Conquer Method**  
+Divide tree into subtrees with at most *m* leaves and align them sequentially to reduce the CPU’s main memory usage.
+
+**Combine with Accurate Mode:**  
+Divide-and-Conquer can be used together with **Accurate Mode** (`--accurate`), allowing consistency-based alignment to scale to even larger datasets while controlling memory footprint.
+
+* Usage syntax
+```bash
+./twilight -t <path to tree file> -i <path to sequence file> -o <path to output file> -m <maximum subtree size> [--accurate [tcs]]
+```
+* Example
+```bash
+# Standard Divide-and-Conquer
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200
+
+# Divide-and-Conquer with Accurate Mode
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200 --accurate
+```
+
 ##### <a name="add-new-sequences-1"></a>  **Add New Sequences to an Existing Alignment**  
 For better accuracy, it is recommended to use a tree that includes placements for the new sequences. If no tree is provided, TWILIGHT aligns new sequences to the profile of the entire backbone alignment, which may reduce accuracy. In this case, using the provided [Snakemake workflow](#add-new-sequences-2) is advised.
 
@@ -295,19 +352,19 @@ For better accuracy, it is recommended to use a tree that includes placements fo
 ./twilight -a ../dataset/RNASim_backbone.aln -i ../dataset/RNASim_sub.fa -t ../dataset/RNASim.nwk -o RNASim.aln
 ```
 
-##### <a name="divide-and-conquer"></a> **Divide-and-Conquer Method**  
-Divide tree into subtrees with at most *m* leaves and align them sequentially to reduce the CPU’s main memory usage.
+##### <a name="merge-msa"></a> **Merge Multiple MSAs**  
+Assume a star-tree structure to merge multiple MSAs. Please move all MSA files to be merged into one folder.  
 
 * Usage syntax
 ```bash
-./twilight -t <path to tree file> -i <path to sequence file> -o <path to output file> -m <maximum subtree size>
+./twilight -f <path to the folder> -o <output file>
 ```
 * Example
 ```bash
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200
+./twilight -f ../dataset/RNASim_subalignments/ -o RNASim.aln
 ```
 
-##### **Flexible Tree Support**  
+##### <a name="flex-tree"></a> **Flexible Tree Support**  
 Prunes tips that are not present in the unaligned sequence file. This is useful when working with a large tree but only aligning a subset of sequences, without needing to re-estimate the guide tree. Outputting the pruned tree is also supported.
 
 * Usage syntax
@@ -335,8 +392,8 @@ TWILIGHT uses the Snakemake workflow to integrate external tools for estimating 
 | **User-defined Configurations (used with `--config`)**    |                                                                            |
 | **Iterative Mode** |                                                          
 | `SEQ`                            | Input unaligned sequences file in *FASTA format* (required). |
-| `INITTREE`                       | Tree method for initial guide tree, options: `parttree`, `maffttree` or `mashtree`. (default: `parttree`).|
-| `ITERTREE`                       | Tree method for for intermediate steps, options: `rapidnj` or `fasttree`. (default: `rapidnj`).| 
+| `INITTREE`                       | Tree method for initial guide tree, options: `dipper`, `parttree`, `maffttree` or `mashtree` (default: `parttree`).|
+| `ITERTREE`                       | Tree method for intermediate steps, options: `dipper`, `rapidnj` or `fasttree` (default: `rapidnj`).| 
 | **Add New Sequences to an Existing Alignment (Placement Mode)**|
 | `SEQ`                            | New sequences in *FASTA format* to be placed and aligned (required). |
 | `ALN`                            | Backbone alignment in *FASTA format* for placing new sequences (required.) |

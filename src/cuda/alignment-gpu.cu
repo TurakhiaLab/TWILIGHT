@@ -11,8 +11,8 @@
 
 void msa::progressive::gpu::alignmentKernel_GPU(Tree* T, NodePairVec& alnPairs, SequenceDB* database, Option* option, Params &param) {
     int cpuThres = option->cpuNum * 3;
-    if (option->cpuOnly || alnPairs.size() < cpuThres || database->currentTask == 2) cpu::parallelAlignmentCPU(T, alnPairs, database, option, param);
-    else                                                                                  parallelAlignmentGPU(T, alnPairs, database, option, param);
+    if (option->cpuOnly || alnPairs.size() < cpuThres || database->currentTask == 2 || option->type == 'p') cpu::parallelAlignmentCPU(T, alnPairs, database, option, param);
+    else                                                                                                         parallelAlignmentGPU(T, alnPairs, database, option, param);
 }
 
 void msa::progressive::gpu::GPU_pointers::allocateMemory(Option *option, int len, int numBlocks) {
@@ -275,6 +275,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                 // Get consensus sequences
                 alignment_helper::getConsensus(option, rawProfile,                       consensus[n].first,  lens.first);
                 alignment_helper::getConsensus(option, rawProfile+profileSize*gpuMemLen, consensus[n].second, lens.second);
+                alignment_helper::removeGappyColumns(rawProfile, nodes[nIdx], option, gappyColumns[n], gpuMemLen, lens, database->currentTask);
                 // Copy profile to host memory
                 for (int i = 0; i < profileSize * gpuMemLen; ++i) gp->hostFreq[memBlockIdx][offset_f+i] =                       (i < profileSize * lens.first)  ? rawProfile[i] : 0.0;
                 for (int i = 0; i < profileSize * gpuMemLen; ++i) gp->hostFreq[memBlockIdx][offset_f+profileSize*gpuMemLen+i] = (i < profileSize * lens.second) ? rawProfile[profileSize*gpuMemLen+i] : 0.0;
@@ -369,11 +370,11 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                             if (qryLen == 0) for (int j = 0; j < refLen; ++j) aln_wo_gc.push_back(2);
                         }
                         // Alignment path without gappy columns
-                        // for (auto a: aln_wo_gc) {
-                        //     if (a == 0) {alnRef += 1; alnQry += 1;}
-                        //     if (a == 1) {alnQry += 1;}
-                        //     if (a == 2) {alnRef += 1;}
-                        // }
+                        for (auto a: aln_wo_gc) {
+                            if (a == 0) {alnRef += 1; alnQry += 1;}
+                            if (a == 1) {alnQry += 1;}
+                            if (a == 2) {alnRef += 1;}
+                        }
                         // if (alnRef != gp->hostLen[2*n])   std::cout << "R: Pre " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
                         // if (alnQry != gp->hostLen[2*n+1]) std::cout << "Q: Pre " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
 

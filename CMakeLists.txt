@@ -68,8 +68,14 @@ if(USE_CUDA)
 					  src/progressive.cpp
 					  src/alignment-cpu.cpp
 					  src/alignment-helper.cpp
+					  src/pairwise-align.cpp
+					  src/profile-align.cpp
+					  src/accurate.cpp
+					  src/accurate-sampling.cpp
+					  src/consistency-library.cpp
+					  src/accurate-kernel.cpp
+					  src/accurate-plan.cpp
 					  src/TALCO-XDrop.cpp
-					  
 		)
 	else()
 	    message(FATAL_ERROR "No CUDA found")
@@ -99,6 +105,13 @@ elseif(USE_HIP)
 					  src/progressive.cpp
 					  src/alignment-cpu.cpp
 					  src/alignment-helper.cpp
+					  src/pairwise-align.cpp
+					  src/profile-align.cpp
+					  src/accurate.cpp
+					  src/accurate-sampling.cpp
+					  src/consistency-library.cpp
+					  src/accurate-kernel.cpp
+					  src/accurate-plan.cpp
 					  src/TALCO-XDrop.cpp
 	    )	
 	else()
@@ -127,6 +140,7 @@ else()
 			endif()
 			set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -lineinfo")
 			set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O4 -std=c++17 -Wall -g -Wno-sign-compare -Wno-unused-variable -march=native")
+			add_definitions(-DCUDA)
 			set(SRC_FILES src/cuda/twilight-main.cu
 					      src/cuda/gpu-info.cu
 				          src/cuda/alignment-gpu.cu
@@ -142,6 +156,13 @@ else()
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
 					      src/alignment-helper.cpp
+					      src/pairwise-align.cpp
+					      src/profile-align.cpp
+					      src/accurate.cpp
+					      src/accurate-sampling.cpp
+					      src/consistency-library.cpp
+					      src/accurate-kernel.cpp
+					      src/accurate-plan.cpp
 					      src/TALCO-XDrop.cpp
 			)
 		else()
@@ -171,6 +192,13 @@ else()
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
 					      src/alignment-helper.cpp
+					      src/pairwise-align.cpp
+					      src/profile-align.cpp
+					      src/accurate.cpp
+					      src/accurate-sampling.cpp
+					      src/consistency-library.cpp
+					      src/accurate-kernel.cpp
+					      src/accurate-plan.cpp
 					      src/TALCO-XDrop.cpp
 	    	)
 		else()
@@ -188,6 +216,13 @@ else()
 					      src/progressive.cpp
 					      src/alignment-cpu.cpp
 					      src/alignment-helper.cpp
+					      src/pairwise-align.cpp
+					      src/profile-align.cpp
+					      src/accurate.cpp
+					      src/accurate-sampling.cpp
+					      src/consistency-library.cpp
+					      src/accurate-kernel.cpp
+					      src/accurate-plan.cpp
 					      src/TALCO-XDrop.cpp
 		    )	
 		endif()

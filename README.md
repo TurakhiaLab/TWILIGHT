@@ -23,12 +23,12 @@
 
 ## What's New
 
-- **TWILIGHT v0.2.0**
-  - **Add new sequences:** Support for adding new sequences to an existing alignment.
-  - **Protein alignment:** Support for protein alignment, still relatively new and continuously improving.
-  - **Iterative mode:** Improved for faster performance.
-  - **Flexible tree support:** Allows using a tree that contains more sequences than the actual dataset for alignment.
-  - **Bug fixes:** Resolved issues present in TWILIGHT v0.1.4; users are encouraged to update to v0.2.0.
+- **TWILIGHT v0.3.0 (Accurate mode)**
+  - **Consistency library & TCS:** Introduces consistency-based alignment (`--accurate`) incorporating pairwise consistency libraries and Transitive Consistency Score (`--accurate tcs`) to substantially improve alignment accuracy.
+  - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences.
+  - **Divide-and-Conquer compatibility:** Accurate mode is compatible with the divide-and-conquer strategy (`-m`), allowing it to scale to even larger datasets while maintaining manageable memory usage.
+  - **CPU-only execution:** Accurate mode is currently supported on CPU only. While TWILIGHT can be compiled on GPU-enabled environments, accurate mode will execute on CPU.
+  - **Bioconda update in progress:** The Bioconda package update to v0.3.0 is currently in progress; please use the installation script or build from source for v0.3.0 in the meantime.
 
 ## Table of Contents
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
@@ -40,6 +40,7 @@
 - [Run TWILIGHT](#run)
   - [TWILIGHT CLI](#twilight_cli)
     - [Default mode](#default)
+    - [Accurate mode](#accurate)
     - [Divide-and-Conquer](#dc)
     - [Add new sequences (tree includes placements for new sequences is available)](#add-1)
     - [Merge multiple MSA](#merge-msa)
@@ -220,16 +221,49 @@ Example
 ```bash
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
 ```
-#### <a name="dc"></a> Divide-and-Conquer Method
-To reduce the CPU’s main memory usage, TWILIGHT divides tree into subtrees with at most *m* leaves, and align subtrees sequentially. The parameter *m* is user-defined.
+#### <a name="accurate"></a> Accurate Mode
+Incorporates consistency transformation to improve alignment accuracy. 
+
+- `--accurate`: Runs pairwise consistency alignment (default MAFFT-style consistency library).
+- `--accurate tcs`: Evaluates Transitive Consistency Score (TCS) for position reliability scoring.
+
+TWILIGHT offers different presets via `--acc-mode` to balance runtime and consistency sampling:
+- `1`: All-to-all (slowest, highest accuracy)
+- `2`: High sample rate (medium speed)
+- `3`: Low sample rate (fastest)
+*(By default, `--acc-mode 0` automatically chooses the optimal preset based on the dataset size).*
+
+> **Note:** Accurate mode currently executes on CPU only.
 
 Usage syntax
 ```bash
-./twilight -t <tree file> -i <sequence file> -o <output file> -m <maximum subtree size>
+./twilight -t <tree file> -i <sequence file> -o <output file> --accurate [tcs] [--acc-mode <0|1|2|3>]
 ```
 Example
 ```bash
+# Pairwise consistency with automatic mode
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate
+
+# Transitive Consistency Score (TCS) with fast preset
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate tcs --acc-mode 3
+```
+#### <a name="dc"></a> Divide-and-Conquer Method
+To reduce the CPU’s main memory usage, TWILIGHT divides the tree into subtrees with at most *m* leaves, and aligns subtrees sequentially. The parameter *m* is user-defined.
+
+**Combine with Accurate Mode:**  
+Divide-and-Conquer can be used together with **Accurate Mode** (`--accurate`), allowing consistency-based alignment to scale to even larger datasets while controlling memory footprint.
+
+Usage syntax
+```bash
+./twilight -t <tree file> -i <sequence file> -o <output file> -m <maximum subtree size> [--accurate [tcs]]
+```
+Example
+```bash
+# Standard Divide-and-Conquer
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200
+
+# Divide-and-Conquer with Accurate Mode
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200 --accurate
 ```
 #### <a name="add-1"></a> Add New Sequences to an Existing Alignment
 For better accuracy, it is recommended to use a tree that includes placements for the new sequences. If no tree is provided, TWILIGHT aligns new sequences to the profile of the entire backbone alignment, which may reduce accuracy. In this case, using the provided [Snakemake workflow](#add-2) is advised.

@@ -1,6 +1,7 @@
 #ifndef MSA_HPP
 #include "msa.hpp"
 #endif
+#include <cmath>
 
 #include <tbb/parallel_for.h>
 #include <tbb/spin_rw_mutex.h>
@@ -71,56 +72,129 @@ void msa::alignment_helper::calculateProfile(float *profile, NodePair &nodes, Se
     return;
 }
 
+// -------
+void msa::alignment_helper::extractColumnProvenance(Node* node, SequenceDB* database, accurate::ColumnProvenance& provenance)
+{
+    const int alnLen = node->getAlnLen(database->currentTask);
+    provenance.assign(alnLen, accurate::ColumnResidues{});
+    for (auto sIdx : node->seqsIncluded) {
+        if (sIdx < 0) continue;
+        auto* sequence = database->sequences[sIdx];
+        const int storage = sequence->storage;
+        int residueIndex = 0;
+        for (int col = 0; col < alnLen; ++col) {
+            const char symbol = sequence->alnStorage[storage][col];
+            if (symbol != '-' && symbol != '.') {
+                provenance[col].push_back({sequence->id, residueIndex, sequence->weight});
+                ++residueIndex;
+            }
+        }
+    }
+    return;
+}
+// -------
+
 void msa::alignment_helper::removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask)
 {
-    float gap_threshold = option->gappyVertical;
-    if (gap_threshold == 1.0) return;
+
+    if (option->gappyVertical == 1.0) return;
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
     int refLen = nodes.first->getAlnLen(currentTask), qryLen = nodes.second->getAlnLen(currentTask);
     int refNum = nodes.first->getAlnNum(currentTask), qryNum = nodes.second->getAlnNum(currentTask);
     int start = -1, length = 0;
-    // Reference
-    for (int i = 0; i < lens.first; ++i) {
-        if ((hostFreq[profileSize * i + profileSize - 1]) / refNum > gap_threshold) {
-            if (start == -1) {
-                start = i; // new region starts
-                length = 1;
-            }
-            else {
-                ++length; // continue region
+
+    int minProfileSize = (option->type == 'n') ? 20 : 1000;
+
+
+    // TrimAl Method
+    auto getTrimAlThreshold = [](std::vector<float>& ratios) -> float {
+        int n = ratios.size();
+        if (n < 6) return 1.0f; 
+        std::sort(ratios.begin(), ratios.end());
+        float best_threshold = 1.0f;
+        double max_deceleration = -1.0; 
+        const int step = 2; 
+        for (int i = step; i < n - (step * 2); ++i) {
+            double slope1 = ratios[i + step] - ratios[i - step];
+            double slope2 = ratios[i + step * 2] - ratios[i];
+            double deceleration = slope1 - slope2; 
+            if (deceleration > max_deceleration) {
+                max_deceleration = deceleration;
+                best_threshold = ratios[i + step]; 
             }
         }
-        else if (start != -1) {
+        return std::max(0.90f, best_threshold); 
+    };
+    
+    if (refNum >= minProfileSize) {
+        float gap_threshold = option->gappyVertical;
+        // Implement trimAl method on reference
+        if (gap_threshold == 0.0) {
+            std::vector<float> gapScores;
+            gapScores.reserve(refLen);
+            for (int i = 0; i < lens.first; ++i) {
+                gapScores.push_back((hostFreq[profileSize * i + profileSize - 1] / refNum));
+            }
+            gap_threshold = getTrimAlThreshold(gapScores);
+            
+        }
+        // Reference
+        for (int i = 0; i < lens.first; ++i) {
+            if ((hostFreq[profileSize * i + profileSize - 1]) / refNum > gap_threshold) {
+                if (start == -1) {
+                    start = i; // new region starts
+                    length = 1;
+                }
+                else {
+                    ++length; // continue region
+                }
+            }
+            else if (start != -1) {
+                gappyColumns.first.push_back({start, length});
+                start = -1;
+                length = 0;
+            }
+        }
+        if (start != -1) { // handle case where sequence ends inside a region
             gappyColumns.first.push_back({start, length});
-            start = -1;
-            length = 0;
         }
     }
-    if (start != -1) { // handle case where sequence ends inside a region
-        gappyColumns.first.push_back({start, length});
-    }
-    // Query
-    start = -1, length = 0;
-    for (int i = 0; i < lens.second; ++i) {
-        if ((hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > gap_threshold)
-        {
-            if (start == -1) {
-                start = i; // new region starts
-                length = 1;
+    
+    if (qryNum >= minProfileSize) {
+        float gap_threshold = option->gappyVertical;
+        // Implement trimAl method on query
+        if (gap_threshold == 0.0) {
+            std::vector<float> gapScores;
+            gapScores.reserve(refLen);
+            for (int i = 0; i < lens.second; ++i) {
+                gapScores.push_back(((hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum));
             }
-            else {
-                ++length; // continue region
+            gap_threshold = getTrimAlThreshold(gapScores);
+        }
+        // Query
+        start = -1, length = 0;
+        for (int i = 0; i < lens.second; ++i) {
+            if ((hostFreq[profileSize * (memLen + i) + profileSize - 1]) / qryNum > gap_threshold)
+            {
+                if (start == -1) {
+                    start = i; // new region starts
+                    length = 1;
+                }
+                else {
+                    ++length; // continue region
+                }
+            }
+            else if (start != -1) {
+                gappyColumns.second.push_back({start, length});
+                start = -1;
+                length = 0;
             }
         }
-        else if (start != -1) {
+        if (start != -1) {
             gappyColumns.second.push_back({start, length});
-            start = -1;
-            length = 0;
         }
     }
-    if (start != -1) {
-        gappyColumns.second.push_back({start, length});
-    }
+
     // Remove gappy columns
     int orgIdx = 0, newIdx = 0, gapIdx = 0, orgLen = lens.first;
     if (!gappyColumns.first.empty()) {
@@ -176,7 +250,8 @@ void msa::alignment_helper::calculatePSGP(float *hostFreq, float *hostGapOp, flo
     int32_t profileSize = (option->type == 'n') ? 6 : 22;
 
     // Clustalw's method
-    float scale = (option->type == 'n') ? 0.5 : 1.0;
+    // float scale = (option->type == 'n') ? 0.5 : 1.0;
+    const float scale = 0.5;
     float min_gapExtend = param.gapExtend * 0.2;
     float min_gapOpen = param.gapOpen * 0.1;
     tbb::this_task_arena::isolate([&]  { 
@@ -216,6 +291,215 @@ void msa::alignment_helper::calculatePSGP(float *hostFreq, float *hostGapOp, flo
     }); 
     });
     return;
+}
+
+// Position-specific gap penalty (PSGP) method (adapted from FAMSA)
+void msa::alignment_helper::calculatePSGP(
+    AlnProfile& profRef,
+    AlnProfile& profQry,
+    NodePair& nodes,
+    SequenceDB* database,
+    Option* option,
+    const Params& param,
+    IntPair lens,
+    const std::pair<IntPairVec, IntPairVec>& gappyColumns)
+{
+    float gap_open = param.gapOpen;
+    float gap_ext = param.gapExtend;
+    float gap_term_open = (param.gapTerminal != 0.0f) ? param.gapTerminal : (gap_open * (0.66f / 14.85f));
+    float gap_term_ext = (param.gapTerminal != 0.0f) ? param.gapTerminal : (gap_ext * (0.66f / 1.25f));
+
+    auto process_profile = [&](AlnProfile& prof, Node* node, int aln_len, const IntPairVec& gappyCols) {
+        prof.width = aln_len;
+        if (aln_len <= 0) {
+            prof.totalWeight = 0.0f;
+            prof.numSeqs = 0;
+            return;
+        }
+
+        const auto& seqs_included = node->seqsIncluded;
+        prof.numSeqs = seqs_included.size();
+        float total_weight = (node->alnWeight > 0.0f) ? node->alnWeight : static_cast<float>(node->getAlnNum(database->currentTask));
+        prof.totalWeight = (total_weight > 0.0f) ? total_weight : static_cast<float>(prof.numSeqs);
+
+        prof.counters.assign((aln_len + 1) * NO_SYMBOLS, 0.0f);
+        prof.scores.assign((aln_len + 1) * NO_SYMBOLS, 0.0f);
+
+        int orig_aln_len = node->getAlnLen(database->currentTask);
+
+        // Preallocate reusable buffer once outside the sequence loop
+        std::vector<char> seq_buf;
+        if (!gappyCols.empty()) {
+            seq_buf.resize(aln_len);
+        }
+
+        if ((database->sequences.empty() || (!seqs_included.empty() && seqs_included[0] < 0) || seqs_included.empty()) && !node->msaFreq.empty()) {
+            int profileSize = (option->type == 'n') ? 6 : 22;
+            int gap_idx = profileSize - 1;
+            const int num_symbols = param.matrixSize;
+            int raw_idx = 0;
+            int gc_idx = 0;
+            const int num_gc = static_cast<int>(gappyCols.size());
+            for (int i = 0; i < aln_len; ++i) {
+                while (gc_idx < num_gc && raw_idx == gappyCols[gc_idx].first) {
+                    raw_idx += gappyCols[gc_idx].second;
+                    gc_idx++;
+                }
+                if (raw_idx < static_cast<int>(node->msaFreq.size())) {
+                    for (int sym = 0; sym < num_symbols; ++sym) {
+                        prof.counters[(i + 1) * NO_SYMBOLS + sym] += node->msaFreq[raw_idx][sym];
+                    }
+                    float gap_cnt = node->msaFreq[raw_idx][gap_idx];
+                    if (gap_cnt > 0.0f) {
+                        prof.counters[(i + 1) * NO_SYMBOLS + GAP_OPEN_IDX] += gap_cnt;
+                    }
+                }
+                raw_idx++;
+            }
+        } else {
+        for (int sIdx : seqs_included) {
+            if (sIdx < 0 || sIdx >= static_cast<int>(database->sequences.size())) continue;
+            auto* seq = database->sequences[sIdx];
+            if (!seq) continue;
+
+            const float w = (total_weight > 0.0f) ? (seq->weight / total_weight * prof.totalWeight) : 1.0f;
+            const char* raw_aln = seq->alnStorage[seq->storage];
+            if (!raw_aln) continue;
+
+            // Extract aligned sequence slice taking gappyColumns into account
+            const char* s_ptr = nullptr;
+            if (gappyCols.empty()) {
+                s_ptr = raw_aln;
+            } else {
+                int raw_idx = 0;
+                int gc_idx = 0;
+                int s_len = 0;
+                const int num_gc = static_cast<int>(gappyCols.size());
+                while (s_len < aln_len && raw_idx < orig_aln_len) {
+                    if (gc_idx < num_gc && raw_idx == gappyCols[gc_idx].first) {
+                        raw_idx += gappyCols[gc_idx].second;
+                        gc_idx++;
+                    } else {
+                        seq_buf[s_len++] = raw_aln[raw_idx++];
+                    }
+                }
+                while (s_len < aln_len) {
+                    seq_buf[s_len++] = '-';
+                }
+                s_ptr = seq_buf.data();
+            }
+
+            // Find first and last non-gap positions (1-indexed)
+            int first_non_gap = -1;
+            int last_non_gap = -1;
+            for (int i = 0; i < aln_len; ++i) {
+                if (s_ptr[i] != '-' && s_ptr[i] != '.') {
+                    first_non_gap = i + 1;
+                    break;
+                }
+            }
+            for (int i = aln_len - 1; i >= 0; --i) {
+                if (s_ptr[i] != '-' && s_ptr[i] != '.') {
+                    last_non_gap = i + 1;
+                    break;
+                }
+            }
+
+            // If sequence is entirely gaps
+            if (first_non_gap == -1) {
+                prof.counters[1 * NO_SYMBOLS + GAP_TERM_OPEN_IDX] += w;
+                for (int i = 2; i <= aln_len; ++i) {
+                    prof.counters[i * NO_SYMBOLS + GAP_TERM_EXT_IDX] += w;
+                }
+                continue;
+            }
+
+            // Set counters for terminal gaps at front
+            if (first_non_gap > 1) {
+                prof.counters[1 * NO_SYMBOLS + GAP_TERM_OPEN_IDX] += w;
+                for (int i = 2; i < first_non_gap; ++i) {
+                    prof.counters[i * NO_SYMBOLS + GAP_TERM_EXT_IDX] += w;
+                }
+            }
+
+            // Set counters for terminal gaps at back
+            if (last_non_gap < aln_len) {
+                prof.counters[(last_non_gap + 1) * NO_SYMBOLS + GAP_TERM_OPEN_IDX] += w;
+                for (int i = last_non_gap + 2; i <= aln_len; ++i) {
+                    prof.counters[i * NO_SYMBOLS + GAP_TERM_EXT_IDX] += w;
+                }
+            }
+
+            // Set counters for internal symbols and gaps
+            bool in_gap = false;
+            for (int i = first_non_gap; i <= last_non_gap; ++i) {
+                char c = s_ptr[i - 1];
+                bool is_gap = (c == '-' || c == '.');
+                if (is_gap) {
+                    if (!in_gap) {
+                        prof.counters[i * NO_SYMBOLS + GAP_OPEN_IDX] += w;
+                    } else {
+                        prof.counters[i * NO_SYMBOLS + GAP_EXT_IDX] += w;
+                    }
+                    in_gap = true;
+                } else {
+                    in_gap = false;
+                    int num_symbols = param.matrixSize;
+                    int aa = letterIdx(option->type, toupper(c));
+                    if (aa < 0 || aa >= num_symbols) aa = (option->type == 'n') ? 4 : 20; // Ambiguous residue
+                    prof.counters[i * NO_SYMBOLS + aa] += w;
+                }
+            }
+        }
+        }
+
+        // Calculate scores matrix for the profile
+        float* s0 = prof.get_scores(0);
+        s0[GAP_OPEN_IDX]      = prof.totalWeight * gap_open;
+        s0[GAP_EXT_IDX]       = prof.totalWeight * gap_ext;
+        s0[GAP_TERM_EXT_IDX]  = prof.totalWeight * gap_term_ext;
+        s0[GAP_TERM_OPEN_IDX] = prof.totalWeight * gap_term_open;
+
+        const int num_symbols = param.matrixSize;
+        for (int i = 1; i <= aln_len; ++i) {
+            const float* c_col = prof.get_counters(i);
+            float* s_col = prof.get_scores(i);
+
+            float n_gap_open      = c_col[GAP_OPEN_IDX];
+            float n_gap_term_open = c_col[GAP_TERM_OPEN_IDX];
+            float n_gap_ext       = c_col[GAP_EXT_IDX];
+            float n_gap_term_ext  = c_col[GAP_TERM_EXT_IDX];
+
+            float gap_cost = 0.0f;
+            if (n_gap_open > 0.0f)      gap_cost += n_gap_open * gap_open;
+            if (n_gap_term_open > 0.0f) gap_cost += n_gap_term_open * gap_term_open;
+            if (n_gap_ext > 0.0f)       gap_cost += n_gap_ext * gap_ext;
+            if (n_gap_term_ext > 0.0f)  gap_cost += n_gap_term_ext * gap_term_ext;
+
+            for (int a = 0; a < num_symbols; ++a) {
+                s_col[a] += gap_cost;
+            }
+
+            float tot_n_sym = 0.0f;
+            for (int sym = 0; sym < num_symbols; ++sym) {
+                float n_sym = c_col[sym];
+                if (n_sym > 0.0f) {
+                    tot_n_sym += n_sym;
+                    for (int a = 0; a < num_symbols; ++a) {
+                        s_col[a] += n_sym * param.scoringMatrix[sym][a];
+                    }
+                }
+            }
+
+            s_col[GAP_OPEN_IDX]      = tot_n_sym * gap_open;
+            s_col[GAP_TERM_OPEN_IDX] = tot_n_sym * gap_term_open;
+            s_col[GAP_EXT_IDX]       = tot_n_sym * gap_ext;
+            s_col[GAP_TERM_EXT_IDX]  = tot_n_sym * gap_term_ext;
+        }
+    };
+
+    process_profile(profRef, nodes.first, lens.first, gappyColumns.first);
+    process_profile(profQry, nodes.second, lens.second, gappyColumns.second);
 }
 
 void msa::alignment_helper::getConsensus(Option *option, float *profile, std::string &consensus, int len)
@@ -501,7 +785,6 @@ void msa::alignment_helper::updateAlignment(NodePair &nodes, SequenceDB *databas
     
     return;
 }
-
 
 void msa::alignment_helper::updateFrequency(NodePair &nodes, SequenceDB *database, alnPath &aln, FloatPair weights)
 {

@@ -95,6 +95,67 @@ msa::Option::Option(po::variables_map& vm) {
     this->compressed = vm.count("compress");
     this->noFilter = !vm.count("filter");
     this->writeFiltered = vm.count("write-filtered");
+    this->accurate = vm.count("accurate");
+    if (this->accurate) {
+        this->accurateMethod = vm["accurate"].as<std::string>();
+        std::transform(this->accurateMethod.begin(), this->accurateMethod.end(),
+                       this->accurateMethod.begin(), ::tolower);
+        if (this->accurateMethod == "mafft" || this->accurateMethod == "pairwise" || this->accurateMethod == "default") {
+            this->accurateMethod = "pairwise";
+        } else if (this->accurateMethod == "tcs" || this->accurateMethod == "transitive") {
+            this->accurateMethod = "tcs";
+        } else {
+            std::cerr << "ERROR: Invalid argument for --accurate: \"" << this->accurateMethod 
+                      << "\". Usage: --accurate (runs pairwise consistency by default) or --accurate tcs.\n";
+            exit(1);
+        }
+    } else {
+        this->accurateMethod = "pairwise";
+    }
+    this->consistencyWeight = (vm.count("consistency-weight")) ? vm["consistency-weight"].as<float>() : 5.0f;
+    this->accMode = (vm.count("acc-mode")) ? vm["acc-mode"].as<int>() : 0;
+    if (this->accMode < 0 || this->accMode > 3) {
+        std::cerr << "ERROR: Invalid value for --acc-mode. Must be 0 (auto), 1 (all-to-all), 2 (high sample rate), or 3 (low sample rate) (got " << this->accMode << ").\n";
+        exit(1);
+    }
+    this->hasUserAccMaxGroup = vm.count("acc-max-group");
+    this->hasUserAccSampleRate = vm.count("acc-sample-rate");
+    this->hasUserAccSampleTop = vm.count("acc-sample-top");
+
+    if (this->hasUserAccMaxGroup) {
+        this->userAccMaxGroup = vm["acc-max-group"].as<int>();
+        if (this->userAccMaxGroup <= 1) {
+            std::cerr << "ERROR: Invalid value for --acc-max-group. The value of --acc-max-group should be > 1 (got " << this->userAccMaxGroup << ").\n";
+            exit(1);
+        }
+    }
+    if (this->hasUserAccSampleRate) {
+        this->userAccSampleRate = vm["acc-sample-rate"].as<float>();
+        if (this->userAccSampleRate <= 0.0f || this->userAccSampleRate >= 1.0f) {
+            std::cerr << "ERROR: --acc-sample-rate must be greater than 0 and less than 1 (got " << this->userAccSampleRate << ").\n";
+            exit(1);
+        }
+    }
+    if (this->hasUserAccSampleTop) {
+        this->userAccSampleTop = vm["acc-sample-top"].as<float>();
+        if (this->userAccSampleTop <= 0.0f || this->userAccSampleTop > 1.0f) {
+            std::cerr << "ERROR: --acc-sample-top must be greater than 0 and less than or equal to 1 (got " << this->userAccSampleTop << ").\n";
+            exit(1);
+        }
+    }
+
+    // Initialize with 0 sequences first (will be dynamically resolved per dataset / subtree)
+    this->resolveAccurateParams(0);
+
+    if (this->accurate) {
+        if (this->alnMode != DEFAULT_ALN && this->alnMode != ACCURATE_ALN && this->alnMode != PLACE_WO_TREE) {
+            std::cerr << "ERROR: --accurate is currently supported for guide-tree alignment and sequence placement without tree.\n";
+            exit(1);
+        }
+        if (this->alnMode == DEFAULT_ALN) {
+            this->alnMode = ACCURATE_ALN;
+        }
+    }
 
     // Detect Data Type
     if (vm.count("type")) {
@@ -204,7 +265,7 @@ msa::Option::Option(po::variables_map& vm) {
     
 
     // Create Temporary Directory if Needed
-    if (this->maxSubtree < INT32_MAX || vm.count("files") || this->alnMode == 2) {
+    if (this->maxSubtree < INT32_MAX || (this->accurate && (this->accMode != 1 || this->accMaxGroup < INT32_MAX)) || vm.count("files") || this->alnMode == 2) {
         std::string tempDir;
         if (!vm.count("temp-dir")) {
             int idx = 1;
@@ -238,6 +299,15 @@ msa::Option::Option(po::variables_map& vm) {
 
     
     std::cerr << "====== Configuration =======\n";
+    if (this->accurate) {
+        std::string methodDisplay = (this->accurateMethod == "tcs") ? "transitive consistency (TCS)" : "pairwise consistency";
+        std::string modeStr = (this->accMode == 0) ? "0 (auto)" : (this->accMode == 1) ? "1 (all-to-all)" : (this->accMode == 2) ? "2 (high sample rate)" : "3 (low sample rate)";
+        std::cerr << "Accurate mode: enabled (method=" << methodDisplay << ", acc-mode=" << modeStr;
+        if (this->hasUserAccMaxGroup) std::cerr << ", acc-max-group=" << this->userAccMaxGroup << " [user]";
+        if (this->hasUserAccSampleRate) std::cerr << ", acc-sample-rate=" << this->userAccSampleRate << " [user]";
+        if (this->hasUserAccSampleTop) std::cerr << ", acc-sample-top=" << this->userAccSampleTop << " [user]";
+        std::cerr << ", consistency weight=" << this->consistencyWeight << ")\n";
+    }
     if (this->maxSubtree != INT32_MAX) 
     std::cerr << "Max-subtree: " << this->maxSubtree << '\n';
     if (this->gappyVertical == 1) 
@@ -248,4 +318,40 @@ msa::Option::Option(po::variables_map& vm) {
     else if (this->minLen > 0 || this->maxLen < INT32_MAX) std::cerr << "Allowed sequence length range: [" << this->minLen << ", " << this->maxLen << "]\n";
     if (this->maxAmbig < 1) std::cerr << "Allowed proportion of ambiguous characters: " << (this->maxAmbig * 100) << "%\n";
     fprintf(stderr, "Maximum available CPU cores: %d. Using %d CPU cores.\n", maxCpuThreads, cpuNum);
+}
+
+void msa::Option::resolveAccurateParams(int numSeqs) {
+    int effectiveMode = this->accMode;
+    if (effectiveMode == 0) {
+        if (numSeqs <= 500) {
+            effectiveMode = 1;
+        } else if (numSeqs <= 100000) {
+            effectiveMode = 2;
+        } else {
+            effectiveMode = 3;
+        }
+    }
+    this->resolvedAccMode = effectiveMode;
+
+    int baseMaxGroup = 100;
+    float baseSampleRate = 0.5f;
+    float baseSampleTop = 1.0f;
+
+    if (effectiveMode == 1) {
+        baseMaxGroup = (numSeqs > 0) ? (numSeqs + 1) : INT32_MAX;
+        baseSampleRate = 0.5f;
+        baseSampleTop = 1.0f;
+    } else if (effectiveMode == 2) {
+        baseMaxGroup = 100;
+        baseSampleRate = 0.5f;
+        baseSampleTop = 1.0f;
+    } else if (effectiveMode == 3) {
+        baseMaxGroup = 100;
+        baseSampleRate = 0.1f;
+        baseSampleTop = 0.3f;
+    }
+
+    this->accMaxGroup = this->hasUserAccMaxGroup ? this->userAccMaxGroup : baseMaxGroup;
+    this->accSampleRate = this->hasUserAccSampleRate ? this->userAccSampleRate : baseSampleRate;
+    this->accSampleTop = this->hasUserAccSampleTop ? this->userAccSampleTop : baseSampleTop;
 }

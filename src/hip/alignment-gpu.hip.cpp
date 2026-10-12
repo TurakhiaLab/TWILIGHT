@@ -276,6 +276,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
                 // Get consensus sequences
                 alignment_helper::getConsensus(option, rawProfile,                       consensus[n].first,  lens.first);
                 alignment_helper::getConsensus(option, rawProfile+profileSize*gpuMemLen, consensus[n].second, lens.second);
+                alignment_helper::removeGappyColumns(rawProfile, nodes[nIdx], option, gappyColumns[n], gpuMemLen, lens, database->currentTask);
                 // Copy profile to host memory
                 for (int i = 0; i < profileSize * gpuMemLen; ++i) gp->hostFreq[memBlockIdx][offset_f+i] =                       (i < profileSize * lens.first)  ? rawProfile[i] : 0.0;
                 for (int i = 0; i < profileSize * gpuMemLen; ++i) gp->hostFreq[memBlockIdx][offset_f+profileSize*gpuMemLen+i] = (i < profileSize * lens.second) ? rawProfile[profileSize*gpuMemLen+i] : 0.0;

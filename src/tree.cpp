@@ -236,7 +236,7 @@ phylogeny::Tree::Tree (std::string treeFileName)
     std::cerr << "Newick string read in: " <<  treeBuiltTime.count() / 1000000 << " ms\n";
 }
   
-phylogeny::Tree::Tree(Node* node, bool reroot) {
+phylogeny::Tree::Tree(Node* node, bool reroot, bool verbose) {
     Node* root = new Node(node->identifier, node->branchLength);
     int grp = node->grpID;
     root->grpID = -1;
@@ -263,7 +263,7 @@ phylogeny::Tree::Tree(Node* node, bool reroot) {
         if (!a.second->is_leaf()) max_interNode = std::max(std::stoi(a.first.substr(5)), max_interNode);
     }
     this->m_currInternalNode = max_interNode;
-    if (reroot) this->reroot();
+    if (reroot) this->reroot(false, verbose);
     else {
         this->calLeafNum();
         this->calSeqWeight();
@@ -315,28 +315,32 @@ void phylogeny::Tree::calLeafNum() {
 };
 
 void phylogeny::Tree::calSeqWeight() {
-    float maxWeight = 0;
+    if (s_noSeqWeighting) {
+        for (auto node: this->allNodes) {
+            if (!node.second->is_leaf()) continue;
+            this->allNodes[node.second->identifier]->weight = 1.0f;
+        }
+        return;
+    }
+
+    float maxWeight = 0.0f;
     for (auto node: this->allNodes) {
         if (!node.second->is_leaf()) continue;
-        float w = 0;
+        float w = 0.0f;
         Node* current = node.second;
         while (true) {
             w += current->branchLength / current->numLeaves;
-            // w += 1.0 / current->numLeaves;
             current = current->parent;
             if (current == nullptr) break; 
         }
-        // w = 1.0;
         this->allNodes[node.second->identifier]->weight = w;
         if (w > maxWeight) maxWeight = w;
     }
-    float normFactor = maxWeight / 1.0;
+    float normFactor = (maxWeight > 0.0f) ? (maxWeight / 1.0f) : 1.0f;
     for (auto node: this->allNodes) {
         if (!node.second->is_leaf()) continue;
         this->allNodes[node.second->identifier]->weight /= normFactor;
     }
-    
-    
     return;
 };
 
@@ -347,6 +351,9 @@ void phylogeny::Tree::showTree() {
                   << std::setw(10) << (node->parent ? node->parent->identifier : "ROOT")  // Parent or ROOT
                   << std::setw(8)  << node->level
                   << std::setw(8)  << node->grpID
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnNum
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnLen
+                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnWeight
                   << std::setw(10) << std::fixed << std::setprecision(3) << node->weight
                   << '\n';
         for (auto& c : node->children) {
@@ -355,10 +362,13 @@ void phylogeny::Tree::showTree() {
     };
     std::cerr << std::left << std::setw(12) << "Identifier"
               << std::right << std::setw(10) << "Length"
-              << std::setw(10) << "Parent"
-              << std::setw(8)  << "Level"
-              << std::setw(8)  << "Group"
-              << std::setw(10) << "Weight" << '\n';
+              << std::setw(12) << "Parent"
+              << std::setw(12)  << "Level"
+              << std::setw(12)  << "Group"
+              << std::setw(12)  << "alnNum"
+              << std::setw(12)  << "alnLen"
+              << std::setw(12)  << "alnWeight"
+              << std::setw(12) << "Weight" << '\n';
     std::cerr << std::string(50, '-') << '\n';
     if (this->root) showTreeImpl(this->root);
 }
@@ -380,91 +390,113 @@ phylogeny::Tree* phylogeny::Tree::prune(std::unordered_set<std::string>& seqs) {
         }
     }
 
-    std::function<bool(Node*)> hasKeepDescendant = [&](Node* node) -> bool {
-        if (node->is_leaf()) return keepNode[node->identifier];
+    // Iterative post-order traversal to compute keepNode for internal nodes
+    std::vector<Node*> postOrder;
+    std::vector<Node*> stk;
+    if (this->root) stk.push_back(this->root);
+    while (!stk.empty()) {
+        Node* curr = stk.back();
+        stk.pop_back();
+        postOrder.push_back(curr);
+        for (Node* ch : curr->children) stk.push_back(ch);
+    }
+    std::reverse(postOrder.begin(), postOrder.end());
+
+    for (Node* node : postOrder) {
+        if (node->is_leaf()) continue;
         bool keep = false;
         for (Node* child : node->children) {
-            if (hasKeepDescendant(child)) {
+            if (keepNode[child->identifier]) {
                 keep = true;
+                break;
             }
         }
         keepNode[node->identifier] = keep;
-        return keep;
-    };
-    hasKeepDescendant(this->root);
+    }
     
-    std::function<void(Node*, Node*)> buildPrunedTree = [&](Node* origNode, Node* newParent) {
-        if (!keepNode[origNode->identifier]) return;
-        
-        if (origNode->identifier == this->root->identifier) {
-            for (Node* child : this->root->children) {
-                buildPrunedTree(child, this->root);
-            }
-            return;
-        } 
-        else {
-            // Process children
-            std::vector<Node*> keepChildren;
-            for (Node* child : this->allNodes[origNode->identifier]->children) {
-                if (keepNode[child->identifier]) {
-                    keepChildren.push_back(child);
-                }
-            }
+    // Iterative tree building to prevent stack overflow
+    std::vector<std::pair<Node*, Node*>> pruneStack;
+    pruneStack.push_back({pT->root, nullptr});
+    while (!pruneStack.empty()) {
+        auto [origNode, newParent] = pruneStack.back();
+        pruneStack.pop_back();
 
-            // Handle nodes with only one child (merge them)
-            if (keepChildren.size() == 0) {
-                if (origNode->is_leaf()) {
-                    Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
-                    newNode->grpID = -1;
-                    pT->allNodes[newNode->identifier] = newNode;
-                }
-                else return;
+        if (!keepNode[origNode->identifier]) continue;
+
+        if (origNode->identifier == this->root->identifier) {
+            for (auto it = this->root->children.rbegin(); it != this->root->children.rend(); ++it) {
+                pruneStack.push_back({*it, this->root});
             }
-            else if (keepChildren.size() == 1) {
-                Node* onlyChild = keepChildren[0];
-                float combinedLength = origNode->branchLength;
-                while (true) {
-                    std::vector<Node*> temp;
-                    combinedLength += onlyChild->branchLength;
-                    for (Node* child : onlyChild->children) {
-                        if (keepNode[child->identifier]) {
-                            temp.push_back(child);
-                        }
-                    }
-                    if (temp.size() > 1) {
-                        Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
-                        newChild->grpID = -1;
-                        pT->allNodes[newChild->identifier] = newChild;
-                        break;
-                    }
-                    else if (temp.empty()) {
-                        if (onlyChild->is_leaf()) {
-                            Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
-                            newChild->grpID = -1;
-                            pT->allNodes[newChild->identifier] = newChild;
-                            break;
-                        }
-                        else return;
-                    }
-                    onlyChild = temp[0];
-                }
-                // Process the child's children
-                for (Node* grandchild : this->allNodes[onlyChild->identifier]->children) {
-                    buildPrunedTree(grandchild, this->allNodes[onlyChild->identifier]);
-                }
-            } 
-            else {
+            continue;
+        }
+
+        // Process children
+        std::vector<Node*> keepChildren;
+        for (Node* child : this->allNodes[origNode->identifier]->children) {
+            if (keepNode[child->identifier]) {
+                keepChildren.push_back(child);
+            }
+        }
+
+        // Handle nodes with only one child (merge them)
+        if (keepChildren.size() == 0) {
+            if (origNode->is_leaf()) {
                 Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
                 newNode->grpID = -1;
                 pT->allNodes[newNode->identifier] = newNode;
-                for (Node* child : this->allNodes[origNode->identifier]->children) {
-                    buildPrunedTree(child, this->allNodes[origNode->identifier]);
-                }
             }
         }
-    };
-    
-    buildPrunedTree(pT->root, nullptr);
+        else if (keepChildren.size() == 1) {
+            Node* onlyChild = keepChildren[0];
+            float combinedLength = origNode->branchLength;
+            bool stopMerge = false;
+            while (true) {
+                std::vector<Node*> temp;
+                combinedLength += onlyChild->branchLength;
+                for (Node* child : onlyChild->children) {
+                    if (keepNode[child->identifier]) {
+                        temp.push_back(child);
+                    }
+                }
+                if (temp.size() > 1) {
+                    Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
+                    newChild->grpID = -1;
+                    pT->allNodes[newChild->identifier] = newChild;
+                    break;
+                }
+                else if (temp.empty()) {
+                    if (onlyChild->is_leaf()) {
+                        Node* newChild = new Node(onlyChild->identifier, pT->allNodes[newParent->identifier], combinedLength);
+                        newChild->grpID = -1;
+                        pT->allNodes[newChild->identifier] = newChild;
+                        stopMerge = true;
+                        break;
+                    }
+                    else {
+                        stopMerge = true;
+                        break;
+                    }
+                }
+                onlyChild = temp[0];
+            }
+            if (!stopMerge) {
+                // Process the child's children
+                for (auto it = this->allNodes[onlyChild->identifier]->children.rbegin(); 
+                     it != this->allNodes[onlyChild->identifier]->children.rend(); ++it) {
+                    pruneStack.push_back({*it, this->allNodes[onlyChild->identifier]});
+                }
+            }
+        } 
+        else {
+            Node* newNode = new Node(origNode->identifier, pT->allNodes[newParent->identifier], origNode->branchLength);
+            newNode->grpID = -1;
+            pT->allNodes[newNode->identifier] = newNode;
+            for (auto it = this->allNodes[origNode->identifier]->children.rbegin(); 
+                 it != this->allNodes[origNode->identifier]->children.rend(); ++it) {
+                pruneStack.push_back({*it, this->allNodes[origNode->identifier]});
+            }
+        }
+    }
     
     // Update tree properties
     pT->m_numLeaves = 0;
@@ -519,7 +551,7 @@ std::string phylogeny::Tree::getNewickString() {
 void phylogeny::updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx) {
     subroot->seqsIncluded.push_back(subtreeIdx);
     subroot->alnLen = subT->root->alnLen;
-    subroot->alnNum = subT->root->seqsIncluded.size();
+    subroot->alnNum = subT->root->alnNum;
     subroot->msaFreq = subT->root->msaFreq;
     subroot->alnWeight = subT->root->alnWeight;
     return;
@@ -585,7 +617,7 @@ void phylogeny::Tree::convert2binaryTree() {
     return;
 }
 
-void phylogeny::Tree::reroot(bool placement)
+void phylogeny::Tree::reroot(bool placement, bool verbose)
 {
     int beforeConvert = 0, beforeReroot = 0, afterReroot = 0;
     for (auto n: this->allNodes) beforeConvert = (n.second->level > beforeConvert) ? n.second->level : beforeConvert;
@@ -689,10 +721,12 @@ void phylogeny::Tree::reroot(bool placement)
     this->calLeafNum();
     this->calSeqWeight();
     for (auto n: this->allNodes) afterReroot = (n.second->level > afterReroot) ? n.second->level : afterReroot;
-    std::cerr << "======== Tree Depth ========\n";
-    std::cerr << "Original: " << beforeConvert << '\n';
-    std::cerr << "Binary: " << beforeReroot << '\n';
-    std::cerr << "Reroot: " << afterReroot << '\n';
+    if (verbose) {
+        std::cerr << "======== Tree Depth ========\n";
+        std::cerr << "Original: " << beforeConvert << '\n';
+        std::cerr << "Binary: " << beforeReroot << '\n';
+        std::cerr << "Reroot: " << afterReroot << '\n';
+    }
 }
 
 void phylogeny::Tree::extractResult(Tree* placementT) {
@@ -705,8 +739,14 @@ void phylogeny::Tree::extractResult(Tree* placementT) {
 
 void phylogeny::updateLevels(Node* node, size_t currentLevel) {
     if (!node) return;
-    node->level = currentLevel;
-    for (Node* child : node->children) {
-        updateLevels(child, currentLevel + 1);
+    std::vector<std::pair<Node*, size_t>> stack;
+    stack.push_back({node, currentLevel});
+    while (!stack.empty()) {
+        auto [curr, lvl] = stack.back();
+        stack.pop_back();
+        curr->level = lvl;
+        for (Node* child : curr->children) {
+            stack.push_back({child, lvl + 1});
+        }
     }
 }

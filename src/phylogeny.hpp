@@ -34,8 +34,8 @@ namespace phylogeny {
         bool placed;
 
         /*Partition*/
-        int grpID;
-        Node * partitionParent;
+        int grpID = -1;
+        Node * partitionParent = nullptr;
 
         std::vector<int> seqsIncluded; // Indices of sequences included in this node
         Profile msaFreq;
@@ -65,6 +65,7 @@ namespace phylogeny {
         ~PartitionInfo();
 
         void partitionTree(Node* root);
+        void bipartition(phylogeny::Node* rootOfPartition, phylogeny::Node* edgeToCut, int newGrpID);
         void bipartition(Node* root, Node* edge, Node*& tree1Root, Node*& tree2Root);
     };
 
@@ -77,12 +78,13 @@ namespace phylogeny {
         std::string newInternalNodeId() { return "node_" + std::to_string(++m_currInternalNode);}
         Node* root;
         std::unordered_map<std::string, Node*> allNodes;
+        static inline bool s_noSeqWeighting = false;
 
         void calLeafNum();
         void calSeqWeight();
         void parseNewick(std::string& newickString);
         void showTree();
-        void reroot(bool placement=false);
+        void reroot(bool placement=false, bool verbose=true);
         void convert2binaryTree();
         void extractResult(Tree* placementT);
         std::string getNewickString();
@@ -92,7 +94,7 @@ namespace phylogeny {
         // Used for whole Tree
         Tree(std::string newickFileName);
         // Used for subtree
-        Tree(Node* node, bool reroot);
+        Tree(Node* node, bool reroot, bool verbose=true);
         // Used for placement without tree
         Tree(std::unordered_set<std::string>& seqNames);
 
@@ -103,6 +105,10 @@ namespace phylogeny {
 
     void pruneTree(Tree*& T, std::unordered_set<std::string>& seqs);
     Tree* constructTreeFromPartitions(Node* root, PartitionInfo* P);
+    Tree* constructTreeFromPartitions_new(Node* root, PartitionInfo* P);
+    Node* buildInducedTree(Node* origNode, 
+                           const std::unordered_map<std::string, std::pair<Node*, size_t>>& targetNodes, 
+                           Tree* T);
     void updateSubrootInfo(Node*& subroot, Tree* subT, int subtreeIdx);
     Tree* getPlacementTree(Tree*);
     void updateLevels(Node* node, size_t currentLevel);

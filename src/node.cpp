@@ -40,18 +40,29 @@ phylogeny::Node::Node(Node* node){
 
 size_t phylogeny::Node::getNumLeaves(){
     size_t num_leaves = 0;
-    if (children.size() == 0) return num_leaves;
-    for (auto ch: children){
-        if (ch->is_leaf()) num_leaves += 1;
-        else num_leaves += ch->getNumLeaves();
+    std::vector<Node*> stack;
+    for (auto ch : children) stack.push_back(ch);
+    while (!stack.empty()) {
+        Node* curr = stack.back();
+        stack.pop_back();
+        if (curr->is_leaf()) num_leaves += 1;
+        else {
+            for (auto ch : curr->children) stack.push_back(ch);
+        }
     }
     return num_leaves;
 }
 
 size_t phylogeny::Node::getNumNodes(){
     size_t num_nodes = 1;
-    if (children.size() == 0) return num_nodes;
-    for (auto ch: children) num_nodes += ch->getNumNodes();
+    std::vector<Node*> stack;
+    for (auto ch : children) stack.push_back(ch);
+    while (!stack.empty()) {
+        Node* curr = stack.back();
+        stack.pop_back();
+        num_nodes += 1;
+        for (auto ch : curr->children) stack.push_back(ch);
+    }
     return num_nodes;
 }
 

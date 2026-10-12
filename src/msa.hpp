@@ -13,9 +13,13 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 #include <unordered_map>
 #include <unordered_set>
 #include <array>
+#include <memory>
+#include <functional>
+#include <cassert>
 
 #include <boost/program_options.hpp>
 #include <tbb/spin_rw_mutex.h>
@@ -27,11 +31,20 @@ int letterIdx(char type, char inChar);
 
 namespace msa
 {
+    // Forward declaration
+    struct Params;  
+    struct Option; 
+    struct SequenceDB;
+    namespace accurate { struct SubtreeAccurateState; } // Forward declaration for SequenceDB
+
+    
     enum Type {
-        DEFAULT_ALN = 0,
-        MERGE_MSA   = 1,
+        DEFAULT_ALN   = 0,
+        MERGE_MSA     = 1,
         PLACE_WO_TREE = 2,
-        PLACE_W_TREE  = 3
+        PLACE_W_TREE  = 3,
+        ACCURATE_ALN  = 4,
+        ACCURATE      = 4
     };
     
     using Node = phylogeny::Node;
@@ -51,11 +64,476 @@ namespace msa
     using alnPath = std::vector<int8_t>;
     using alnPathVec = std::vector<alnPath>;
     using Profile = std::vector<std::vector<float>>;
+    using alnFunction = std::function<void(Tree *, NodePairVec &, SequenceDB *, Option *, Params &)>;
+
+    namespace accurate
+    {
+        struct AlignedResiduePair
+        {
+            int refIndex;
+            int qryIndex;
+        };
+
+        struct AlignmentResult
+        {
+            int score = 0;
+            float identity = 0.0f;
+            std::vector<AlignedResiduePair> alignedPairs;
+        };
+
+        // ---------------------------------------------------------------------
+        // Local Homology Upper-Triangular Table (MAFFT consistency memory layout)
+        // ---------------------------------------------------------------------
+        class LocalHomTable {
+        public:
+            // Contiguous ungapped alignment block between sequence i and sequence j
+            struct Segment {
+                int start1 = 0;   // 0-based start index in sequence 1 (inclusive)
+                int end1 = 0;     // 0-based end index in sequence 1 (inclusive)
+                int start2 = 0;   // 0-based start index in sequence 2 (inclusive)
+                int end2 = 0;     // 0-based end index in sequence 2 (inclusive)
+                float optScore = 0.0f;    // Raw or normalized pairwise alignment score
+                float importance = 0.0f;  // Forward coverage-weighted importance score (computed in Step 2)
+                float rimportance = 0.0f; // Reverse coverage-weighted importance score (computed in Step 2)
+
+                inline int length() const { return end1 - start1 + 1; }
+            };
+
+            // Alignment result for pair (i, j)
+            struct PairResult {
+                int score = 0;
+                float identity = 0.0f;
+                std::vector<Segment> segments;
+
+                PairResult() = default;
+                PairResult(int s, float id, std::vector<Segment>&& segs)
+                    : score(s), identity(id), segments(std::move(segs)) {}
+                
+                PairResult(PairResult&&) noexcept = default;
+                PairResult& operator=(PairResult&&) noexcept = default;
+                PairResult(const PairResult&) = default;
+                PairResult& operator=(const PairResult&) = default;
+            };
+
+            // Transitive Consistency Score (TCS) entry for residue pair (i, j)
+            struct TCSEntry {
+                int32_t pos1 = 0;   // 0-based residue index in sequence 1
+                int32_t pos2 = 0;   // 0-based residue index in sequence 2
+                float score = 0.0f; // Scaled consistency score for DP: pairTCS * pairOptScore
+                float tcs = 0.0f;   // Normalized PairTCS reliability score in [0.0, 1.0]
+            };
+
+            // TCS alignment result for pair (i, j)
+            struct TCSPairResult {
+                std::vector<TCSEntry> entries;
+            };
+
+        private:
+            int numSeqs;
+            size_t totalPairs;
+            std::vector<PairResult> matrix; // 1D upper-triangular storage: N * (N - 1) / 2
+            std::vector<TCSPairResult> tcsMatrix; // 1D upper-triangular storage for TCS entries
+            std::vector<int> groupSeqIndices; // Map local index (0..N-1) to global SequenceDB index
+            std::unordered_map<int, int> globalToLocal; // Map global SequenceDB index to local index (0..N-1)
+
+        public:
+            LocalHomTable() : numSeqs(0), totalPairs(0) {}
+            
+            // 1. Constructor: given N sequences, allocate upper-triangular memory
+            explicit LocalHomTable(int n) : numSeqs(n), totalPairs((size_t)n * (n - 1) / 2) {
+                matrix.resize(totalPairs);
+            }
+
+            // Constructor with sequence indices for global-to-local mapping
+            LocalHomTable(int n, const std::vector<int>& globalIndices)
+                : numSeqs(n), totalPairs((size_t)n * (n - 1) / 2), groupSeqIndices(globalIndices) {
+                matrix.resize(totalPairs);
+                for (int loc = 0; loc < n; ++loc) {
+                    globalToLocal[globalIndices[loc]] = loc;
+                }
+            }
+
+            // Upper triangle index calculation for pair (i, j) with i < j
+            inline size_t pairIndex(int i, int j) const {
+                assert(i != j && i >= 0 && j >= 0 && i < numSeqs && j < numSeqs);
+                if (i > j) std::swap(i, j);
+                return (size_t)i * (2 * numSeqs - i - 1) / 2 + (j - i - 1);
+            }
+
+            // Accessors
+            inline PairResult& getPairResult(int i, int j) {
+                return matrix[pairIndex(i, j)];
+            }
+
+            inline const PairResult& getPairResult(int i, int j) const {
+                return matrix[pairIndex(i, j)];
+            }
+
+            inline PairResult& operator()(int i, int j) {
+                return matrix[pairIndex(i, j)];
+            }
+
+            inline const PairResult& operator()(int i, int j) const {
+                return matrix[pairIndex(i, j)];
+            }
+
+            inline void setPairResult(int i, int j, PairResult&& res) {
+                matrix[pairIndex(i, j)] = std::move(res);
+            }
+
+            inline void initTCS() {
+                tcsMatrix.resize(totalPairs);
+            }
+
+            inline bool hasTCS() const {
+                return !tcsMatrix.empty();
+            }
+
+            inline TCSPairResult& getTCSPairResult(int i, int j) {
+                return tcsMatrix[pairIndex(i, j)];
+            }
+
+            inline const TCSPairResult& getTCSPairResult(int i, int j) const {
+                return tcsMatrix[pairIndex(i, j)];
+            }
+
+            inline void setTCSPairResult(int i, int j, TCSPairResult&& res) {
+                tcsMatrix[pairIndex(i, j)] = std::move(res);
+            }
+
+            inline int getNumSeqs() const { return numSeqs; }
+            inline size_t getTotalPairs() const { return totalPairs; }
+            inline std::vector<PairResult>& getRawMatrix() { return matrix; }
+            inline const std::vector<PairResult>& getRawMatrix() const { return matrix; }
+
+            inline int getLocalIndex(int globalIdx) const {
+                auto it = globalToLocal.find(globalIdx);
+                return (it != globalToLocal.end()) ? it->second : -1;
+            }
+
+            inline int getGlobalIndex(int localIdx) const {
+                if (localIdx >= 0 && localIdx < (int)groupSeqIndices.size()) {
+                    return groupSeqIndices[localIdx];
+                }
+                return -1;
+            }
+
+            // Positional coverage importance [localSeqIdx][residuePos]
+            std::vector<std::vector<float>> positionImportance;
+
+            long long pairwiseTimeMs = 0;
+            long long libTimeMs = 0;
+            float meanImportance = 0.0f;
+
+            inline void setPositionImportance(std::vector<std::vector<float>>&& posImp) {
+                positionImportance = std::move(posImp);
+            }
+
+            inline const std::vector<std::vector<float>>& getPositionImportance() const {
+                return positionImportance;
+            }
+
+            inline float getResidueImportance(int localSeqIdx, int resPos) const {
+                if (localSeqIdx >= 0 && localSeqIdx < (int)positionImportance.size() &&
+                    resPos >= 0 && resPos < (int)positionImportance[localSeqIdx].size()) {
+                    return positionImportance[localSeqIdx][resPos];
+                }
+                return 0.0f;
+            }
+        };
+
+        struct Aligner;
+
+        struct ResidueInstance
+        {
+            int seqId;
+            int residueIndex;
+            float weight;
+        };
+
+        struct ExtendedWeight {
+            int32_t targetPos;
+            float weight;
+        };
+
+        struct SparseAlignmentRecord {
+            float weight = 0.0f;
+            std::vector<int32_t> forward;  
+            std::vector<int32_t> backward; 
+
+            std::vector<std::vector<ExtendedWeight>> extendedForward;  // posU -> list of (posV, weight)
+            std::vector<std::vector<ExtendedWeight>> extendedBackward; // posV -> list of (posU, weight)
+        };
+
+        struct DirectPairLibrary {
+
+            DirectPairLibrary(){};
+            void init (int sequenceCount, std::vector<int>& activeSeqIdx, std::vector<int>& seqLengths);
+            // DirectPairLibrary(){};
+            
+            int totalSequence;
+            int totalPairs; // N * (N-1) / 2
+            
+            std::vector<std::vector<float>> residueSupport;
+            std::vector<std::vector<float>> residueSupportRep; // 🔥 新增：只記錄 Rep 與 Rep 之間的 Support
+            
+            std::vector<int> active_seqs; 
+            std::vector<int> global_to_local;
+
+            static constexpr int DENSE_LIMIT = 500;          // N <= 500 時觸發 Dense Mode
+            static constexpr int MAX_CLUSTER_SIZE = 100;     // 每個 Cluster 的最大 Size
+            static constexpr int TARGET_TOTAL_REPS = 500;    // 目標 Reps 總數，用來動態計算 reps_per_cluster
+        
+            // Lookup Table
+            // index: idx(refID, qryID), value: recordIndex
+            std::vector<int32_t> pair_to_record_idx;
+            std::vector<SparseAlignmentRecord> records;
+
+            std::vector<int> seq_to_cluster;               // Local ID -> Cluster ID
+            std::vector<bool> is_rep;                      // Local ID -> is Rep or not
+            std::vector<std::vector<int>> cluster_reps;    // Cluster ID -> Reps (Global ID)
+            std::vector<std::vector<int>> cluster_members; // Cluster ID -> Members (Global ID)
+            std::vector<int> all_reps;                     // Reps -> Global ID
+
+            // DirectPairLibrary(int sequenceCount, std::vector<int>& seqLengths);
+
+            // --- Mapping function ---
+            inline int idx(int global_i, int global_j) const {
+                int u = global_to_local[global_i];
+                int v = global_to_local[global_j];
+                if (u == -1 || v == -1 || u == v) return -1; 
+                if (u > v) std::swap(u, v);
+                return u * totalSequence - u * (u + 1) / 2 + (v - u - 1);
+            }
+
+            // --- Modifiers ---
+            int createRecord(int refID, int qryID, int refLen, int qryLen);
+            void addLocalAlignmentResult(int refID, int qryID, AlignmentResult& result);
+            void computeResidueSupport();
+            void computePairWeights();
+
+
+            // --- Lookups ---
+            int getSequence();
+            int getPairs();
+            inline float getWeight(int refID, int qryID) const;
+            inline int getAlignedPos(int refID, int qryID, int refPos) const;
+        };
+
+        struct SubtreeAccurateState
+        {
+            SubtreeAccurateState (int idx, int sequenceCount, std::vector<int>& activeSeqIdx, std::vector<int>& seqLengths) {
+                subtreeIdx = idx;
+                directLib.init(sequenceCount, activeSeqIdx, seqLengths);
+            };
+
+            int subtreeIdx;
+            DirectPairLibrary directLib;
+        };
+        
+        using ColumnResidues = std::vector<ResidueInstance>;
+        using ColumnProvenance = std::vector<ColumnResidues>;
+
+        void collectLeavesInOrder(Node* node, std::vector<std::string>& leaves);
+        void removeColumns(ColumnProvenance& provenance, const IntPairVec& removedColumns);
+        std::vector<std::vector<float>> buildConsistencyTable( const ColumnProvenance& refProvenance, const ColumnProvenance& qryProvenance, msa::accurate::SubtreeAccurateState& accurateState);    
+        std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, Tree* tree, int subtreeIdx, Params& params);
+        std::vector<int> gatherClustersFromTree(Node* node, SequenceDB* database, std::size_t targetSize, std::vector<std::vector<int>>& clusters);
+        void msaOnSubtree_accurate(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel = nullptr, int subtree = -1);
+        void mergeSubtreesAccurate(Tree* subRoot_T, SequenceDB* database, Option* option, Params& param);
+
+        struct Representative {
+            int globalSeqID = -1;
+            int subtreeID = -1;
+            std::string name;
+            std::string unalignedSeq;
+            int originGroupID = -1;
+            int localIdxInChild = -1;
+            float centralityScore = 0.0f;
+            std::vector<int> colInSubAln; // Residue index -> column index in subalignment
+        };
+
+        void extractProvenanceFromRepresentatives(
+            const std::vector<accurate::Representative>& reps,
+            int alnLen,
+            accurate::ColumnProvenance& provenance
+        );
+
+        static inline uint64_t makeGlobalPairKey(int g1, int g2) {
+            if (g1 > g2) std::swap(g1, g2);
+            return ((uint64_t)(uint32_t)g1 << 32) | (uint64_t)(uint32_t)g2;
+        }
+
+        struct HierarchyGroup {
+            int layer;                         // 1-based layer index (1 = base subtrees)
+            int groupID;                       // 0-based group index within this layer
+            std::string rootIdentifier;        // Root node identifier in the tree (for Layer 1 subtree)
+            std::vector<int> subtreeIDs;       // Subtree IDs (grpID) covered by this group
+            std::vector<int> childGroupIDs;    // Group IDs from layer - 1 that compose this group
+            size_t totalSequences;             // Total sequences represented in this group
+            size_t repCount;                   // Number of representative sequences in this group for all-to-all alignment
+            size_t nextRepCount;               // Representatives contributed to next layer (ceil(repCount * sampleRate))
+            std::vector<int> repSeqIndices;    // Sequence indices of representatives for this group
+            std::vector<std::string> repSeqNames; // Sequence names of representatives for this group
+            std::vector<Representative> representatives; // Stored representative sequences for inter-layer consistency
+
+            // Pass-forward cache: stores precalculated pairwise results among representatives of this group
+            // Key: makeGlobalPairKey(globalSeqID1, globalSeqID2)
+            std::unordered_map<uint64_t, accurate::LocalHomTable::PairResult> repPairwiseCache;
+        };
+
+        struct HierarchyPlan {
+            int totalLayers;
+            size_t totalSequences;
+            float sampleRate;
+            int maxGroupReps;                  // Maximum reps per group (default 1000)
+            std::vector<std::vector<HierarchyGroup>> layers; // layers[0] = Layer 1, layers[1] = Layer 2, etc.
+
+            void printSummary(bool verbose = false) const;
+        };
+
+        HierarchyPlan computeHierarchyPlan(Tree* T, PartitionInfo* P, Tree* subRoot_T, Option* option);
+        std::vector<Representative> extractRepresentatives(
+            Node* root,
+            size_t targetReps,
+            SequenceDB* database,
+            int groupID,
+            const std::vector<float>& centralityScores,
+            const LocalHomTable& localHomTable,
+            int alnLen,
+            Option* option = nullptr,
+            std::string* logMsg = nullptr,
+            int subtreeID = -1
+        );
+        inline std::vector<Representative> extractRepresentativesByCentrality(
+            Node* root,
+            size_t targetReps,
+            SequenceDB* database,
+            int groupID,
+            const std::vector<float>& centralityScores,
+            const LocalHomTable& localHomTable,
+            int alnLen,
+            Option* option = nullptr,
+            std::string* logMsg = nullptr,
+            int subtreeID = -1
+        ) {
+            return extractRepresentatives(root, targetReps, database, groupID, centralityScores, localHomTable, alnLen, option, logMsg, subtreeID);
+        }
+
+        // Group-level progressive alignment with consistency pipeline
+        std::shared_ptr<LocalHomTable> alignGroupPairwiseAllToAll(
+            HierarchyGroup& group,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            const std::vector<HierarchyGroup>* prevLayerGroups = nullptr
+        );
+        std::vector<float> buildGroupConsistencyLibrary(
+            const HierarchyGroup& group,
+            std::shared_ptr<LocalHomTable> localHomTable,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param
+        );
+        std::vector<std::vector<float>> buildConsistencyTableFromLocalHom(
+            const ColumnProvenance& refProvenance,
+            const ColumnProvenance& qryProvenance,
+            const LocalHomTable& localHomTable
+        );
+        std::vector<std::vector<float>> buildConsistencyTableFromTCS(
+            const ColumnProvenance& refProvenance,
+            const ColumnProvenance& qryProvenance,
+            const LocalHomTable& localHomTable,
+            float scaleFactor = 1.0f
+        );
+        std::vector<float> buildGroupTCSLibrary(
+            const HierarchyGroup& group,
+            std::shared_ptr<LocalHomTable> localHomTable,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param
+        );
+        float computeColumnTCS(
+            const std::vector<std::pair<int, int>>& colResidues,
+            const LocalHomTable& localHomTable
+        );
+        void alignmentKernel_Accurate_CPU(
+            Tree* tree,
+            NodePairVec& nodes,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            std::shared_ptr<LocalHomTable> localHomTable = nullptr,
+            std::unordered_map<std::string, ColumnProvenance>* subrootProvenance = nullptr
+        );
+        void progressiveAlignGroupWithConsistency(
+            HierarchyGroup& group,
+            std::shared_ptr<LocalHomTable> localHomTable,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            alnFunction alignmentKernel,
+            std::unordered_map<std::string, ColumnProvenance>* subrootProvenance = nullptr
+        );
+        void msaOnGroup_accurate(
+            HierarchyGroup& group,
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            alnFunction alignmentKernel,
+            const std::vector<HierarchyGroup>* prevLayerGroups = nullptr,
+            std::unordered_map<std::string, ColumnProvenance>* subrootProvenance = nullptr
+        );
+        void executeHierarchyPlan(
+            HierarchyPlan& plan,
+            Tree* T,
+            PartitionInfo* P,
+            Tree* subRoot_T,
+            SequenceDB* database,
+            Option* option,
+            Params& param,
+            alnFunction alignmentKernel,
+            bool writeOutput = false
+        );
+
+        struct BackboneRep {
+            int id = 0;
+            std::string name;
+            std::string unalignedSeq;
+            std::vector<int> colMap; // colMap[residueIdx] = backboneColumnIdx
+        };
+
+        std::vector<BackboneRep> extractBackboneRepresentatives(
+            const std::string& backboneFile,
+            int targetReps,
+            Option* option
+        );
+
+        void placeWithoutTree_Accurate(
+            Tree* T,
+            SequenceDB* database,
+            Option* option,
+            Params& param
+        );
+
+        namespace gpu {
+            std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState_GPU(SequenceDB* database, Option* option, Tree* tree, int subtreeIdx, Params& params);
+        }
+    }
+
+
+
+    
 
     struct Option
     {
         // Mode Options
-        int alnMode; // 0: MSA from raw sequences, 1: merge multiple MSA files, 2: add new sequences to existing MSA
+        int alnMode; // 0: MSA from raw sequences, 1: merge multiple MSA files, 2: add new sequences to existing MSA, 3: place with tree, 4: accurate mode
         // Hardware Options
         int gpuNum;
         int cpuNum;
@@ -76,6 +554,24 @@ namespace msa
         bool compressed;
         char type; // 'n' for dna/rna, 'p' for protein
         bool alignGappy;
+        bool noSeqWeighting;
+        // -------
+        bool accurate;
+        std::string accurateMethod; // "pairwise" (default) or "tcs"
+        int accMode; // 0: auto, 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast)
+        int resolvedAccMode;
+        float consistencyWeight;
+        float accSampleRate;
+        float accSampleTop;
+        int accMaxGroup;
+        bool hasUserAccMaxGroup;
+        bool hasUserAccSampleRate;
+        bool hasUserAccSampleTop;
+        int userAccMaxGroup;
+        float userAccSampleRate;
+        float userAccSampleTop;
+        void resolveAccurateParams(int numSeqs);
+        // -------
         // File Names
         std::string treeFile;
         std::string seqFile;
@@ -100,12 +596,17 @@ namespace msa
         float gapOpen;
         float gapExtend;   // for gap-affine
         float gapBoundary; // gap penalty at ends
+        float gapTerminal;
+        float localGapOpen;   // Gap-open penalty for pairwise local alignment
+        float localGapExtend; // Gap-extend penalty for pairwise local alignment
         float xdrop;       // optional for now
         float scaleFactor;
+        float offset;      // Matrix offset in internal units
         float **scoringMatrix;
         int matrixSize;
         Params(po::variables_map &vm, char type);
         ~Params();
+        void normalizeScoringMatrix(float targetScore = 60.0f, float offset = 0.0f); 
     };
 
     struct SequenceDB
@@ -138,6 +639,9 @@ namespace msa
         std::vector<Node*> fallback_nodes;
         std::unordered_map<int, SequenceInfo *> id_map;
         std::unordered_map<std::string, SequenceInfo *> name_map;
+        // -------
+        std::shared_ptr<accurate::SubtreeAccurateState> accurateState; // Now uses the full definition
+        // -------
 
         void addSequence(int id, const std::string &name, std::string &seq, int subtreeIdx, float weight, bool debug, int alnMode);
         void debug();
@@ -149,6 +653,7 @@ namespace msa
         // For merging step
         std::unordered_map<int, alnPath> subtreeAln;
         std::vector<std::pair<std::string, int>> subAlnFiles; // subalignment file name, subtreeIdx
+        std::unordered_map<std::string, std::vector<accurate::Representative>> subtreeRepresentatives;
         
         SequenceDB() {};
         ~SequenceDB() {};
@@ -172,16 +677,46 @@ namespace msa
         void writeFinalMSA(SequenceDB* database, Option* option, int alnLen);
     }
 
-    using alnFunction = std::function<void(Tree *, NodePairVec &, SequenceDB *, Option *, Params &)>;
+    // Profile indexing constants for alignment scoring and gap penalty offsets
+    constexpr int GAP_OPEN_IDX       = 25;
+    constexpr int GAP_EXT_IDX        = 26;
+    constexpr int GAP_TERM_EXT_IDX   = 27;
+    constexpr int GAP_TERM_OPEN_IDX  = 28;
+    constexpr int NO_SYMBOLS         = 32;
+    constexpr int NO_AMINOACIDS      = 21;
+
+    struct AlnProfile {
+        int width = 0;
+        float totalWeight = 0.0f;
+        int numSeqs = 0;
+        std::vector<float> counters; // (width + 1) * NO_SYMBOLS
+        std::vector<float> scores;   // (width + 1) * NO_SYMBOLS
+
+        inline float* get_counters(int col) { return &counters[col * NO_SYMBOLS]; }
+        inline const float* get_counters(int col) const { return &counters[col * NO_SYMBOLS]; }
+        inline float* get_scores(int col) { return &scores[col * NO_SYMBOLS]; }
+        inline const float* get_scores(int col) const { return &scores[col * NO_SYMBOLS]; }
+    };
+
 
     namespace alignment_helper
     {
-        constexpr int _CAL_PROFILE_TH = 1000;
-        constexpr int _UPDATE_SEQ_TH = 1000;
+        constexpr int _CAL_PROFILE_TH = 100000;
+        constexpr int _UPDATE_SEQ_TH = 100000;
 
         void calculateProfile(float *profile, NodePair &nodes, SequenceDB *database, Option *option, int32_t memLen);
         void removeGappyColumns(float *hostFreq, NodePair &nodes, Option *option, std::pair<IntPairVec, IntPairVec> &gappyColumns, int32_t memLen, IntPair &lens, int currentTask);
         void calculatePSGP(float *hostFreq, float *hostGapOp, float *hostGapEx, NodePair &nodes, SequenceDB* database, Option *option, int memLen, IntPair offset, IntPair lens, Params &param);
+        void calculatePSGP(
+            AlnProfile& profRef,
+            AlnProfile& profQry,
+            NodePair& nodes,
+            SequenceDB* database,
+            Option* option,
+            const Params& param,
+            IntPair lens,
+            const std::pair<IntPairVec, IntPairVec>& gappyColumns
+        );
         void getConsensus(Option *option, float *profile, std::string &consensus, int len);
         void pairwiseGlobal(const std::string &seq1, const std::string &seq2, alnPath &alnPath, Params &param);
         void addGappyColumnsBack(alnPath &aln_before, alnPath &aln_after, std::pair<IntPairVec, IntPairVec> &gappyColumns, Params &param, IntPair rgcLens, stringPair orgSeqs);
@@ -193,6 +728,10 @@ namespace msa
         // void alignEnds (NodePair &nodes, SequenceDB *database,  char type, IntPair& starting, IntPair& ending, std::map<int, std::string>& startAln, std::map<int, std::string>& endAln);
         // IntPair smith_waterman(const std::string &seq1, const std::string &seq2);
         // alnPath smith_waterman_tb(const std::string &seq1, const std::string &seq2);
+        // -------
+        void extractColumnProvenance(Node* node, SequenceDB* database, accurate::ColumnProvenance& provenance);
+        // -------
+        
     }
 
     namespace progressive
@@ -201,7 +740,7 @@ namespace msa
         void scheduling(Node *root, std::vector<NodePairVec> &alnPairsPerLevel, int currentTask);
         void updateNode(Tree *tree, NodePairVec &nodes, SequenceDB *database);
         void progressiveAlignment(Tree *T, SequenceDB *database, Option *option, std::vector<NodePairVec> &alnPairPerLevel, Params &param, alnFunction alignmentKernel);
-        void msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree=-1);
+        void msaOnSubtree(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel = nullptr, int subtree=-1);
         void updateAlignment(Node* node, SequenceDB *database);
 
         namespace cpu 
@@ -270,6 +809,10 @@ namespace msa
             void parallelAlignmentGPU(Tree *T, NodePairVec &alnPairs, SequenceDB *database, Option *option, Params &param);
         }
     }
+
+    std::string getCurrentSequence(const SequenceDB::SequenceInfo* sequence);
 }
+
+#include "align-method.hpp"
 
 #endif

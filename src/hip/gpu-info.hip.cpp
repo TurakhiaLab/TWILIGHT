@@ -10,8 +10,14 @@ void msa::Option::getGpuInfo(po::variables_map &vm) {
     int maxGpuNum = 0;
     hipError_t err = hipGetDeviceCount(&maxGpuNum);
     if (err != hipSuccess) {
-        std::cerr << "No GPU detected." << std::endl;
         maxGpuNum = 0; // or handle accordingly
+    }
+
+    if (this->accurate) {
+        fprintf(stderr, "Maximum available GPUs: %d. Using 0 GPUs (Current accurate mode only has CPU version; no GPUs will be used).\n", maxGpuNum);
+        this->cpuOnly = true;
+        this->gpuNum = 0;
+        return;
     }
     int gpuNum = (vm.count("gpu")) ? vm["gpu"].as<int>() : maxGpuNum;
     if (gpuNum < 0 || gpuNum > maxGpuNum)
