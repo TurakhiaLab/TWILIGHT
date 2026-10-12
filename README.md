@@ -24,7 +24,7 @@
 ## What's New
 
 - **TWILIGHT v0.3.0 (Accurate mode)**
-  - **Consistency library & TCS:** Introduces consistency-based alignment (`--accurate`) incorporating pairwise consistency libraries and Transitive Consistency Score (`--accurate tcs`) to substantially improve alignment accuracy.
+  - **Consistency library & TCS:** Introduces consistency-based alignment (`--accurate`) incorporating pairwise consistency libraries and Transitive Consistency Score (`--accurate tcs`) to improve alignment accuracy.
   - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences.
   - **Divide-and-Conquer compatibility:** Accurate mode is compatible with the divide-and-conquer strategy (`-m`), allowing it to scale to even larger datasets while maintaining manageable memory usage.
   - **CPU-only execution:** Accurate mode is currently supported on CPU only. While TWILIGHT can be compiled on GPU-enabled environments, accurate mode will execute on CPU.
