@@ -168,6 +168,12 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
     auto& layer1 = plan.layers[0];
     int proceeded = 0;
 
+    if (option->printDetail) {
+        std::cerr << "--------------------------------------------------------------------------------\n";
+        std::cerr << "[Accurate Mode] Starting Layer 1 (" << layer1.size() << " base group(s))\n";
+        std::cerr << "--------------------------------------------------------------------------------\n";
+    }
+
     bool inMemoryMode = !database->sequences.empty() || (option->maxSubtree == INT32_MAX);
     if (inMemoryMode && database->sequences.empty()) {
         msa::io::readSequences(option->seqFile, database, option, T, -1);
