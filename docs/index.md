@@ -296,8 +296,8 @@ Generate MSA by giving an unaligned sequence file and a guide tree file.
 ##### <a name="accurate"></a> **Accurate Mode**  
 Incorporates consistency transformation to improve alignment accuracy. 
 
-- `--accurate`: Runs pairwise consistency alignment (default MAFFT-style consistency library).
-- `--accurate tcs`: Evaluates Transitive Consistency Score (TCS) for position reliability scoring.
+- `--accurate`: Runs pairwise consistency alignment (default MAFFT-style consistency library, [Katoh & Standley, 2013](https://doi.org/10.1093/molbev/mst010)).
+- `--accurate tcs`: Evaluates Transitive Consistency Score (TCS) for position reliability scoring ([Chang et al., 2014](https://doi.org/10.1093/molbev/msu117)).
 
 TWILIGHT offers different presets via `--acc-mode` to balance runtime and consistency sampling:
 - `1`: All-to-all (slowest, highest accuracy)
