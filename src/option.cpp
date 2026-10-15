@@ -265,7 +265,7 @@ msa::Option::Option(po::variables_map& vm) {
     
 
     // Create Temporary Directory if Needed
-    if (this->maxSubtree < INT32_MAX || (this->accurate && (this->accMode != 1 || this->accMaxGroup < INT32_MAX)) || vm.count("files") || this->alnMode == 2) {
+    if (this->maxSubtree < INT32_MAX || vm.count("files") || this->alnMode == 2) {
         std::string tempDir;
         if (!vm.count("temp-dir")) {
             int idx = 1;

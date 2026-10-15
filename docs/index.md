@@ -73,10 +73,7 @@ TWILIGHT offers multiple installation methods for different platforms and hardwa
 
 ### **Using Conda** <a name="conda"></a>
 
-TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
-
-!!!Note
-    The Bioconda package update to v0.3.0 is currently in progress. Users wishing to use v0.3.0 (with accurate mode support) are advised to install via the [installation script](#script) or build from source in the meantime.  
+TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://bioconda.github.io/recipes/twilight/README.html) for details.  
 
 0. <a name="installconda"></a> Install Conda (if not installed)
     ```bash

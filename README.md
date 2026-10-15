@@ -12,7 +12,7 @@
 [![License][license-badge]][license-link]
 [<img src="https://img.shields.io/badge/Build with-CMake-green.svg?logo=snakemake">](https://cmake.org)
 [<img src="https://img.shields.io/badge/Made with-Snakemake-aquamarine.svg?logo=snakemake">](https://snakemake.readthedocs.io/en/v7.19.1/index.html)
-[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](http://bioconda.github.io/recipes/twilight/README.html)
+[![install with bioconda](https://img.shields.io/badge/install%20with-bioconda-brightgreen.svg?style=flat)](https://bioconda.github.io/recipes/twilight/README.html)
 [![Published in Bioinformatics](https://img.shields.io/badge/Published%20in-Bioinformatics-blue.svg)](https://academic.oup.com/bioinformatics/article/41/Supplement_1/i332/8199405)
 
 <div align="center">
@@ -28,7 +28,7 @@
   - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences.
   - **Divide-and-Conquer compatibility:** Accurate mode is compatible with the divide-and-conquer strategy (`-m`), allowing it to scale to even larger datasets while maintaining manageable memory usage.
   - **CPU-only execution:** Accurate mode is currently supported on CPU only. While TWILIGHT can be compiled on GPU-enabled environments, accurate mode will execute on CPU.
-  - **Bioconda update in progress:** The Bioconda package update to v0.3.0 is currently in progress; please use the installation script or build from source for v0.3.0 in the meantime.
+  - **Bioconda availability:** TWILIGHT v0.3.0 is available on [Bioconda](https://bioconda.github.io/recipes/twilight/README.html) via `conda install bioconda::twilight`.
 
 ## Table of Contents
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
@@ -88,7 +88,7 @@ TWILIGHT offers multiple installation methods for different platforms and hardwa
 ⚠️ To enable **GPU support**, the appropriate GPU drivers must be installed on the host system. This applies to all installation methods (Installation script, Conda, and Docker). The CUDA toolkits and libraries are included in Conda and Docker setups, but must be installed manually when using the installation script.  
 
 ### <a name="conda"></a> Using Conda
-TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://anaconda.org/bioconda/twilight) for details.  
+TWILIGHT is available on multiple platforms via Conda. See [TWILIGHT Bioconda Page](https://bioconda.github.io/recipes/twilight/README.html) for details.  
 
 **Step 1:** Create and activate a Conda environment (ensure Conda is installed first)
 ```bash
