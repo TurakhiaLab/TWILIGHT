@@ -9,6 +9,7 @@
 #include "type.hpp"
 #include "option.hpp"
 #include "minimap2_util.hpp"
+#include "cigar_util.hpp"
 
 // =========================
 // Alignment Utils
@@ -53,8 +54,12 @@ struct Alignment {
     void setValid2False() { valid = false; }     
         
     int countVariationsInRange(BlockSet* blockSet, int aln_start, int aln_end);
-    void updateEnergy(BlockSet* refBlockSet, BlockSet* qryBlockSet, double beta=10.0);
-    void updateAlnLength();
+    inline void updateEnergy(BlockSet* refBlockSet, BlockSet* qryBlockSet, double beta = 10.0) {
+        energy = -static_cast<double>(alnScore);
+    }
+    inline void updateAlnLength() {
+        alnLength = getCigarLength(CIGAR);
+    }
     int mapCoordinate(int targetPos, bool targetIsRef);
     void finalizeAlignment(CoverageTracker& ref_coverageTracker, CoverageTracker& qry_coverageTracker, const std::map<int, std::string>& r_cut_reasons = {}, const std::map<int, std::string>& q_cut_reasons = {}, int snapLength=30);
 
@@ -89,7 +94,7 @@ struct CoverageTracker {
 
 struct CompareEnergy {
     bool operator()(const Alignment& a, const Alignment& b) {
-        return a.energy > b.energy; // C++ priority_queue 預設是 Max-Heap，用 > 反轉為 Min-Heap
+        return a.energy > b.energy; // C++ priority_queue default is Max-Heap, reversed to Min-Heap with >
     }
 };
 
@@ -99,12 +104,18 @@ struct AlignmentCollection {
     BlockSet* qry_blockset;
     CoverageTracker ref_coverageTracker;
     CoverageTracker qry_coverageTracker;
-    AlignmentCollection(Alignments& alignments, BlockSet* refBlockSet, BlockSet* qryBlockSet);
-    // Alignment getBestAlignment(BlockSet* refBlockSet, BlockSet* qryBlockSet, int L_min=100);
-    // Alignment getBestAlignment(BlockSet* refBlockSet, BlockSet* qryBlockSet, const BlockBoundaries& refBounds, const BlockBoundaries& qryBounds, int L_min=100);
-    // Alignments getBestAlignments(BlockSet* refBlockSet, BlockSet* qryBlockSet, const BlockBoundaries& refBounds, const BlockBoundaries& qryBounds, int L_min=100);
+
+    AlignmentCollection(Alignments& alignments, BlockSet* refBlockSet, BlockSet* qryBlockSet)
+        : ref_blockset(refBlockSet), qry_blockset(qryBlockSet) {
+        for (auto& aln : alignments) addAlignment(aln);
+    }
+
+    inline void addAlignment(Alignment aln) {
+        aln.updateEnergy(ref_blockset, qry_blockset);
+        queue_.push(aln);
+    }
+
     Alignments getBestAlignments(BlockSet* refBlockSet, BlockSet* qryBlockSet, CoordinateManager& coordMgr, int L_min=100);
-    void addAlignment(Alignment aln);
 };
 
 struct SplitResult {

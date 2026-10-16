@@ -4,6 +4,8 @@
 #include "phylogeny.hpp"
 #include "block_manager.hpp"
 #include "panmanWriter.hpp"
+#include "message_manager.hpp"
+#include "timer.hpp"
 
 #include <tbb/global_control.h>
 #include <boost/filesystem.hpp>
@@ -16,39 +18,31 @@ void parseArguments(int argc, char** argv)
 {
     
     // Section: I/O
-    po::options_description inputDesc("Inputs\n [1] Build MSA From Unaligned Sequences\n [2] Merge Multiple MSAs\n [3] Add New Sequences to Existing MSA");
+    po::options_description inputDesc("Inputs\n [1]  Build MGA From Scatch\n [2]  Add New Genomes to Existing MGA");
     inputDesc.add_options()
         ("tree,t", po::value<std::string>(), "Guide tree (Newick format): required for [1]; optional for [3].")
         ("sequences,i", po::value<std::string>(), "Unaligned sequences file (FASTA format): required for [1] and [3].");
         
     po::options_description outputDesc("Output/File Options");
     outputDesc.add_options()
-        ("output,o", po::value<std::string>(), "Output file name (required).")
-        ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files.")
-        ("keep-temp,k", "Keep the temporary directory.")
-        ("compress,c", "Write output files in compressed (.gz) format")
-        ("overwrite", "Force overwriting the output file.");
+        ("output,o", po::value<std::string>(), "Output file format: maf or panman. Default: output both formats.")
+        ("dir,d", po::value<std::string>(), "Directory for storing intermediate and final output files.")
+        ("prefix,p", po::value<std::string>(), "Prefix for output files")
+        ("log", po::value<std::string>(), "Log file path for output messages.")
+        ("overwrite", "Force overwriting. Remove the current dir.");
 
     // Section: Hardware
     po::options_description hardwareDesc("Hardware Usage");
     hardwareDesc.add_options()
-        ("cpu,C", po::value<int>(), "Number of CPU cores. Default: all available cores.")
-        ("gpu,G", po::value<int>(), "Number of GPUs. Default: all available GPUs.")
-        ("gpu-index", po::value<std::string>(), "Specify the GPU to be used, separated by commas. Ex. 0,2,3")
-        ("cpu-only", "Run the program only on CPU.");
+        ("cpu,C", po::value<int>(), "Number of CPU cores. Default: all available cores.");
 
     // Section: Alignment Parameters
     po::options_description alignDesc("Alignment Options and Parameters");
     alignDesc.add_options()
-        ("type", po::value<std::string>(), "Data type. n: nucleotide, p: protein. Will be automatically inferred if not provided.")
-        ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree.")
-        ("remove-gappy,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
-        ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
         ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)")
-        ("prune", "Prune the input guide tree based on the presence of unaligned sequences.")
-        ("write-prune", "Write the pruned tree to the output directory.")
         ("circular", "Treat input genomes as circular and orient them relative to the reference genome before alignment.")
-        ("write-oriented", "Write the oriented genome sequences in FASTA format.");
+        ("output-oriented", "Write the oriented genome sequences in FASTA format.")
+        ("mm-asm", po::value<int>()->default_value(5), "Minimap2 asm preset divergence level: 5, 10, or 20 (corresponding to asm5, asm10, asm20). Default: 5.");
 
     po::options_description seqFilterDesc("Sequence Filtering Options");
     seqFilterDesc.add_options()
@@ -97,6 +91,7 @@ int main(int argc, char** argv) {
     }
 
     Option option(vm);
+
     tbb::global_control init(tbb::global_control::max_allowed_parallelism, option.cpuNum);
 
 
@@ -109,7 +104,7 @@ int main(int argc, char** argv) {
     auto manager = mga::io::readSequences(option.seqFile, option, subT);
     if (option.circular) manager->orientCircularGenomes(option);
 
-    mga::progressive::msaOnSubtree(subT, option, manager.get(), 0);
+    mga::progressive::buildMGA(subT, option, manager.get(), 0);
 
     auto final_set = manager.get()->getBlockSet(manager.get()->getBlockSets().begin()->first);
 
@@ -129,21 +124,9 @@ int main(int argc, char** argv) {
     auto outputEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds outputTime = outputEnd - outputStart;
     
-    // final_set->realignAllToAll(option.tempDir);
-    // final_set->refineGraph();
-    // final_set->absorbMicroBlocks();
-    // final_set->refineBlocks();
-    // final_set->writeMAF(option.tempDir+"/output_post.maf");
-    
-    // final_set->realignBlocks(option.tempDir);
-    // final_set->debugValidateQuality(false);
-    // mga::io::writeMAF(final_set, option.tempDir+"/output_post.maf");
-
-    // final_set->debugValidateSequences(manager.get(), false);
-    
 
     std::cout << "--- Profiling Results (ms) ---\n";
-    std::cout << "Minimap2 Time:         " << option.minimap2_time << " ms\n";
+    std::cout << "Minimap2 Time:         " << global_timer.getTime("Minimap2") << " ms\n";
     std::cout << "Merge Time:            " << option.merge_time << " ms\n";
     std::cout << "Refine(BlockSet) Time: " << option.refineBlockSet_time << " ms\n";
     std::cout << "Refine(Block) Time:    " << option.refineBlock_time << " ms\n";

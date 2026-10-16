@@ -169,11 +169,10 @@ void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairs>& alnPa
     }
 }
 
-void msaOnSubtree(Tree& T, Option& option, BlockManager* blockManager, int subtree) {
+void buildMGA(Tree& T, Option& option, BlockManager* blockManager, int subtree) {
 
     auto progressiveStart = std::chrono::high_resolution_clock::now();
-    std::cerr << "============================\n";
-
+    
     std::vector<NodePairs> alnPairsPerLevel;
     
     int mode = 0;

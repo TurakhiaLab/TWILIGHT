@@ -28,7 +28,7 @@ namespace mga {
         void scheduling(Node* root, std::vector<NodePairs>& levels, int mode);
         void updateNode(NodePairs& nodes, BlockManager* blockManager);
         void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairs>& alnPairsPerLevel, BlockManager* blockManager);
-        void msaOnSubtree(Tree& T, Option& option, BlockManager* blockManager, int subtree);
+        void buildMGA(Tree& T, Option& option, BlockManager* blockManager, int subtree);
         void alignmentKernel(NodePairs& alnPairs, BlockManager* blockManager, Option& option, Tree& tree);
     }
 

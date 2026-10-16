@@ -1,6 +1,7 @@
 #include "minimap2_util.hpp"
 #include "alignment.hpp"
 #include "cigar_util.hpp"
+#include "timer.hpp"
 
 extern "C" {
 #include "minimap.h"
@@ -141,15 +142,15 @@ Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq,
     Alignments alignments;
     if (refSeq.empty() || qrySeq.empty()) return alignments;
 
-    // 1. 初始化 Minimap2 選項 (從傳入的 Minimap2Config 取得)
+    // 1. Initialize minimap2 options (obtained from incoming Minimap2Config)
     mm_idxopt_t iopt = config.iopt;
     mm_mapopt_t mopt = config.mopt;
 
-    // 2. 零拷貝 C 字串指標傳遞 (直接引用傳入的 const std::string&)
+    // 2. Zero-copy C-string pointers passing
     const char* ref_seq_ptr = refSeq.c_str();
     const char* ref_name_ptr = refID.c_str();
 
-    // 3. 在記憶體中直接建立 Index (零檔案 I/O，零字串拷貝)
+    // 3. Build index directly in memory (zero file I/O, zero string copying)
     mm_idx_t* mi = mm_idx_str(iopt.w, iopt.k, iopt.flag & MM_I_HPC, 14, 1, &ref_seq_ptr, &ref_name_ptr);
     if (!mi) {
         std::cerr << "Error: Failed to build minimap2 index in memory." << std::endl;
@@ -157,10 +158,10 @@ Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq,
     }
     mm_mapopt_update(&mopt, mi);
 
-    // 4. 初始化 Thread Buffer
+    // 4. Initialize Thread Buffer
     mm_tbuf_t* tbuf = mm_tbuf_init();
 
-    // 5. 執行 Query 序列 Mapping
+    // 5. Execute Query sequence mapping
     int n_regs = 0;
     mm_reg1_t* regs = mm_map(mi, static_cast<int>(qrySeq.length()), qrySeq.c_str(),
                              &n_regs, tbuf, &mopt, qryID.c_str());
@@ -237,9 +238,9 @@ Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq,
                         break;
                 }
             }
-            free(r->p); // 釋放 CIGAR payload 記憶體
+            free(r->p); // Free CIGAR payload memory
         } else {
-            // Chaining-only mode: 使用 block length 作為對齊長度
+            // Chaining-only mode: use block length as alignment length
             totLen = r->blen;
         }
 
@@ -253,7 +254,7 @@ Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq,
     }
     free(regs);
 
-    // 6. 清理 Minimap2 記憶體
+    // 6. Clean up minimap2 memory
     mm_tbuf_destroy(tbuf);
     mm_idx_destroy(mi);
 
@@ -264,7 +265,8 @@ Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq,
     });
 
     auto minimap2_end = std::chrono::high_resolution_clock::now();
-    option.minimap2_time += std::chrono::duration_cast<std::chrono::milliseconds>(minimap2_end - minimap2_start).count();
+    double dur_ms = std::chrono::duration<double, std::milli>(minimap2_end - minimap2_start).count();
+    global_timer.add("Minimap2", dur_ms);
 
     return alignments;
 }
@@ -280,12 +282,13 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
 
     if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Start running minimap2 API. Ref count: " << ref.size() << ", Qry count: " << qry.size() << std::endl;
 
-    // 1. 初始化 Minimap2 選項 (從傳入的 Minimap2Config 取得)
+    // 1. Initialize minimap2 options (obtained from incoming Minimap2Config)
     mm_idxopt_t iopt = config.iopt;
     mm_mapopt_t mopt = config.mopt;
 
-    // 2. 將 Reference 序列寫入暫存檔以利正確建立 Index (解決 mm_idx_str 處理大序列時的 Bug)
-    std::string tempRefFasta = option.tempDir + "/temp_minimap2_ref.fa";
+    // 2. Write reference sequences to temporary FASTA for robust index construction
+    std::string tag = (refName.empty() ? "ref" : refName) + "_" + (qryName.empty() ? "qry" : qryName);
+    std::string tempRefFasta = option.tempDir + "/temp_minimap2_" + tag + ".fa";
     std::ofstream refOut(tempRefFasta);
     if (!refOut.is_open()) {
         std::cerr << "[DEBUG runMinimap2] Error: Failed to open temp ref file: " << tempRefFasta << std::endl;
@@ -296,14 +299,15 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
     }
     refOut.close();
 
-    // 3. 用 mm_idx_reader_open 建立 Index
+    // 3. Open and build index via mm_idx_reader_open
     if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Building minimap2 index via reader for reference genome..." << std::endl;
     mm_idx_reader_t* r = mm_idx_reader_open(tempRefFasta.c_str(), &iopt, 0);
     if (!r) {
         std::cerr << "[DEBUG runMinimap2] Error: Failed to open minimap2 index reader." << std::endl;
         return alignments;
     }
-    int numThreads = option.cpuNum > 0 ? option.cpuNum : 8;
+    // Force 1 thread for minimap2 index building to eliminate nested parallel_for and thread oversubscription
+    int numThreads = 1;
     mm_idx_t* mi = mm_idx_reader_read(r, numThreads);
     mm_idx_reader_close(r);
 
@@ -323,130 +327,114 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
         }
     }
 
-    // 5. 零拷貝過渡 Query 序列進行並行 mapping
-    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Starting query sequence mapping loop with " << numThreads << " threads..." << std::endl;
+    // 4. Map query sequences sequentially with 1 thread
+    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Starting query sequence mapping loop with 1 thread..." << std::endl;
 
-    std::mutex pafMutex;
-    std::mutex alnMutex;
+    mm_tbuf_t* tbuf = mm_tbuf_init();
+    for (size_t i = 0; i < qry.size(); ++i) {
+        const auto& qRef = qry[i];
+        const std::string& q_name = qRef.name;
+        const std::string& q_seq = qRef.seq;
+        int n_regs = 0;
 
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, qry.size()), [&](const tbb::blocked_range<size_t>& range) {
-        mm_tbuf_t* tbuf = mm_tbuf_init();
-        std::vector<Alignment> local_alns;
+        if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Mapping query: " << q_name << " (length: " << q_seq.length() << " bp)..." << std::endl;
 
-        for (size_t i = range.begin(); i < range.end(); ++i) {
-            const auto& qRef = qry[i];
-            const std::string& q_name = qRef.name;
-            const std::string& q_seq = qRef.seq;
-            int n_regs = 0;
+        mm_reg1_t* regs = mm_map(mi, static_cast<int>(q_seq.length()), q_seq.c_str(),
+                                 &n_regs, tbuf, &mopt, q_name.c_str());
 
-            if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Mapping query: " << q_name << " (length: " << q_seq.length() << " bp)..." << std::endl;
+        for (int j = 0; j < n_regs; ++j) {
+            mm_reg1_t* aln_reg = &regs[j];
 
-            mm_reg1_t* regs = mm_map(mi, static_cast<int>(q_seq.length()), q_seq.c_str(),
-                                     &n_regs, tbuf, &mopt, q_name.c_str());
+            if (write_paf && pafOut.is_open()) {
+                std::string r_name = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].name : "unknown_ref";
+                uint32_t r_len     = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].len : 0;
 
-            for (int j = 0; j < n_regs; ++j) {
-                mm_reg1_t* aln_reg = &regs[j];
-
-                if (write_paf) {
-                    std::lock_guard<std::mutex> lock(pafMutex);
-                    if (pafOut.is_open()) {
-                        std::string r_name = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].name : "unknown_ref";
-                        uint32_t r_len     = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].len : 0;
-
-                        pafOut << q_name << "\t"
-                               << q_seq.length() << "\t"
-                               << aln_reg->qs << "\t"
-                               << aln_reg->qe << "\t"
-                               << (aln_reg->rev ? "-" : "+") << "\t"
-                               << r_name << "\t"
-                               << r_len << "\t"
-                               << aln_reg->rs << "\t"
-                               << aln_reg->re << "\t"
-                               << aln_reg->mlen << "\t"
-                               << aln_reg->blen << "\t"
-                               << aln_reg->mapq << "\t"
-                               << "tp:A:" << (aln_reg->sam_pri ? "P" : "S") << "\n";
-                    }
-                }
-
-                Alignment aln;
-                aln.ID = 0;
-                if (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) {
-                    aln.refName = mi->seq[aln_reg->rid].name;
-                } else {
-                    aln.refName = "unknown_ref";
-                }
-                aln.qryName = q_name;
-                aln.refIdx = {aln_reg->rs, aln_reg->re};
-                aln.qryIdx = {aln_reg->qs, aln_reg->qe};
-                aln.inverse = (aln_reg->rev != 0);
-                aln.primary = (aln_reg->sam_pri != 0);
-                aln.valid = true;
-
-                int totLen = 0, ins = 0, del = 0, numEdits = 0;
-                int score = 0;
-
-                if (aln_reg->p) {
-                    score = aln_reg->p->dp_max;
-                    numEdits = aln_reg->p->n_ambi;
-
-                    aln.CIGAR.reserve(aln_reg->p->n_cigar);
-                    for (uint32_t k = 0; k < aln_reg->p->n_cigar; ++k) {
-                        uint32_t c32 = aln_reg->p->cigar[k];
-                        int length = c32 >> 4;
-                        char opType = "MIDNSHPE="[c32 & 0xf];
-
-                        aln.CIGAR.push_back({length, opType});
-
-                        switch (opType) {
-                            case 'M':
-                            case 'X':
-                            case '=':
-                                totLen += length;
-                                break;
-                            case 'D':
-                            case 'N':
-                                totLen += length;
-                                del += length;
-                                break;
-                            case 'I':
-                                totLen += length;
-                                ins += length;
-                                break;
-                            default:
-                                break;
-                        }
-                    }
-                    free(aln_reg->p);
-                } else {
-                    totLen = aln_reg->blen;
-                }
-
-                aln.alnLength = totLen;
-                aln.alnScore = score;
-                aln.ins = ins;
-                aln.del = del;
-                aln.mis = std::max(0, numEdits - ins - del);
-
-                local_alns.push_back(std::move(aln));
+                pafOut << q_name << "\t"
+                       << q_seq.length() << "\t"
+                       << aln_reg->qs << "\t"
+                       << aln_reg->qe << "\t"
+                       << (aln_reg->rev ? "-" : "+") << "\t"
+                       << r_name << "\t"
+                       << r_len << "\t"
+                       << aln_reg->rs << "\t"
+                       << aln_reg->re << "\t"
+                       << aln_reg->mlen << "\t"
+                       << aln_reg->blen << "\t"
+                       << aln_reg->mapq << "\t"
+                       << "tp:A:" << (aln_reg->sam_pri ? "P" : "S") << "\n";
             }
-            if (regs) free(regs);
+
+            Alignment aln;
+            aln.ID = 0;
+            if (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) {
+                aln.refName = mi->seq[aln_reg->rid].name;
+            } else {
+                aln.refName = "unknown_ref";
+            }
+            aln.qryName = q_name;
+            aln.refIdx = {aln_reg->rs, aln_reg->re};
+            aln.qryIdx = {aln_reg->qs, aln_reg->qe};
+            aln.inverse = (aln_reg->rev != 0);
+            aln.primary = (aln_reg->sam_pri != 0);
+            aln.valid = true;
+
+            int totLen = 0, ins = 0, del = 0, numEdits = 0;
+            int score = 0;
+
+            if (aln_reg->p) {
+                score = aln_reg->p->dp_max;
+                numEdits = aln_reg->p->n_ambi;
+
+                aln.CIGAR.reserve(aln_reg->p->n_cigar);
+                for (uint32_t k = 0; k < aln_reg->p->n_cigar; ++k) {
+                    uint32_t c32 = aln_reg->p->cigar[k];
+                    int length = c32 >> 4;
+                    char opType = "MIDNSHPE="[c32 & 0xf];
+
+                    aln.CIGAR.push_back({length, opType});
+
+                    switch (opType) {
+                        case 'M':
+                        case 'X':
+                        case '=':
+                            totLen += length;
+                            break;
+                        case 'D':
+                        case 'N':
+                            totLen += length;
+                            del += length;
+                            break;
+                        case 'I':
+                            totLen += length;
+                            ins += length;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+                free(aln_reg->p);
+            } else {
+                totLen = aln_reg->blen;
+            }
+
+            aln.alnLength = totLen;
+            aln.alnScore = score;
+            aln.ins = ins;
+            aln.del = del;
+            aln.mis = std::max(0, numEdits - ins - del);
+
+            alignments.push_back(std::move(aln));
         }
+        if (regs) free(regs);
+    }
+    mm_tbuf_destroy(tbuf);
 
-        if (!local_alns.empty()) {
-            std::lock_guard<std::mutex> lock(alnMutex);
-            alignments.insert(alignments.end(), std::make_move_iterator(local_alns.begin()), std::make_move_iterator(local_alns.end()));
-        }
-
-        mm_tbuf_destroy(tbuf);
-    });
-
-    // 6. 清理 Minimap2 記憶體
+    // 5. Clean up minimap2 memory
     if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Cleaning up minimap2 index..." << std::endl;
     mm_idx_destroy(mi);
 
-    // 清理產生的暫存 Reference 檔案
-    std::remove((option.tempDir + "/temp_minimap2_ref.fa").c_str());
+    // Clean up temporary reference file
+    std::remove(tempRefFasta.c_str());
 
     // Sort alignments: Group by RefStart, then by QryStart
     if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Sorting " << alignments.size() << " alignment results..." << std::endl;
@@ -456,7 +444,8 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
     });
 
     auto minimap2_end = std::chrono::high_resolution_clock::now();
-    option.minimap2_time += std::chrono::duration_cast<std::chrono::milliseconds>(minimap2_end - minimap2_start).count();
+    double dur_ms = std::chrono::duration<double, std::milli>(minimap2_end - minimap2_start).count();
+    global_timer.add("Minimap2", dur_ms);
 
     if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Minimap2 API finished. Elapsed time: " 
               << std::chrono::duration_cast<std::chrono::milliseconds>(minimap2_end - minimap2_start).count() << " ms" << std::endl;
@@ -479,18 +468,18 @@ Alignments runMinimap2(StringPairs& ref, StringPairs& qry, std::string refName, 
     return runMinimap2(refRefs, qryRefs, refName, qryName, option, config, write_paf);
 }
 
-// 保持舊介面相容性 (預設帶入 Minimap2ConfigASM5(needCigar))
+// Backward-compatible runMinimap2 interfaces (automatically applies Minimap2Config with option.mmAsm)
 Alignments runMinimap2(const std::string& refSeq, const std::string& qrySeq, const std::string& refID, const std::string& qryID, Option& option, bool needCigar, bool write_paf) {
     bool DEBUG_MODE = false;
-    return runMinimap2(refSeq, qrySeq, refID, qryID, option, Minimap2ConfigASM5(needCigar), write_paf);
+    return runMinimap2(refSeq, qrySeq, refID, qryID, option, Minimap2Config(option, needCigar), write_paf);
 }
 
 Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::string refName, std::string qryName, Option& option, bool needCigar, bool write_paf) {
     bool DEBUG_MODE = false;
-    return runMinimap2(ref, qry, refName, qryName, option, Minimap2ConfigASM5(needCigar), write_paf);
+    return runMinimap2(ref, qry, refName, qryName, option, Minimap2Config(option, needCigar), write_paf);
 }
 
 Alignments runMinimap2(StringPairs& ref, StringPairs& qry, std::string refName, std::string qryName, Option& option, bool needCigar, bool write_paf) {
     bool DEBUG_MODE = false;
-    return runMinimap2(ref, qry, refName, qryName, option, Minimap2ConfigASM5(needCigar), write_paf);
+    return runMinimap2(ref, qry, refName, qryName, option, Minimap2Config(option, needCigar), write_paf);
 }

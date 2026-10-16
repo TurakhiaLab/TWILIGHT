@@ -64,23 +64,23 @@ CigarString extractSubCigar(const CigarString& origCigar, int refOffset, int ref
     return subCigar;
 }
 
-Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCuts,const std::set<int>& qryCuts)  {
-    Alignments frags; // 用來裝切碎的子片段
+Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCuts, const std::set<int>& qryCuts) {
+    Alignments frags; // Stores split sub-fragments
 
-    // 1. 篩選並排序切點 (WGA Edge-Cut Fix)
+    // 1. Filter and sort cut points (WGA Edge-Cut Fix)
     std::vector<int> rCuts;
     for (int c : refCuts) {
-        // Ref 永遠是正向掃描，所以允許在終點 (second) 切割
+        // Reference is always forward-scanned, so cutting at the endpoint (second) is allowed
         if (c > aln.refIdx.first && c <= aln.refIdx.second) rCuts.push_back(c);
     }
 
     std::vector<int> qCuts;
     for (int c : qryCuts) {
         if (aln.inverse) {
-            // 反向掃描 (從 second 往 down 走到 first)，允許在終點 (first) 切割
+            // Reverse scan (from second down to first), allow cutting at endpoint (first)
             if (c >= aln.qryIdx.first && c < aln.qryIdx.second) qCuts.push_back(c);
         } else {
-            // 正向掃描，允許在終點 (second) 切割
+            // Forward scan, allow cutting at endpoint (second)
             if (c > aln.qryIdx.first && c <= aln.qryIdx.second) qCuts.push_back(c);
         }
     }
@@ -96,7 +96,7 @@ Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCu
         return frags;
     }
 
-    // 2. 準備走訪 CIGAR 進行動態切割
+    // 2. Prepare CIGAR traversal for dynamic splitting
     int rCutIdx = 0;
     int qCutIdx = 0;
 
@@ -110,7 +110,7 @@ Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCu
     Alignment currAln = aln;
     currAln.CIGAR.clear(); 
 
-    // 3. 逐一消耗 CIGAR Operations
+    // 3. Consume CIGAR operations step-by-step
     for (const auto& op : aln.CIGAR) {
         int len = op.first;
         char type = op.second;
@@ -141,7 +141,7 @@ Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCu
             if (consumesQry) qPos += step * qDir;
             len -= step;
 
-            // 4. 檢查是否精準踩到切點
+            // 4. Check if the current position hits a cut point exactly
             bool hitRef = (consumesRef && rCutIdx < rCuts.size() && rPos == rCuts[rCutIdx]);
             bool hitQry = (consumesQry && qCutIdx < qCuts.size() && qPos == qCuts[qCutIdx]);
 
@@ -158,7 +158,7 @@ Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCu
                 }
 
                 if (!currAln.CIGAR.empty()) {
-                    frags.push_back(currAln); // 改存進 frags
+                    frags.push_back(currAln); // Store into frags
                 }
 
                 currRStart = rPos;
@@ -172,7 +172,7 @@ Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCu
         }
     }
 
-    // 5. 收尾
+    // 5. Finalize the remaining fragment
     if (!currAln.CIGAR.empty()) {
         currAln.refIdx.first = currRStart;
         currAln.refIdx.second = rPos;
@@ -184,7 +184,7 @@ Alignments splitSingleAlignment(const Alignment& aln, const std::set<int>& refCu
             currAln.qryIdx.first = currQStart;
             currAln.qryIdx.second = qPos;
         }
-        frags.push_back(currAln); // 改存進 frags
+        frags.push_back(currAln); // Store into frags
     }
 
     // 6. Update alignment length
@@ -199,11 +199,11 @@ void snapAlignment(Alignment& aln, int r_pad_left, int r_pad_right, int q_pad_le
     std::vector<std::pair<int, char>> prepend_ops;
     std::vector<std::pair<int, char>> append_ops;
 
-    // 1. Ref 的補丁 (Ref 永遠是正向)
+    // 1. Reference padding (reference is always forward)
     if (r_pad_left > 0)  prepend_ops.push_back({r_pad_left, 'D'});
     if (r_pad_right > 0) append_ops.push_back({r_pad_right, 'D'});
 
-    // 2. Qry 的補丁 (根據 Inverse 決定加在頭還是尾)
+    // 2. Query padding (prepend or append depending on strand orientation)
     if (aln.inverse) {
         if (q_pad_right > 0) prepend_ops.push_back({q_pad_right, 'I'});
         if (q_pad_left > 0)  append_ops.push_back({q_pad_left, 'I'});
@@ -212,17 +212,17 @@ void snapAlignment(Alignment& aln, int r_pad_left, int r_pad_right, int q_pad_le
         if (q_pad_right > 0) append_ops.push_back({q_pad_right, 'I'});
     }
 
-    // 3. 將 D/I 補丁貼上 CIGAR
+    // 3. Apply D/I padding operations to CIGAR
     if (!prepend_ops.empty()) aln.CIGAR.insert(aln.CIGAR.begin(), prepend_ops.begin(), prepend_ops.end());
     if (!append_ops.empty())  aln.CIGAR.insert(aln.CIGAR.end(), append_ops.begin(), append_ops.end());
 
-    // 4. 更新座標 (因為你保證了 first 永遠小於 second，所以直接加減即可)
+    // 4. Update coordinates (first is guaranteed to be <= second, so adjust directly)
     aln.refIdx.first  -= r_pad_left;
     aln.refIdx.second += r_pad_right;
 
     aln.qryIdx.first  -= q_pad_left;
     aln.qryIdx.second += q_pad_right;
 
-    // 5. 更新對齊總長度
+    // 5. Update total alignment length
     aln.updateAlnLength(); 
 }

@@ -180,7 +180,7 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
     config.setPriRatio(0.0f); // -p 0
 
     // 6. 執行 minimap2 alignment
-    Alignments raw_alignments = runMinimap2(ref, qry, "NonDistantBlocks_" + ID, "DistantBlocks", option, config);
+    Alignments raw_alignments = runMinimap2(ref, qry, "NonDistantBlocks_" + ID, "DistantBlocks_" + ID, option, config);
 
     // 7. 過濾結果：每個 query 選擇 score 最高的 alignment 留下來
     std::unordered_map<std::string, Alignment> best_alignment_per_query;
@@ -508,7 +508,7 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
     config.setPriRatio(0.0f);
 
     // 4. 執行 minimap2 alignment (distant blocks vs distant blocks)
-    Alignments raw_alignments = runMinimap2(refs, refs, "DistantBlocks_Ref", "DistantBlocks_Qry", option, config);
+    Alignments raw_alignments = runMinimap2(refs, refs, "DistantBlocks_Ref_" + ID, "DistantBlocks_Qry_" + ID, option, config);
 
     // 5. 使用 DSU (Disjoint Set Union) 根據 Coverage >= 90% 將 Distant Blocks 分組 (Group / Cluster)
     struct DSU {
@@ -600,7 +600,7 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
             SequenceRefs single_ref = {{ r_name, r_str }};
             SequenceRefs single_qry = {{ q_name, q_str }};
 
-            Alignments pair_alns = runMinimap2(single_ref, single_qry, "DistantGroup_Ref", "DistantGroup_Qry", option, config);
+            Alignments pair_alns = runMinimap2(single_ref, single_qry, "DistantGroup_Ref_" + ID + "_" + r_name, "DistantGroup_Qry_" + ID + "_" + q_name, option, config);
             if (pair_alns.empty()) continue;
 
             const Alignment &aln = pair_alns[0];

@@ -2,6 +2,7 @@
 #include "phylogeny.hpp"
 #endif
 
+#include "message_manager.hpp"
 #include <fstream>
 #include <algorithm>
 #include <queue>
@@ -136,7 +137,7 @@ void phylogeny::Tree::parseNewick(std::string& newickString) {
     }
 
     if (!leaves.empty()) m_meanDepth /= leaves.size();
-    if (level != 0) throw std::runtime_error("ERROR: Incorrect Newick format!");
+    if (level != 0) mga::msg::error("Incorrect Newick format!");
 
     m_numLeaves = leaves.size();
 
@@ -185,7 +186,7 @@ void phylogeny::Tree::parseNewick(std::string& newickString) {
 
         // 2. Handle Leaf Duplicates
         if (allNodes.find(leafName) != allNodes.end()) {
-            std::cerr << "WARNING: Duplicate leaf: " << leafName << "\n";
+            mga::msg::warn("Duplicate leaf: %s\n", leafName.c_str());
             leafName += "_dup_" + std::to_string(allNodes.size());
         }
 
@@ -216,7 +217,7 @@ void phylogeny::Tree::parseNewick(std::string& newickString) {
         }
     }
 
-    if (!this->root) throw std::runtime_error("Tree found empty!");
+    if (!this->root) mga::msg::error("Tree found empty!");
 
     this->root->branchLength = 0;
 
@@ -252,7 +253,7 @@ phylogeny::Tree::Tree(const std::string& treeFileName) {
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
     std::ifstream inputStream(treeFileName);
     if (!inputStream.is_open()) { 
-        throw std::runtime_error("Error: Failed to open tree file: " + treeFileName);
+        mga::msg::error("Failed to open tree file: %s", treeFileName.c_str());
     }
     std::string newick; 
     std::getline(inputStream, newick);
@@ -261,11 +262,11 @@ phylogeny::Tree::Tree(const std::string& treeFileName) {
 
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(treeBuiltEnd - treeBuiltStart);
-    std::cerr << "Newick string read in: " << duration.count() << " ms\n";
+    mga::msg::debug("Newick string read in: %d ms\n", duration.count());
 }
   
 phylogeny::Tree::Tree(Node* sourceNode, bool reroot) {
-    if (!sourceNode) throw std::runtime_error("Source node is null");
+    if (!sourceNode) mga::msg::error("Source node is null");
     // 1. Prepare
     this->allNodes.clear();
     int targetGrp = sourceNode->grpID;
@@ -458,23 +459,20 @@ phylogeny::Tree* phylogeny::Tree::prune(std::unordered_set<std::string>& seqs) {
     pT->root = rebuild(this->root.get(), true);
 
     if (!pT->root) {
-        std::cerr << "ERROR: No sequences from the input sequence file are found in the tree file.\n";
-        exit(1);
+        mga::msg::error("No sequences from the input sequence file are found in the tree file.\n");
     }
 
     pT->calLeafNum(); 
     pT->calSeqWeight();
 
     if (pT->m_numLeaves != seqs.size()) {
-        std::cerr << "WARNING: " << (seqs.size() - pT->m_numLeaves) 
-                  << " sequences are missing from the tree and will be ignored.\n";
+        mga::msg::warn("WARNING: %d sequences are missing from the tree and will be ignored.\n", (seqs.size() - pT->m_numLeaves));
     }
     
-    std::cerr << "Number of Leaves: " << this->m_numLeaves 
-              << " (before) -> " << pT->m_numLeaves << " (after)\n";
+    mga::msg::debug("Number of Leaves: %d (before) -> %d  (after)\n", this->m_numLeaves, pT->m_numLeaves);
     auto treePruneEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treePruneTime = treePruneEnd - treePruneStart;
-    std::cerr << "Tree pruned in: " <<  treePruneTime.count() / 1000000 << " ms\n";
+    mga::msg::debug("Tree pruned in: %d ms\n", (treePruneTime.count() / 1000000));
 
     return pT;
 }
@@ -648,7 +646,7 @@ void phylogeny::Tree::reroot(bool placement)
     }
 
     if (!start) {
-        std::cerr << "WARNING: Could not find a valid start node for rerooting.\n";
+        mga::msg::warn("WARNING: Could not find a valid start node for rerooting.\n");
         return;
     }
 
@@ -728,7 +726,7 @@ void phylogeny::Tree::reroot(bool placement)
         auto it = std::find_if(siblings.begin(), siblings.end(), 
             [&](const std::unique_ptr<Node>& ptr){ return ptr.get() == child; });
         
-        if (it == siblings.end()) throw std::runtime_error("Topology error: child not found in parent");
+        if (it == siblings.end()) mga::msg::error("Topology error: child not found in parent");
 
         // Move out and erase
         std::unique_ptr<Node> ptr = std::move(*it);
@@ -794,10 +792,10 @@ void phylogeny::Tree::reroot(bool placement)
 
     for (const auto& n : this->allNodes) afterReroot = std::max(afterReroot, (int)n.second->level);
 
-    std::cerr << "======== Tree Depth ========\n";
-    std::cerr << "Original: " << beforeConvert << '\n';
-    std::cerr << "Binary:   " << beforeReroot << '\n';
-    std::cerr << "Reroot:   " << afterReroot << '\n';
+    mga::msg::debug("======== Tree Depth ========\n");
+    mga::msg::debug("Original: %d\n", beforeConvert);
+    mga::msg::debug("Binary:   %d\n", beforeReroot );
+    mga::msg::debug("Reroot:   %d\n", afterReroot  );
 }
 
 void phylogeny::Tree::collectLeaves(const Node* n, std::unordered_set<std::string>& leavesOut) {

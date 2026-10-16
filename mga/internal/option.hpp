@@ -35,11 +35,21 @@ struct Option {
     bool quite;
     bool circular;
     bool writeOriented;
+    // Output Format Options
+    bool outputMAF;
+    bool outputPanman;
+    std::string outputFormat;
+    // Minimap2 Options
+    int mmAsm;
+    std::string mmAsmPreset;
     // File Names
     std::string treeFile;
     std::string seqFile;
     std::string outFile;
+    std::string dir;
     std::string tempDir;
+    std::string prefix;
+    std::string logFile;
     // Constructor
     Option(po::variables_map &vm);
     // Only used in GPU version

@@ -6,6 +6,7 @@
 #include "type.hpp"
 #include "cigar_util.hpp"
 #include "coordinate_manager.hpp"
+#include "message_manager.hpp"
 
 #include <boost/filesystem.hpp>
 #include <string>
@@ -17,13 +18,6 @@
 #include <tbb/parallel_for_each.h>
 #include <tbb/parallel_reduce.h>
 
-
-void Alignment::updateEnergy(BlockSet *refBlockSet, BlockSet *qryBlockSet, double beta) {
-  double aln_len = static_cast<double>(alnLength);
-  double aln_score = alnScore;
-  energy = -aln_score;
-  // energy = -aln_len + beta * total_variation_count;
-}
 
 void BlockSet::buildCaches() {
   // Ancestral
@@ -61,13 +55,13 @@ void BlockSet::rebuildAllPointers() {
   bool debug_mode = false; // 🌟 開關：控制 Debug 訊息的輸出
 
   if (debug_mode)
-    std::cout << "\n[RebuildPointers] === Start Rebuilding All Pointers for Node '"
-              << this->getId() << "' (tree_ptr=" << (tree_ptr ? "SET" : "NULL") << ") ===\n";
+    mga::msg::debug("\n[RebuildPointers] === Start Rebuilding All Pointers for Node '%s' (tree_ptr=%s) ===\n",
+                    this->getId().c_str(), (tree_ptr ? "SET" : "NULL"));
 
   auto allBlocks = this->getAllBlocks();
   if (allBlocks.empty()) {
     if (debug_mode)
-      std::cout << "[RebuildPointers] No blocks found. Exiting.\n";
+      mga::msg::debug("[RebuildPointers] No blocks found. Exiting.\n");
     return;
   }
 
@@ -117,8 +111,8 @@ void BlockSet::rebuildAllPointers() {
   }
 
   if (debug_mode) {
-    std::cout << "[RebuildPointers] Step 1: Extracted " << total_segments
-              << " segments across " << seqTracks.size() << " sequences.\n";
+    mga::msg::debug("[RebuildPointers] Step 1: Extracted %d segments across %zu sequences.\n",
+                    total_segments, seqTracks.size());
   }
 
   // ==========================================
@@ -171,8 +165,7 @@ void BlockSet::rebuildAllPointers() {
       });
 
   if (debug_mode)
-    std::cout << "[RebuildPointers] Step 2: Segment pointers re-linked "
-                 "successfully.\n";
+    mga::msg::debug("[RebuildPointers] Step 2: Segment pointers re-linked successfully.\n");
 
   // ==========================================
   // 3. 建立虛擬積木 (VBlock) 層級的「嚴格線性」指標
@@ -190,8 +183,7 @@ void BlockSet::rebuildAllPointers() {
 
   size_t N = uniqueNodes.size();
   if (debug_mode)
-    std::cout << "[RebuildPointers] Step 3: Generating DAG for " << N
-              << " unique VBlocks.\n";
+    mga::msg::debug("[RebuildPointers] Step 3: Generating DAG for %zu unique VBlocks.\n", N);
 
   auto getIdx = [&](const VBlockID &vid) -> size_t {
     auto it = std::lower_bound(uniqueNodes.begin(), uniqueNodes.end(), vid);
@@ -265,10 +257,9 @@ void BlockSet::rebuildAllPointers() {
         // 🚨 偵測到 Cycle (Back-edge)
         cycle_detected = true;
         if (debug_mode) {
-          std::cerr << "[Warning] Cycle detected in Block Graph: VBlock("
-                    << uniqueNodes[u].first << ", cp:" << uniqueNodes[u].second
-                    << ") -> VBlock(" << uniqueNodes[v].first
-                    << ", cp:" << uniqueNodes[v].second << ")\n";
+          mga::msg::warn("Cycle detected in Block Graph: VBlock(%d, cp:%d) -> VBlock(%d, cp:%d)\n",
+                         uniqueNodes[u].first, uniqueNodes[u].second,
+                         uniqueNodes[v].first, uniqueNodes[v].second);
         }
       }
     }
@@ -284,8 +275,7 @@ void BlockSet::rebuildAllPointers() {
   std::reverse(postOrder.begin(), postOrder.end());
 
   if (debug_mode && cycle_detected) {
-    std::cout << "[RebuildPointers] Notice: Graph cyclic edges were ignored to "
-                 "enforce linearity.\n";
+    mga::msg::debug("[RebuildPointers] Notice: Graph cyclic edges were ignored to enforce linearity.\n");
   }
 
   // ==========================================
@@ -296,8 +286,7 @@ void BlockSet::rebuildAllPointers() {
   this->linear_block_cache.reserve(postOrder.size());
 
   if (debug_mode)
-    std::cout
-        << "[RebuildPointers] Step 4: Constructing Linear Block Order...\n";
+    mga::msg::debug("[RebuildPointers] Step 4: Constructing Linear Block Order...\n");
 
   for (size_t i = 0; i < postOrder.size(); ++i) {
     size_t currIdx = postOrder[i];
@@ -320,15 +309,21 @@ void BlockSet::rebuildAllPointers() {
     } else {
       currBlk->setNextBlock(currCopy, std::shared_ptr<Block>(nullptr));
     }
+  }
 
-    // (可選) 打印最後排出來的線性骨幹順序
-    if (debug_mode) {
-      std::cout << "  - VBlock(" << currVId.first << ", cp:" << currCopy << ")";
+  if (debug_mode) {
+    std::ostringstream oss;
+    for (size_t i = 0; i < postOrder.size(); ++i) {
+      size_t currIdx = postOrder[i];
+      VBlockID currVId = uniqueNodes[currIdx];
+      oss << "  - VBlock(" << currVId.first << ", cp:" << currVId.second << ")";
       if (i < postOrder.size() - 1)
-        std::cout << " -> ";
+        oss << " -> ";
       if ((i + 1) % 5 == 0)
-        std::cout << "\n";
+        oss << "\n";
     }
+    if (postOrder.size() % 5 != 0) oss << "\n";
+    mga::msg::debug("%s", oss.str().c_str());
   }
 
   // if (tree_ptr) {
@@ -407,10 +402,9 @@ bool BlockSet::detectVBlockCycle(const CoordinateManager &coordMgr, bool verbose
       } else if (state[v] == 1) {
         cycle_detected = true;
         if (verbose) {
-          std::cerr << "🚨 [VBlock Cycle Detected] Cycle edge: VBlock("
-                    << uniqueVBlocks[u].first << ", cp:" << uniqueVBlocks[u].second
-                    << ") -> VBlock(" << uniqueVBlocks[v].first
-                    << ", cp:" << uniqueVBlocks[v].second << ")\n";
+          mga::msg::warn("🚨 [VBlock Cycle Detected] Cycle edge: VBlock(%d, cp:%d) -> VBlock(%d, cp:%d)\n",
+                         uniqueVBlocks[u].first, uniqueVBlocks[u].second,
+                         uniqueVBlocks[v].first, uniqueVBlocks[v].second);
         }
       }
     }
@@ -593,10 +587,9 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
   }
   this->buildCaches();
 
-  std::cout << "  📊 [LinearGraph] Node '" << this->getId()
-            << "' -> Linear Graph VBlocks: " << linear_block_cache.size()
-            << " | Ancestral VBlocks: " << ancestral_block_cache.size()
-            << " | Ancestral Seq Length: " << ancestral_seq_cache.length() << " bp\n";
+  mga::msg::info("  📊 [LinearGraph] Node '%s' -> Linear Graph VBlocks: %zu | Ancestral VBlocks: %zu | Ancestral Seq Length: %zu bp\n",
+                 this->getId().c_str(), linear_block_cache.size(),
+                 ancestral_block_cache.size(), ancestral_seq_cache.length());
 }
 
 void BlockSet::normalizeCopyCounts() {
@@ -731,14 +724,16 @@ void BlockSet::insertDistantBlockInPlace() {
   }
 
   if (DEBUG_MODE) {
-    std::cout << "\n=================== [insertDistantBlockInPlace DEBUG MODE] ===================\n";
-    std::cout << "[DEBUG insertDistantBlockInPlace] Total Blocks count                                : " << totalBlocksCount << "\n";
-    std::cout << "[DEBUG insertDistantBlockInPlace] isDistant Blocks count (all copies are distant)   : " << allDistantBlocksCount << "\n";
-    std::cout << "[DEBUG insertDistantBlockInPlace] Core/Mixed Blocks count                           : " << (totalBlocksCount - allDistantBlocksCount) << "\n";
-    std::cout << "[DEBUG insertDistantBlockInPlace] Non-distant (initial backbone) VBlocks count      : " << initialLinearVBlocks.size() << "\n";
-    std::cout << "[DEBUG insertDistantBlockInPlace] Distant / Unplaced VBlocks count                  : " << unplacedVBlocks.size() << "\n";
-    std::cout << "[DEBUG insertDistantBlockInPlace] Total VBlocks (Non-distant + Distant)             : " << (initialLinearVBlocks.size() + unplacedVBlocks.size()) << "\n";
-    std::cout << "===============================================================================\n" << std::endl;
+    std::ostringstream oss;
+    oss << "\n=================== [insertDistantBlockInPlace DEBUG MODE] ===================\n"
+        << "[DEBUG insertDistantBlockInPlace] Total Blocks count                                : " << totalBlocksCount << "\n"
+        << "[DEBUG insertDistantBlockInPlace] isDistant Blocks count (all copies are distant)   : " << allDistantBlocksCount << "\n"
+        << "[DEBUG insertDistantBlockInPlace] Core/Mixed Blocks count                           : " << (totalBlocksCount - allDistantBlocksCount) << "\n"
+        << "[DEBUG insertDistantBlockInPlace] Non-distant (initial backbone) VBlocks count      : " << initialLinearVBlocks.size() << "\n"
+        << "[DEBUG insertDistantBlockInPlace] Distant / Unplaced VBlocks count                  : " << unplacedVBlocks.size() << "\n"
+        << "[DEBUG insertDistantBlockInPlace] Total VBlocks (Non-distant + Distant)             : " << (initialLinearVBlocks.size() + unplacedVBlocks.size()) << "\n"
+        << "===============================================================================\n\n";
+    mga::msg::debug("%s", oss.str().c_str());
   }
 
   if (unplacedVBlocks.empty()) return;
@@ -898,13 +893,15 @@ void BlockSet::insertDistantBlockInPlace() {
             std::string slotDesc = (slotKey.first == -1) ? ("before anchor 0") :
                                    (slotKey.first == 0)  ? ("after anchor " + std::to_string(slotKey.second)) :
                                                            ("orphan at end");
-            std::cout << "[DEBUG insertDistantBlockInPlace] Merge Event #" << totalMergeEvents 
-                      << " for BlockID " << blkId << " at position [" << slotDesc << "]:\n";
-            std::cout << "  Merged copies [ ";
-            for (int mc : grp.mergedCopies) std::cout << mc << " ";
-            std::cout << "] into single copy " << grp.targetCopy << " with sequences: [ ";
-            for (const auto &sq : grp.seqNames) std::cout << sq << " ";
-            std::cout << "]\n";
+            std::ostringstream oss;
+            oss << "[DEBUG insertDistantBlockInPlace] Merge Event #" << totalMergeEvents 
+                << " for BlockID " << blkId << " at position [" << slotDesc << "]:\n"
+                << "  Merged copies [ ";
+            for (int mc : grp.mergedCopies) oss << mc << " ";
+            oss << "] into single copy " << grp.targetCopy << " with sequences: [ ";
+            for (const auto &sq : grp.seqNames) oss << sq << " ";
+            oss << "]\n";
+            mga::msg::debug("%s", oss.str().c_str());
           }
         }
         slotFinalVBlocks[slotKey].push_back({blkId, grp.targetCopy});
@@ -914,9 +911,9 @@ void BlockSet::insertDistantBlockInPlace() {
 
   if (DEBUG_MODE) {
     if (totalMergeEvents == 0) {
-      std::cout << "[DEBUG insertDistantBlockInPlace] No co-located distant copies without shared sequences were found for merging.\n";
+      mga::msg::debug("[DEBUG insertDistantBlockInPlace] No co-located distant copies without shared sequences were found for merging.\n");
     } else {
-      std::cout << "[DEBUG insertDistantBlockInPlace] Total merge events performed: " << totalMergeEvents << "\n";
+      mga::msg::debug("[DEBUG insertDistantBlockInPlace] Total merge events performed: %d\n", totalMergeEvents);
     }
   }
 
@@ -984,8 +981,8 @@ void BlockSet::insertDistantBlockInPlace() {
   this->buildCaches();
 
   if (DEBUG_MODE) {
-    std::cout << "[DEBUG insertDistantBlockInPlace] Finished inserting distant VBlocks. Final linear VBlocks count: "
-              << this->linear_block_cache.size() << "\n" << std::endl;
+    mga::msg::debug("[DEBUG insertDistantBlockInPlace] Finished inserting distant VBlocks. Final linear VBlocks count: %zu\n\n",
+                    this->linear_block_cache.size());
   }
 }
 
@@ -993,9 +990,8 @@ const VBlockIDs &BlockSet::getLinearizeBlocks() {
   if (is_cached)
     return linear_block_cache;
   if (this->getSequenceCount() > 1) {
-    std::cerr << "[ERROR] getLinearizeBlocks cache miss for non-leaf node (sequence count = "
-              << this->getSequenceCount() << " > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n";
-    exit(1);
+    mga::msg::error("getLinearizeBlocks cache miss for non-leaf node (sequence count = %zu > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n",
+                    this->getSequenceCount());
   }
   this->rebuildAllPointers();
   return linear_block_cache;
@@ -1005,9 +1001,8 @@ const VBlockIDs &BlockSet::getAncestralBlocks() {
   if (is_cached)
     return ancestral_block_cache;
   if (this->getSequenceCount() > 1) {
-    std::cerr << "[ERROR] getAncestralBlocks cache miss for non-leaf node (sequence count = "
-              << this->getSequenceCount() << " > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n";
-    exit(1);
+    mga::msg::error("getAncestralBlocks cache miss for non-leaf node (sequence count = %zu > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n",
+                    this->getSequenceCount());
   }
   this->rebuildAllPointers();
   return ancestral_block_cache;
@@ -1017,9 +1012,8 @@ const std::string &BlockSet::getAncestralSequence() {
   if (is_cached)
     return ancestral_seq_cache;
   if (this->getSequenceCount() > 1) {
-    std::cerr << "[ERROR] getAncestralSequence cache miss for non-leaf node (sequence count = "
-              << this->getSequenceCount() << " > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n";
-    exit(1);
+    mga::msg::error("getAncestralSequence cache miss for non-leaf node (sequence count = %zu > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n",
+                    this->getSequenceCount());
   }
   this->rebuildAllPointers();
   return ancestral_seq_cache;
@@ -1029,9 +1023,8 @@ const std::map<int, VBlockID> &BlockSet::getAncestralBlocksOffsets() {
   if (is_cached)
     return ancestral_offset_cache;
   if (this->getSequenceCount() > 1) {
-    std::cerr << "[ERROR] getAncestralBlocksOffsets cache miss for non-leaf node (sequence count = "
-              << this->getSequenceCount() << " > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n";
-    exit(1);
+    mga::msg::error("getAncestralBlocksOffsets cache miss for non-leaf node (sequence count = %zu > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n",
+                    this->getSequenceCount());
   }
   this->rebuildAllPointers();
   return ancestral_offset_cache;
@@ -1063,8 +1056,8 @@ std::string BlockSet::reconstructSequence(const std::string &seqName) {
   }
 
   if (ordered_segments.empty()) {
-    std::cerr << "[Warning] Sequence '" << seqName << "' not found in BlockSet "
-              << ID << ".\n";
+    mga::msg::warn("Sequence '%s' not found in BlockSet %s.\n",
+                   seqName.c_str(), ID.c_str());
     return "";
   }
 
@@ -1674,13 +1667,11 @@ std::pair<BlockID, BlockID> BlockSet::splitSingleBlock(int parentID, int localCu
       });
 
   if (debug)
-    std::cout << "[DEBUG-SPLIT] Block " << parentID
-              << " (Len: " << parent->getConsensus().size() << ") cut at "
-              << localCut << " -> L: " << left->getId()
-              << " (Len: " << left->getConsensus().size()
-              << "), R: " << right->getId()
-              << " (Len: " << right->getConsensus().size()
-              << " | Rewired pointers: " << rewiredCount.load() << "\n";
+    mga::msg::debug("[DEBUG-SPLIT] Block %d (Len: %zu) cut at %d -> L: %d (Len: %zu), R: %d (Len: %zu) | Rewired pointers: %d\n",
+                    parentID, parent->getConsensus().size(), localCut,
+                    left->getId(), left->getConsensus().size(),
+                    right->getId(), right->getConsensus().size(),
+                    rewiredCount.load());
 
   // 4. 安全刪除舊 Block
   this->deleteBlock(parent->getId());
@@ -2101,7 +2092,6 @@ BlockSet::ExtractResult BlockSet::extractSubBlock(int parentID, int localStart, 
   return {leftID, midID, rightID};
 }
 
-
 void BlockSet::print(std::ostream &os) const {
   os << "\n===================================================================="
         "======\n";
@@ -2162,28 +2152,28 @@ void BlockSet::setDistantBlocks(Tree &tree, int lookdownDepth) {
   uint64_t minSequenceSets = 1ULL << lookdownDepth;
   if (sequenceSets.size() < minSequenceSets) {
     if (debug) {
-      std::cout << "[DISTANT-SKIP] Node " << targetNodeId
-                << ": sequenceSets.size()=" << sequenceSets.size()
-                << " < minSequenceSets=" << minSequenceSets
-                << ", skipping distant evaluation.\n";
+      mga::msg::debug("[DISTANT-SKIP] Node %s: sequenceSets.size()=%zu < minSequenceSets=%lu, skipping distant evaluation.\n",
+                      targetNodeId.c_str(), sequenceSets.size(), minSequenceSets);
     }
     return;
   }
 
   // 🔍 Debug: print all sequence sets
   if (debug) {
-    std::cout << "[DISTANT-DEBUG] Node " << targetNodeId
-              << ": " << sequenceSets.size() << " sequence sets:\n";
+    std::ostringstream oss;
+    oss << "[DISTANT-DEBUG] Node " << targetNodeId
+        << ": " << sequenceSets.size() << " sequence sets:\n";
     for (size_t i = 0; i < sequenceSets.size(); ++i) {
-      std::cout << "  Set " << i << ": {";
+      oss << "  Set " << i << ": {";
       bool first = true;
       for (const auto &s : sequenceSets[i]) {
-        if (!first) std::cout << ", ";
-        std::cout << s;
+        if (!first) oss << ", ";
+        oss << s;
         first = false;
       }
-      std::cout << "}\n";
+      oss << "}\n";
     }
+    mga::msg::debug("%s", oss.str().c_str());
   }
 
   auto all_blocks = this->getAllBlocks();
@@ -2238,38 +2228,38 @@ void BlockSet::setDistantBlocks(Tree &tree, int lookdownDepth) {
 
           // 🔍 Debug: print per-block per-copy classification with segment coordinates & isAllDistant
           if (debug && isDistant) {
-            std::cout << "  [DISTANT-DETAIL] Block " << blk->getId()
-                      << " (isAllDistant=" << (blk->isAllDistant() ? "TRUE" : "FALSE") << ")"
-                      << " Copy " << currentCopy
-                      << " -> supportedSets=" << supportedSets
-                      << " -> DISTANT | segs={";
+            std::ostringstream oss;
+            oss << "  [DISTANT-DETAIL] Block " << blk->getId()
+                << " (isAllDistant=" << (blk->isAllDistant() ? "TRUE" : "FALSE") << ")"
+                << " Copy " << currentCopy
+                << " -> supportedSets=" << supportedSets
+                << " -> DISTANT | segs={";
             bool first = true;
             for (auto &seqPair : blk->getSequences()) {
               const std::string &seqName = seqPair.first;
               for (auto &segPairInner : seqPair.second.getSegments()) {
                 if (segPairInner.second.getCopyCount() == currentCopy) {
-                  if (!first) std::cout << ", ";
-                  std::cout << seqName << ":[" << segPairInner.second.getStart()
-                            << "," << segPairInner.second.getEnd() << ")";
+                  if (!first) oss << ", ";
+                  oss << seqName << ":[" << segPairInner.second.getStart()
+                      << "," << segPairInner.second.getEnd() << ")";
                   first = false;
                 }
               }
             }
-            std::cout << "}\n";
+            oss << "}\n";
+            mga::msg::debug("%s", oss.str().c_str());
           }
         }
 
         if (debug && blk->isAllDistant()) {
-          std::cout << "  🌟 [ALL-DISTANT-BLOCK] Block " << blk->getId() << " -> ALL copies are distant!\n";
+          mga::msg::debug("  🌟 [ALL-DISTANT-BLOCK] Block %d -> ALL copies are distant!\n", blk->getId());
         }
   }
 
   if (debug) {
-    std::cout << "[INFO] Node " << targetNodeId << " (Lookdown "
-              << lookdownDepth << " levels -> " << sequenceSets.size()
-              << " sets)"
-              << " | Core VBlocks=" << coreCount
-              << ", Distant VBlocks=" << distantCount << "\n";
+    mga::msg::info("Node %s (Lookdown %d levels -> %zu sets) | Core VBlocks=%d, Distant VBlocks=%d\n",
+                   targetNodeId.c_str(), lookdownDepth, sequenceSets.size(),
+                   coreCount.load(), distantCount.load());
   }
 }
 

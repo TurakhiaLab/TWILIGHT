@@ -219,6 +219,7 @@ add_executable (twilight_mga
 				mga/src/io.cpp
 				mga/src/progressive.cpp
 				mga/src/alignment.cpp
+				mga/src/alignment_debug.cpp
 				mga/src/coverageTracker.cpp
 				mga/src/alignment_util.cpp
 				mga/src/minimap2_util.cpp
@@ -227,6 +228,7 @@ add_executable (twilight_mga
 				mga/src/blockManager.cpp
 				mga/src/blockSet.cpp
 				mga/src/blockMerger.cpp
+				mga/src/merge_debug.cpp
 				mga/src/merge.cpp
 				mga/src/consensus.cpp
 				mga/src/Sequence.cpp
