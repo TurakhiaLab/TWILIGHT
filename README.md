@@ -25,7 +25,10 @@
 
 - **TWILIGHT v0.3.0 (Accurate mode)**
   - **Consistency library & TCS:** Introduces consistency-based alignment (`--accurate`) incorporating pairwise consistency libraries and Transitive Consistency Score (`--accurate tcs`) to improve alignment accuracy.
-  - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences.
+  - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences. By default (`--acc-mode 0`), TWILIGHT automatically selects the optimal sampling strategy based on sequence count ($N$):
+    - **$N \le 500$ (All-to-all):** Full all-to-all pairwise consistency within a single group without sampling.
+    - **$500 < N \le 100{,}000$ (High sample rate with centrality sampling):** 50% sample rate (`--acc-sample-rate 0.5`) with top-centrality / high-score representative sampling (`--acc-sample-top 1.0`).
+    - **$N > 100{,}000$ (Low sample rate with column-coverage sampling):** 10% sample rate (`--acc-sample-rate 0.1`) with hybrid column-coverage sampling (`--acc-sample-top 0.3`, selecting 30% core anchors by centrality and 70% by greedy column coverage).
   - **Divide-and-Conquer compatibility:** Accurate mode is compatible with the divide-and-conquer strategy (`-m`), allowing it to scale to even larger datasets while maintaining manageable memory usage.
   - **CPU-only execution:** Accurate mode is currently supported on CPU only. While TWILIGHT can be compiled on GPU-enabled environments, accurate mode will execute on CPU.
   - **Bioconda availability:** TWILIGHT v0.3.0 is available on [Bioconda](https://bioconda.github.io/recipes/twilight/README.html) via `conda install bioconda::twilight`.
@@ -228,10 +231,13 @@ Incorporates consistency transformation to improve alignment accuracy.
 - `--accurate tcs`: Evaluates Transitive Consistency Score (TCS) for position reliability scoring.
 
 TWILIGHT offers different presets via `--acc-mode` to balance runtime and consistency sampling:
-- `1`: All-to-all (slowest, highest accuracy)
-- `2`: High sample rate (medium speed)
-- `3`: Low sample rate (fastest)
-*(By default, `--acc-mode 0` automatically chooses the optimal preset based on the dataset size).*
+- `0`: Auto (default) – automatically selects preset based on dataset sequence count $N$:
+  - **$N \le 500$**: Mode 1 (All-to-all)
+  - **$500 < N \le 100{,}000$**: Mode 2 (High sample rate, centrality sampling)
+  - **$N > 100{,}000$**: Mode 3 (Low sample rate, hybrid column-coverage sampling)
+- `1`: All-to-all (slowest, highest accuracy; full pairwise consistency within a single group)
+- `2`: High sample rate (medium speed; 50% sample rate, 100% centrality-ranked representatives)
+- `3`: Low sample rate (fastest; 10% sample rate, hybrid 30% centrality core + 70% greedy column-coverage expansion)
 
 > **Note:** Accurate mode currently executes on CPU only.
 
