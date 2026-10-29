@@ -254,12 +254,12 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 | `--xdrop`                        | X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty (default: 600). |
 | `-x`, `--matrix`                 | Use a user-defined substitution matrix (only for nucleotide). |
 | `-b`, `--blosum`                 | Substitution matrix to use for protein sequences: 43 (PFASUM43), 45, 62, 80, or 99 (MIQS) (default: 62). |
-| **Accurate Mode Options** |
-| `--accurate`                     | Enable accurate consistency alignment (runs pairwise consistency by default; specify `tcs` for Transitive Consistency Score: `--accurate [tcs]`). |
-| `--acc-mode`                     | Accurate preset mode: `0`: auto, `1`: all-to-all (slow), `2`: high sample rate (med speed), `3`: low sample rate (fast) (default: 0). |
-| `--acc-max-group`                | Maximum number of sequences in a consistency group for accurate mode. |
-| `--acc-sample-rate`              | Sample rate for hierarchical consistency representative selection (must be >0, <1). |
-| `--acc-sample-top`               | Fraction of representative quota to select by highest centrality (must be >0, <=1). |
+| **Accuracy & Sampling Options** |
+| `-A`, `--accuracy-level`         | Accuracy level: `1`: traditional sum-of-pairs scoring (default), `2`: + pairwise consistency, `3`: + transitive consistency. |
+| `-S`, `--sample-mode`            | Sampling preset mode for consistency: `0`: auto, `1`: all-to-all (slow), `2`: high sample rate (med speed), `3`: low sample rate (fast) (default: 0). |
+| `--sample-rate`                  | Sample rate for hierarchical consistency representative selection (must be >0, <1). |
+| `--sample-top-centrality`        | Fraction of representative quota to select by highest centrality before column coverage (must be >0, <=1). |
+| `--sample-max-group`             | Maximum number of sequences in a consistency group. |
 | `--consistency-weight`           | Weight multiplier for consistency bonus in accurate mode (default: 5.0). |
 | **General** |
 | `--check`                        | Check the final alignment. Sequences with no legal alignment will be displayed. |
@@ -291,38 +291,39 @@ Generate MSA by giving an unaligned sequence file and a guide tree file.
 ```
 
 ##### <a name="accurate"></a> **Accurate Mode**  
-Incorporates consistency transformation to improve alignment accuracy. 
+Incorporates consistency transformation to improve alignment accuracy via `--accuracy-level`:
 
-- `--accurate`: Runs pairwise consistency alignment (default MAFFT-style consistency library, [Katoh & Standley, 2013](https://doi.org/10.1093/molbev/mst010)).
-- `--accurate tcs`: Evaluates Transitive Consistency Score (TCS) for position reliability scoring ([Chang et al., 2014](https://doi.org/10.1093/molbev/msu117)).
+- `--accuracy-level 1` (default): Traditional sum-of-pairs scoring without consistency transformation.
+- `--accuracy-level 2`: Adds pairwise consistency to the sum-of-pairs score ([Katoh & Standley, 2013](https://doi.org/10.1093/molbev/mst010)).
+- `--accuracy-level 3`: Adds transitive consistency to the sum-of-pairs score ([Chang et al., 2014](https://doi.org/10.1093/molbev/msu117)).
 
-TWILIGHT offers different presets via `--acc-mode` to balance runtime and consistency sampling:
+TWILIGHT offers different presets via `--sample-mode` to balance runtime and consistency sampling:
 - `1`: All-to-all (slowest, highest accuracy)
 - `2`: High sample rate (medium speed)
 - `3`: Low sample rate (fastest)
-*(By default, `--acc-mode 0` automatically chooses the optimal preset based on the dataset size).*
+*(By default, `--sample-mode 0` automatically chooses the optimal preset based on the dataset size).*
 
 !!!Note
     Accurate mode currently executes on CPU only.
 
 * Usage syntax
 ```bash
-./twilight -t <tree file> -i <sequence file> -o <output file> --accurate [tcs] [--acc-mode <0|1|2|3>]
+./twilight -t <tree file> -i <sequence file> -o <output file> [--accuracy-level <1|2|3>] [--sample-mode <0|1|2|3>]
 ```
 * Example
 ```bash
-# Pairwise consistency with automatic mode
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate
+# Level 2 (Pairwise consistency) with automatic mode
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accuracy-level 2
 
-# Transitive Consistency Score (TCS) with fast preset
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate tcs --acc-mode 3
+# Level 3 (Transitive consistency) with fast preset
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accuracy-level 3 --sample-mode 3
 ```
 
 ##### <a name="divide-and-conquer"></a> **Divide-and-Conquer Method**  
 Divide tree into subtrees with at most *m* leaves and align them sequentially to reduce the CPU’s main memory usage.
 
 **Combine with Accurate Mode:**  
-Divide-and-Conquer can be used together with **Accurate Mode** (`--accurate`), allowing consistency-based alignment to scale to even larger datasets while controlling memory footprint.
+Divide-and-Conquer can be used together with **Accurate Mode** (`--accuracy-level 2` or `3`), allowing consistency-based alignment to scale to even larger datasets while controlling memory footprint.
 
 * Usage syntax
 ```bash

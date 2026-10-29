@@ -73,13 +73,13 @@ void parseArguments(int argc, char** argv)
         ("matrix,x", po::value<std::string>(), "Use a user-defined substitution matrix (only for nucleotide).")
         ("blosum,b", po::value<int>()->default_value(62), "Substitution matrix to use for protein sequences: 43 (PFASUM43), 45, 62, 80, or 99 (MIQS).");
 
-    po::options_description accurateDesc("Accurate Mode Options");
+    po::options_description accurateDesc("Accuracy & Sampling Options");
     accurateDesc.add_options()
-        ("accurate", po::value<std::string>()->implicit_value("pairwise"), "Enable accurate consistency alignment (runs pairwise consistency by default; specify 'tcs' for Transitive Consistency Score: --accurate [tcs]).")
-        ("acc-mode", po::value<int>()->default_value(0), "Accurate preset mode: 0: auto, 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast). Default: 0.")
-        ("acc-max-group", po::value<int>(), "Maximum number of sequences in a consistency group for accurate mode. Controls all-to-all pairwise complexity.")
-        ("acc-sample-rate", po::value<float>(), "Sample rate for hierarchical consistency representative selection (must be >0, <1).")
-        ("acc-sample-top", po::value<float>(), "Fraction of representative quota to select by highest centrality (must be >0, <=1).")
+        ("accuracy-level,A", po::value<std::string>(), "Accuracy level: 1: traditional sum-of-pairs scoring (default), 2: + pairwise consistency, 3: + transitive consistency.")
+        ("sample-mode,S", po::value<int>(), "Sampling preset mode for consistency: 0: auto (default), 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast).")
+        ("sample-rate", po::value<float>(), "Sample rate for hierarchical consistency representative selection (must be >0, <1).")
+        ("sample-top-centrality", po::value<float>(), "Fraction of representative quota to select by highest centrality before column coverage (must be >0, <=1).")
+        ("sample-max-group", po::value<int>(), "Maximum number of sequences in a consistency group. Controls all-to-all pairwise complexity.")
         ("consistency-weight", po::value<float>()->default_value(5.0f), "Weight multiplier for consistency bonus in accurate mode (default: 5.0).");
 
     po::options_description generalDesc("General");

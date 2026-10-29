@@ -23,15 +23,15 @@
 
 ## What's New
 
-- **TWILIGHT v0.3.0 (Accurate mode)**
-  - **Consistency library & TCS:** Introduces consistency-based alignment (`--accurate`) incorporating pairwise consistency libraries and Transitive Consistency Score (`--accurate tcs`) to improve alignment accuracy.
-  - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences. By default (`--acc-mode 0`), TWILIGHT automatically selects the optimal sampling strategy based on sequence count ($N$):
+- **TWILIGHT v0.3 (Accurate mode)**
+  - **Consistency Transformation:** Introduces consistency-based alignment via `--accuracy-level` (`1`: traditional sum-of-pairs scoring [default], `2`: + pairwise consistency, `3`: + transitive consistency) to improve alignment accuracy.
+  - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences. By default (`--sample-mode 0`), TWILIGHT automatically selects the optimal sampling strategy based on sequence count ($N$):
     - **$N \le 500$ (All-to-all):** Full all-to-all pairwise consistency within a single group without sampling.
-    - **$500 < N \le 100{,}000$ (High sample rate with centrality sampling):** 50% sample rate (`--acc-sample-rate 0.5`) with top-centrality / high-score representative sampling (`--acc-sample-top 1.0`).
-    - **$N > 100{,}000$ (Low sample rate with column-coverage sampling):** 10% sample rate (`--acc-sample-rate 0.1`) with hybrid column-coverage sampling (`--acc-sample-top 0.3`, selecting 30% core anchors by centrality and 70% by greedy column coverage).
+    - **$500 < N \le 100{,}000$ (High sample rate with centrality sampling):** 50% sample rate (`--sample-rate 0.5`) with top-centrality representative sampling (`--sample-top-centrality 1.0`).
+    - **$N > 100{,}000$ (Low sample rate with column-coverage sampling):** 10% sample rate (`--sample-rate 0.2`) with hybrid column-coverage sampling (`--sample-top-centrality 0.3`, selecting 30% core anchors by centrality and 70% by greedy column coverage).
   - **Divide-and-Conquer compatibility:** Accurate mode is compatible with the divide-and-conquer strategy (`-m`), allowing it to scale to even larger datasets while maintaining manageable memory usage.
   - **CPU-only execution:** Accurate mode is currently supported on CPU only. While TWILIGHT can be compiled on GPU-enabled environments, accurate mode will execute on CPU.
-  - **Bioconda availability:** TWILIGHT v0.3.0 is available on [Bioconda](https://bioconda.github.io/recipes/twilight/README.html) via `conda install bioconda::twilight`.
+  - **Bioconda availability:** TWILIGHT v0.3 is available on [Bioconda](https://bioconda.github.io/recipes/twilight/README.html) via `conda install bioconda::twilight`.
 
 ## Table of Contents
 - [Introduction](#intro) ([Wiki](https://turakhia.ucsd.edu/TWILIGHT/))
@@ -225,12 +225,13 @@ Example
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln
 ```
 #### <a name="accurate"></a> Accurate Mode
-Incorporates consistency transformation to improve alignment accuracy. 
+Incorporates consistency transformation to improve alignment accuracy via `--accuracy-level`:
 
-- `--accurate`: Runs pairwise consistency alignment (default MAFFT-style consistency library).
-- `--accurate tcs`: Evaluates Transitive Consistency Score (TCS) for position reliability scoring.
+- `--accuracy-level 1` (default): Traditional sum-of-pairs scoring without consistency transformation.
+- `--accuracy-level 2`: Adds pairwise consistency to the sum-of-pairs score.
+- `--accuracy-level 3`: Adds transitive consistency to the sum-of-pairs score.
 
-TWILIGHT offers different presets via `--acc-mode` to balance runtime and consistency sampling:
+TWILIGHT offers different sampling presets via `--sample-mode` to balance runtime and consistency sampling:
 - `0`: Auto (default) – automatically selects preset based on dataset sequence count $N$:
   - **$N \le 500$**: Mode 1 (All-to-all)
   - **$500 < N \le 100{,}000$**: Mode 2 (High sample rate, centrality sampling)
@@ -239,37 +240,42 @@ TWILIGHT offers different presets via `--acc-mode` to balance runtime and consis
 - `2`: High sample rate (medium speed; 50% sample rate, 100% centrality-ranked representatives)
 - `3`: Low sample rate (fastest; 10% sample rate, hybrid 30% centrality core + 70% greedy column-coverage expansion)
 
-> **Note:** Accurate mode currently executes on CPU only.
+Fine-grained sampling arguments:
+- `--sample-rate`: Sampling fraction for representatives (e.g. `0.5`, `0.1`).
+- `--sample-top-centrality`: Fraction of representative quota selected by highest centrality before greedy column-coverage expansion (default `1.0` for Mode 2, `0.3` for Mode 3).
+- `--sample-max-group`: Maximum number of sequences in a consistency group.
+
+> **Note:** Accurate consistency mode currently executes on CPU only.
 
 Usage syntax
 ```bash
-./twilight -t <tree file> -i <sequence file> -o <output file> --accurate [tcs] [--acc-mode <0|1|2|3>]
+./twilight -t <tree file> -i <sequence file> -o <output file> [--accuracy-level <1|2|3>] [--sample-mode <0|1|2|3>]
 ```
 Example
 ```bash
-# Pairwise consistency with automatic mode
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate
+# Level 2 (Pairwise consistency) with automatic sampling mode
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accuracy-level 2
 
-# Transitive Consistency Score (TCS) with fast preset
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accurate tcs --acc-mode 3
+# Level 3 (Transitive consistency) with fast preset
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln --accuracy-level 3 --sample-mode 3
 ```
 #### <a name="dc"></a> Divide-and-Conquer Method
 To reduce the CPU’s main memory usage, TWILIGHT divides the tree into subtrees with at most *m* leaves, and aligns subtrees sequentially. The parameter *m* is user-defined.
 
 **Combine with Accurate Mode:**  
-Divide-and-Conquer can be used together with **Accurate Mode** (`--accurate`), allowing consistency-based alignment to scale to even larger datasets while controlling memory footprint.
+Divide-and-Conquer can be used together with **Accurate Mode** (`--accuracy-level 2` or `3`), allowing consistency-based alignment to scale to even larger datasets while controlling memory footprint.
 
 Usage syntax
 ```bash
-./twilight -t <tree file> -i <sequence file> -o <output file> -m <maximum subtree size> [--accurate [tcs]]
+./twilight -t <tree file> -i <sequence file> -o <output file> -m <maximum subtree size> [--accuracy-level <1|2|3>]
 ```
 Example
 ```bash
 # Standard Divide-and-Conquer
 ./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200
 
-# Divide-and-Conquer with Accurate Mode
-./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200 --accurate
+# Divide-and-Conquer with Accurate Mode (Level 2)
+./twilight -t ../dataset/RNASim.nwk -i ../dataset/RNASim.fa -o RNASim.aln -m 200 --accuracy-level 2
 ```
 #### <a name="add-1"></a> Add New Sequences to an Existing Alignment
 For better accuracy, it is recommended to use a tree that includes placements for the new sequences. If no tree is provided, TWILIGHT aligns new sequences to the profile of the entire backbone alignment, which may reduce accuracy. In this case, using the provided [Snakemake workflow](#add-2) is advised.

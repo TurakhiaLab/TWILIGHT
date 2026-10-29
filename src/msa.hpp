@@ -556,14 +556,19 @@ namespace msa
         bool alignGappy;
         bool noSeqWeighting;
         // -------
+        int accuracyLevel; // 1: traditional sum-of-pairs scoring (default), 2: + pairwise consistency, 3: + transitive consistency
         bool accurate;
         std::string accurateMethod; // "pairwise" (default) or "tcs"
-        int accMode; // 0: auto, 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast)
+        int sampleMode; // 0: auto, 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast)
+        int accMode; // Alias for backward compatibility
         int resolvedAccMode;
         float consistencyWeight;
-        float accSampleRate;
-        float accSampleTop;
-        int accMaxGroup;
+        float sampleRate;
+        float accSampleRate; // Alias for backward compatibility
+        float sampleTopCentrality;
+        float accSampleTop; // Alias for backward compatibility
+        int sampleMaxGroup;
+        int accMaxGroup; // Alias for backward compatibility
         bool hasUserAccMaxGroup;
         bool hasUserAccSampleRate;
         bool hasUserAccSampleTop;

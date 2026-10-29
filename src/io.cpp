@@ -182,19 +182,19 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
         option->resolveAccurateParams(numRead);
         if (option->printDetail) {
             std::string modeDesc;
-            if (option->accMode == 0) {
+            if (option->sampleMode == 0) {
                 modeDesc = "0 (auto -> mode " + std::to_string(option->resolvedAccMode) + ")";
-            } else if (option->accMode == 1) {
+            } else if (option->sampleMode == 1) {
                 modeDesc = "1 (all-to-all)";
-            } else if (option->accMode == 2) {
+            } else if (option->sampleMode == 2) {
                 modeDesc = "2 (high sample rate)";
             } else {
                 modeDesc = "3 (low sample rate)";
             }
-            std::cerr << "[Accurate Mode] Resolved parameters for " << numRead << " sequences: acc-mode=" << modeDesc
-                      << ", acc-max-group=" << option->accMaxGroup
-                      << ", acc-sample-rate=" << option->accSampleRate
-                      << ", acc-sample-top=" << option->accSampleTop << "\n";
+            std::cerr << "[Accurate Mode] Resolved parameters for " << numRead << " sequences: sample-mode=" << modeDesc
+                      << ", sample-max-group=" << option->accMaxGroup
+                      << ", sample-rate=" << option->accSampleRate
+                      << ", sample-top-centrality=" << option->accSampleTop << "\n";
         }
     }
     if (option->alnMode != 3 || placed) {
