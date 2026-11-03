@@ -28,7 +28,7 @@
   - **Scalable sampling:** Employs representative sampling heuristics to scale consistency scoring efficiently to over 100K sequences. By default (`--sample-mode 0`), TWILIGHT automatically selects the optimal sampling strategy based on sequence count ($N$):
     - **$N \le 500$ (All-to-all):** Full all-to-all pairwise consistency within a single group without sampling.
     - **$500 < N \le 100{,}000$ (High sample rate with centrality sampling):** 50% sample rate (`--sample-rate 0.5`) with top-centrality representative sampling (`--sample-top-centrality 1.0`).
-    - **$N > 100{,}000$ (Low sample rate with column-coverage sampling):** 10% sample rate (`--sample-rate 0.2`) with hybrid column-coverage sampling (`--sample-top-centrality 0.3`, selecting 30% core anchors by centrality and 70% by greedy column coverage).
+    - **$N > 100{,}000$ (Low sample rate with column-coverage sampling):** 20% sample rate (`--sample-rate 0.2`) with hybrid column-coverage sampling (`--sample-top-centrality 0.3`, selecting 30% core anchors by centrality and 70% by greedy column coverage).
   - **Divide-and-Conquer compatibility:** Accurate mode is compatible with the divide-and-conquer strategy (`-m`), allowing it to scale to even larger datasets while maintaining manageable memory usage.
   - **CPU-only execution:** Accurate mode is currently supported on CPU only. While TWILIGHT can be compiled on GPU-enabled environments, accurate mode will execute on CPU.
   - **Bioconda availability:** TWILIGHT v0.3 is available on [Bioconda](https://bioconda.github.io/recipes/twilight/README.html) via `conda install bioconda::twilight`.
