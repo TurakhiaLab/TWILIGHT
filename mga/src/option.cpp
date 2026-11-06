@@ -21,6 +21,7 @@ Option::Option(po::variables_map& vm) {
     // Read Logging & Verbosity Options
     this->verbose         = (vm.count("verbose"));
     this->quite           = (vm.count("quiet"));
+    this->debug           = (vm.count("debug") > 0);
     this->logFile         = (vm.count("log"))       ? vm["log"].as<std::string>()       : "";
 
     // Initialize mga::msg logging system based on command line options
@@ -43,6 +44,14 @@ Option::Option(po::variables_map& vm) {
     this->cpuOnly = (vm.count("cpu-only"));
     this->circular = (vm.count("circular"));
     this->writeOriented = (vm.count("write-oriented"));
+    // Reference sequence name for circular genome orientation
+    if (vm.count("ref")) {
+        this->refSeq = vm["ref"].as<std::string>();
+    } else if (vm.count("reference")) {
+        this->refSeq = vm["reference"].as<std::string>();
+    } else {
+        this->refSeq = "";
+    }
 
     // Read Minimap2 ASM Preset Divergence Level (5, 10, 20)
     this->mmAsm = (vm.count("mm-asm")) ? vm["mm-asm"].as<int>() : 5;
@@ -50,12 +59,25 @@ Option::Option(po::variables_map& vm) {
         mga::msg::error("Invalid --mm-asm value: %d. Supported values are 5, 10, or 20 (corresponding to asm5, asm10, asm20).\n", this->mmAsm);
     }
     this->mmAsmPreset = "asm" + std::to_string(this->mmAsm);
+    this->useMedoid = (vm.count("use-medoid") > 0);
 
-    // Check Prefix (Required)
-    if (!vm.count("prefix") || vm["prefix"].as<std::string>().empty()) {
-        mga::msg::error("Prefix for output files is required. Please specify using -p or --prefix.\n");
+    // Determine Prefix (optional; default: input raw sequence file name)
+    if (vm.count("prefix") && !vm["prefix"].as<std::string>().empty()) {
+        this->prefix = vm["prefix"].as<std::string>();
+    } else if (!this->seqFile.empty()) {
+        fs::path p(this->seqFile);
+        std::string base = p.stem().string();
+        // If file ends with .gz, strip another extension (e.g. .fa.gz -> .fa -> base)
+        if (p.extension() == ".gz") {
+            fs::path sub(base);
+            if (!sub.extension().empty()) {
+                base = sub.stem().string();
+            }
+        }
+        this->prefix = base;
+    } else {
+        this->prefix = "output";
     }
-    this->prefix = vm["prefix"].as<std::string>();
 
     // Check Output Format (maf or panman, default: output both)
     if (vm.count("output")) {
@@ -80,6 +102,15 @@ Option::Option(po::variables_map& vm) {
         this->outputPanman = true;
         this->outputFormat = "both";
     }
+
+    // Read MSA occupancy threshold for block concatenation (default: 0.95)
+    this->msaThreshold = (vm.count("msa-threshold")) ? vm["msa-threshold"].as<double>() : 0.95;
+    if (this->msaThreshold > 1.0) {
+        this->msaThreshold /= 100.0;
+    }
+
+    // Read minimum block length threshold for concatenated MSA (default: 500)
+    this->msaMinLen = (vm.count("msa-min-len")) ? vm["msa-min-len"].as<int>() : 500;
 
     // Check and create working directory
     std::string workDir;

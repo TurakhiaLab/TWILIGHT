@@ -465,8 +465,7 @@ std::vector<BlockID> BlockSet::absorbMicroBlocksIndividual() {
         std::string rc = seq;
         std::reverse(rc.begin(), rc.end());
         for (char& c : rc) {
-            if (c == 'A') c = 'T'; else if (c == 'T') c = 'A';
-            else if (c == 'C') c = 'G'; else if (c == 'G') c = 'C';
+            c = complement(c);
         }
         return rc;
     };

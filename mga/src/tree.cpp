@@ -250,7 +250,6 @@ void phylogeny::Tree::parseNewick(std::string& newickString) {
 }
 
 phylogeny::Tree::Tree(const std::string& treeFileName) {
-    auto treeBuiltStart = std::chrono::high_resolution_clock::now();
     std::ifstream inputStream(treeFileName);
     if (!inputStream.is_open()) { 
         mga::msg::error("Failed to open tree file: %s", treeFileName.c_str());
@@ -259,10 +258,6 @@ phylogeny::Tree::Tree(const std::string& treeFileName) {
     std::getline(inputStream, newick);
     
     this->parseNewick(newick);
-
-    auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(treeBuiltEnd - treeBuiltStart);
-    mga::msg::debug("Newick string read in: %d ms\n", duration.count());
 }
   
 phylogeny::Tree::Tree(Node* sourceNode, bool reroot) {
@@ -792,10 +787,9 @@ void phylogeny::Tree::reroot(bool placement)
 
     for (const auto& n : this->allNodes) afterReroot = std::max(afterReroot, (int)n.second->level);
 
-    mga::msg::debug("======== Tree Depth ========\n");
-    mga::msg::debug("Original: %d\n", beforeConvert);
-    mga::msg::debug("Binary:   %d\n", beforeReroot );
-    mga::msg::debug("Reroot:   %d\n", afterReroot  );
+    this->depthOriginal = beforeConvert;
+    this->depthBinary = beforeReroot;
+    this->depthReroot = afterReroot;
 }
 
 void phylogeny::Tree::collectLeaves(const Node* n, std::unordered_set<std::string>& leavesOut) {

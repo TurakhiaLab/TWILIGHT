@@ -86,6 +86,10 @@ namespace phylogeny {
         std::unique_ptr<Node> root;
         std::unordered_map<std::string, Node*> allNodes;
 
+        int depthOriginal{ 0 };
+        int depthBinary{ 0 };
+        int depthReroot{ 0 };
+
         void calLeafNum();
         void calSeqWeight();
         void parseNewick(std::string& newickString);

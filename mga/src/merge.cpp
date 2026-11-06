@@ -7,7 +7,7 @@
 #include <algorithm>
 
 // =========================================================
-// 靜態輔助函數
+// Static Helper Functions
 // =========================================================
 static CigarString invertCigar(const CigarString& cigar) {
     CigarString inverted = cigar;
@@ -21,14 +21,14 @@ static CigarString invertCigar(const CigarString& cigar) {
 #include <unordered_set>
 
 // =========================================================
-// 原始的 Merge (建立新 Block，搬移 Sequences，並刪除舊 Block)
-// 加入 mode 控制 Copy ID 的分發邏輯
+// Merge Two Blocks (Create new Block, migrate Sequences, and delete old Blocks)
+// Include mode parameter to control Copy ID assignment logic
 // =========================================================
 BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const CigarString& cigar, bool inverse, int mode, int r_probe_start, int q_probe_start, int r_probe_copy, int q_probe_copy) 
 {
     if (!refBlock || !qryBlock || refBlock == qryBlock) return nullptr;
 
-    // 1. 扁平化 Segment 以供 TBB 使用
+    // 1. Flatten Segments for TBB parallel processing
     std::vector<Segment*> refSegsFlat, qrySegsFlat;
     for (auto& seqPair : refBlock->getSequences()) {
         for (auto& segPairInner : seqPair.second.getSegments()) refSegsFlat.push_back(&segPairInner.second);
@@ -38,7 +38,7 @@ BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const Ci
     }
 
     // ========================================================
-    // 🌟 新增：根據 Mode 設定或平移 Copy ID
+    // Set or shift Copy ID based on mode
     // ========================================================
     int maxRefCopy = -1;
     for (auto seg : refSegsFlat) maxRefCopy = std::max(maxRefCopy, seg->getCopyCount());
@@ -52,10 +52,10 @@ BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const Ci
             int target_r_copy = (r_probe_copy >= 0) ? r_probe_copy : 0;
             int target_q_copy = (q_probe_copy >= 0) ? q_probe_copy : 0;
 
-            // 1. Ref 端：所有 segment 保持原本的 copyCount（同源的維持 target_r_copy，額外的維持其原 ID）
-            // 2. Qry 端：
-            //    - 屬於 target_q_copy 的同源 segment 合併至 target_r_copy (前提是 Ref 端該 sequence 尚未佔用 target_r_copy)
-            //    - 其餘額外的 copy 或已存在衝突的 sequence 則平移至 (maxRefCopy + 1) 起跳，避免與 Ref 端衝突
+            // 1. Ref side: Keep original copyCount for all segments (homologous stays target_r_copy, extras keep their original ID)
+            // 2. Qry side:
+            //    - Homologous segments belonging to target_q_copy are merged into target_r_copy (provided that the sequence in Ref does not already occupy target_r_copy)
+            //    - Other extra copies or sequences with conflicting copies are shifted starting from (maxRefCopy + 1) to avoid collision with Ref
             int qry_shift = std::max(0, maxRefCopy + 1);
 
             std::unordered_set<std::string> ref_target_seqs;
@@ -84,8 +84,8 @@ BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const Ci
             
         case 2:
         {
-            // Ref 端保持原有的 copyCount 分配不變
-            // Qry 端每個 segment 則平移 maxRefCopy + 1，確保兩邊 copy ID 互不衝突且各自內部 copy 區隔完整保留
+            // Keep original copyCount allocation on Ref side
+            // Shift each segment on Qry side by (maxRefCopy + 1) to ensure no copy ID collision while preserving internal copy distinctions
             int shift = std::max(0, maxRefCopy + 1);
             for (auto seg : qrySegsFlat) {
                 seg->setCopyCount(seg->getCopyCount() + shift);
@@ -118,18 +118,18 @@ BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const Ci
             break;
     }
 
-    // 2. 核心運算：取得 Mappings 與計算出新的 Variations
+    // 2. Core computation: Obtain mappings and calculate updated variations
     MergeMappingData mapData = calculateMergedConsensusAndMappings(refBlock, qryBlock, cigar, inverse, refSegsFlat, qrySegsFlat);
     
     updateSegmentVariations(refSegsFlat, qrySegsFlat, mapData, inverse, refBlock->getConsensus().getLength(), qryBlock->getConsensus().getLength());
 
-    // 3. 建立全新的 Block
+    // 3. Create a new Block
     // std::cout << refBlock->getConsensus().getLength() << '\n';
     // std::cout << qryBlock->getConsensus().getLength() << '\n';
     // std::cout << mapData.mergedCons.getConsensusString().size() << '\n';
     auto mergedBlock = this->createBlock(mapData.mergedCons);
 
-    // 4. 將 Sequence 搬移掛載到新的 Block 身上
+    // 4. Move and attach sequences to the new Block
     auto& mergedSeqs = mergedBlock->getSequences();
     for (auto& seqPair : refBlock->getSequences()) {
         if (mergedSeqs.find(seqPair.first) == mergedSeqs.end()) mergedSeqs[seqPair.first] = Sequence(seqPair.first);
@@ -153,7 +153,7 @@ BlockPtr BlockSet::mergeTwoBlocks(BlockPtr refBlock, BlockPtr qryBlock, const Ci
 }
 
 // =========================================================
-// Helper 1: 計算 Merged Consensus 與所有座標映射
+// Helper 1: Calculate Merged Consensus and all coordinate mappings
 // =========================================================
 BlockSet::MergeMappingData BlockSet::calculateMergedConsensusAndMappings(
     std::shared_ptr<Block> refBlock, std::shared_ptr<Block> qryBlock, 
@@ -233,7 +233,7 @@ BlockSet::MergeMappingData BlockSet::calculateMergedConsensusAndMappings(
                 aPos++; bPos++; mPos++;
             }
         }
-        else if (type == 'D') { // A 側有字元，B 側是 Gap
+        else if (type == 'D') { // Deletion: char on A side, gap on B side
             for (int i = 0; i < len; ++i) {
                 if (refIsA) {
                     if (aPos + i < data.refOldToNew.size()) data.refOldToNew[aPos + i] = mPos + i;
@@ -248,7 +248,7 @@ BlockSet::MergeMappingData BlockSet::calculateMergedConsensusAndMappings(
             }
             aPos += len; mPos += len;
         }
-        else if (type == 'I') { // A 側是 Gap，B 側有字元
+        else if (type == 'I') { // Insertion: gap on A side, char on B side
             for (int i = 0; i < len; ++i) {
                 if (refIsA) {
                     if (bPos + i < data.qryOldToNew.size()) data.qryOldToNew[bPos + i] = mPos + i;
@@ -277,7 +277,7 @@ BlockSet::MergeMappingData BlockSet::calculateMergedConsensusAndMappings(
 }
 
 // =========================================================
-// Helper 2: 平行更新 Segment Variations (純更新相對座標)
+// Helper 2: Parallel update of Segment Variations (relative coordinates only)
 // =========================================================
 void BlockSet::updateSegmentVariations(
     std::vector<Segment*>& refSegsFlat, std::vector<Segment*>& qrySegsFlat,

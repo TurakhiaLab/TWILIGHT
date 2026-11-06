@@ -10,7 +10,9 @@
 #include <chrono>
 #include <algorithm>
 #include <climits>
+#include <limits>
 #include <memory>
+#include "message_manager.hpp"
 
 #include <zlib.h>
 #include <boost/filesystem.hpp>
@@ -33,7 +35,7 @@ std::string gzip_compress(const std::string &input) {
     zs.avail_out = output.size();
     int ret = deflate(&zs, Z_FINISH);
     if (ret != Z_STREAM_END) {
-        std::cerr << "Compression error: " << ret << "\n";
+        mga::msg::debug("Compression error: %d\n", ret);
         deflateEnd(&zs);
         return {};
     }
@@ -47,10 +49,11 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
     auto seqReadStart = std::chrono::high_resolution_clock::now();
     
     std::string seqFileName = fileName;
+    mga::msg::debug("Reading sequences from %s...\n", seqFileName.c_str());
     
     gzFile f_rd = gzopen(seqFileName.c_str(), "r");
     if (!f_rd) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
+        mga::msg::error("Cannot open sequence file: %s\n", seqFileName.c_str());
         exit(1);
     }
     kseq_t* kseq_rd = kseq_init(f_rd);
@@ -86,13 +89,13 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
 
         if (seqNode != nullptr) {
             if (loadedNames.count(seqName)) {
-                printf("WARNING: duplicate leaf names found in the sequence file! Leaf name: %s. Only the first occurrence will be kept.\n", seqName.c_str());
+                mga::msg::warn("Duplicate leaf name found in sequence file: %s. Only first occurrence will be kept.\n", seqName.c_str());
             } else {
                 std::string seqContent = std::string(kseq_rd->seq.s, seqLen);
 
                 if (seqLen > maxLen) maxLen = seqLen;
                 if (seqLen < minLen) minLen = seqLen;
-                if (seqLen == 0) std::cerr << "Null sequences, " << seqName << '\n';
+                if (seqLen == 0) mga::msg::debug("Null sequence encountered: %s\n", seqName.c_str());
                 totalLen += seqLen;
                 
                 BlockSet* blockSet = blockManager->createBlockSet(seqNode->identifier);
@@ -119,28 +122,24 @@ std::unique_ptr<BlockManager> mga::io::readSequences(std::string& fileName, Opti
     gzclose(f_rd);
 
     if (seqNum == 0) {
-        std::cerr << "Error: no sequences were read from the input that are also in the tree.\n";
+        mga::msg::error("No sequences were read from the input that match any node in the tree.\n");
     }
 
     auto seqReadEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::nanoseconds seqReadTime = seqReadEnd - seqReadStart;
+    std::chrono::duration<double, std::milli> seqReadDuration = seqReadEnd - seqReadStart;
 
     uint32_t avgLen = (seqNum > 0) ? totalLen / seqNum : 0;
 
-    // blockManager->updateLongestSequences();
-
-    std::cerr << "===== Sequence Summary =====\n";
-    std::cerr << "Number of sequences read and found in tree: " << seqNum << '\n';
-    std::cerr << "Max. Length: " << maxLen << '\n';
-    std::cerr << "Min. Length: " << minLen << '\n';
-    std::cerr << "Avg. Length: " << avgLen << '\n';
-    std::cerr << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
+    mga::msg::info("Read %d sequences (Total: %lu bp, Avg: %u bp, Range: [%d, %d] bp) in %.2f ms\n",
+                   seqNum, totalLen, avgLen, (seqNum > 0 ? minLen : 0), maxLen, seqReadDuration.count());
 
     return blockManager;
 }
 
 
 void mga::io::writeAlignment(std::string fileName, StringPairs& seqs, bool compressed, bool append) {
+    auto writeStart = std::chrono::high_resolution_clock::now();
+
     if (compressed) {
         fileName += ".gz";
         std::vector<std::string> compressed_chunks(seqs.size());
@@ -153,7 +152,7 @@ void mga::io::writeAlignment(std::string fileName, StringPairs& seqs, bool compr
         if (append) outFile.open(fileName, std::ios::binary | std::ios::app);
         else        outFile.open(fileName, std::ios::binary);
         if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+            mga::msg::error("Cannot open file for writing: %s\n", fileName.c_str());
             exit(1);
         }
         for (auto &c : compressed_chunks) {
@@ -166,7 +165,7 @@ void mga::io::writeAlignment(std::string fileName, StringPairs& seqs, bool compr
         if (append) outFile.open(fileName, std::ios::app);
         else        outFile.open(fileName);
         if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
+            mga::msg::error("Cannot open file for writing: %s\n", fileName.c_str());
             exit(1);
         }
         for (auto it = seqs.begin(); it != seqs.end(); ++it) {
@@ -175,11 +174,15 @@ void mga::io::writeAlignment(std::string fileName, StringPairs& seqs, bool compr
         }
         outFile.close();
     }
+
+    auto writeEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> writeDuration = writeEnd - writeStart;
+    mga::msg::info("Alignment written to %s in %.2f ms\n", fileName.c_str(), writeDuration.count());
     return;
 }
 
 
-std::string generateAlignmentString(const std::string& consensus, Variants& variations) {
+std::string generateAlignmentString(const std::string& consensus, const Variants& variations) {
     std::string aliSeq = consensus;
     
     for (auto& var : variations) {
@@ -200,113 +203,328 @@ std::string generateAlignmentString(const std::string& consensus, Variants& vari
     return aliSeq;
 }
 
-void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName, bool grouped) {
+// Helper function to write a single MAF block (either homology-merged or single-copy)
+static void writeSingleMAFBlock(std::ofstream& mafFile,
+                                const std::shared_ptr<Block>& blk,
+                                int target_copy,
+                                const std::string& blockLabel,
+                                const std::unordered_map<std::string, int>& seqLengths) {
+    if (!blk) return;
+
+    const std::string& consensus = blk->getConsensus().getConsensusString();
+    int consLen = consensus.length();
+
+    int segmentCount = 0;
+    int totalVarLen = 0;
+
+    // Recalculate score considering only eligible segments
+    for (auto& seqEntry : blk->getSequences()) {
+        for (auto& segPair : seqEntry.second.getSegments()) {
+            Segment& seg = segPair.second;
+            if (target_copy != -1 && seg.getCopyCount() != target_copy) continue;
+
+            segmentCount++;
+            for (auto& var : seg.getVariants()) {
+                totalVarLen += (var.getEnd() - var.getStart());
+            }
+        }
+    }
+
+    if (segmentCount == 0) return;
+
+    double score = static_cast<double>(consLen * segmentCount - totalVarLen);
+
+    // 1. Output 'a' line
+    mafFile << "a score=" << std::fixed << std::setprecision(1) << score 
+            << " blockID=" << blockLabel << "\n";
+
+    // 2. Output 's' lines for each sequence segment
+    for (auto& seqEntry : blk->getSequences()) {
+        std::string seqID = seqEntry.first;
+        long srcSize = 0;
+        auto itLen = seqLengths.find(seqID);
+        if (itLen != seqLengths.end()) {
+            srcSize = itLen->second;
+        }
+
+        for (auto& segPair : seqEntry.second.getSegments()) {
+            Segment& seg = segPair.second;
+            if (target_copy != -1 && seg.getCopyCount() != target_copy) continue;
+
+            std::string aliString = generateAlignmentString(consensus, seg.getVariants());
+
+            // Count ungapped base size to strictly adhere to UCSC MAF specification
+            int size = 0;
+            for (char c : aliString) {
+                if (c != '-' && c != '.') size++;
+            }
+
+            int fwdStart = std::min(seg.getStart(), seg.getEnd());
+            int fwdEnd   = std::max(seg.getStart(), seg.getEnd());
+            char strand  = seg.isReverse() ? '-' : '+';
+
+            // In UCSC MAF, minus strand start is measured from the 5' end of the reverse complement:
+            // mafStart = srcSize - fwdEnd
+            int mafStart = fwdStart;
+            if (strand == '-') {
+                mafStart = (srcSize > 0) ? (srcSize - fwdEnd) : fwdStart;
+            }
+
+            mafFile << "s " << std::left << std::setw(20) << seqID << " "
+                    << std::right << std::setw(10) << mafStart << " "
+                    << std::right << std::setw(8) << size << " "
+                    << strand << " "
+                    << std::right << std::setw(10) << srcSize << " "
+                    << aliString << "\n";
+        }
+    }
+    mafFile << "\n";
+}
+
+void mga::io::writeMAF(BlockSet* blockSet, const std::string& outputFileName, const std::unordered_map<std::string, int>& seqLengths) {
+    if (!blockSet) return;
+    auto start = std::chrono::high_resolution_clock::now();
+    mga::msg::debug("Writing MAF to %s...\n", outputFileName.c_str());
+
     std::ofstream mafFile(outputFileName);
     if (!mafFile.is_open()) {
-        std::cerr << "Error: Could not open file " << outputFileName << " for writing MAF.\n";
+        mga::msg::error("Could not open file %s for writing MAF.\n", outputFileName.c_str());
         return;
     }
 
     // 1. MAF Header
     mafFile << "##maf version=1\n";
     mafFile << "# Generated from BlockSet ID: " << blockSet->getId() << "\n";
-    mafFile << "# Mode: " << (grouped ? "Homology-Merged" : "Linearized") << "\n\n";
-    
-    // 🌟 定義一個小結構來統一後續的處理流程
-    struct IterItem {
-        std::shared_ptr<Block> blk;
-        int target_copy; // -1 代表 Grouped 模式 (全印)
-    };
-    std::vector<IterItem> items_to_write;
+    mafFile << "# Mode: Homology-Merged\n\n";
 
-    // 🌟 2. 根據模式準備要輸出的 Block 與 Copy 目標
-    if (grouped) {
-        // [Grouped 模式]：直接走訪所有實體 Block，target_copy 設為 -1
-        auto all_blocks = blockSet->getAllBlocks();
-        for (auto& weak_blk : all_blocks) {
-            if (auto blk = weak_blk.lock()) {
-                items_to_write.push_back({blk, -1});
-            }
-        }
-    } else {
-        // [Linearized 模式]：走訪 1D 骨幹，根據 VBlockID 決定要印哪個 Copy
-        // 假設你的 getLinearizeBlocks() 現在回傳的是 std::vector<VBlockID> (即 pair<BlockID, int>)
-        auto vblocks = blockSet->getLinearizeBlocks(); 
-        for (auto& vid : vblocks) {
+    // 2. Output physical blocks in the order of appearance on linear backbone first, then unvisited blocks
+    std::unordered_set<BlockID> seen_blocks;
+    auto vblocks = blockSet->getLinearizeBlocks();
+    for (const auto& vid : vblocks) {
+        if (seen_blocks.insert(vid.first).second) {
             if (auto blk = blockSet->getBlock(vid.first)) {
-                items_to_write.push_back({blk, vid.second});
+                std::string blockLabel = std::to_string(blk->getId());
+                writeSingleMAFBlock(mafFile, blk, -1, blockLabel, seqLengths);
             }
         }
     }
 
-    // 3. 執行統一的輸出邏輯
-    for (auto& item : items_to_write) {
-        auto blk = item.blk;
-        int target_copy = item.target_copy;
-
-        BlockID currentBlockId = blk->getId();
-        const std::string& consensus = blk->getConsensus().getConsensusString();
-        int consLen = consensus.length();
-        
-        int segmentCount = 0;
-        int totalVarLen = 0;
-        
-        // 🌟 重新計算 Score，只算符合條件的 Segments
-        for (auto& seqEntry : blk->getSequences()) {
-            for (auto& segPair : seqEntry.second.getSegments()) {
-                Segment& seg = segPair.second;
-                
-                // [過濾機制] 如果不是 grouped 模式，且 Copy 號碼不對，就跳過！
-                if (target_copy != -1 && seg.getCopyCount() != target_copy) continue;
-
-                segmentCount++;
-                for (auto& var : seg.getVariants()) {
-                    totalVarLen += (var.getEnd() - var.getStart());
-                }
+    auto all_blocks = blockSet->getAllBlocks();
+    for (auto& weak_blk : all_blocks) {
+        if (auto blk = weak_blk.lock()) {
+            if (seen_blocks.insert(blk->getId()).second) {
+                std::string blockLabel = std::to_string(blk->getId());
+                writeSingleMAFBlock(mafFile, blk, -1, blockLabel, seqLengths);
             }
         }
-        
-        if (segmentCount == 0) continue;
-
-        double score = static_cast<double>(consLen * segmentCount - totalVarLen);
-
-        // 🌟 決定 a 行的 blockID 標籤
-        std::string blockLabel = std::to_string(currentBlockId);
-        if (target_copy != -1) {
-            blockLabel += "_C" + std::to_string(target_copy); // 產生像 "5_C0", "5_C1" 這樣的標籤
-        }
-
-        // 3. 'a' line
-        mafFile << "a score=" << std::fixed << std::setprecision(1) << score 
-                << " blockID=" << blockLabel << "\n";
-
-        // 4. 輸出各個 Segment 的 's' 行
-        for (auto& seqEntry : blk->getSequences()) {
-            std::string seqID = seqEntry.first;
-            
-            for (auto& segPair : seqEntry.second.getSegments()) {
-                Segment& seg = segPair.second;
-                
-                // 🌟 同樣的過濾機制
-                if (target_copy != -1 && seg.getCopyCount() != target_copy) continue;
-                
-                std::string aliString = generateAlignmentString(consensus, seg.getVariants());
-                
-                int start = seg.getStart();
-                int size = std::abs(seg.getEnd() - seg.getStart()); 
-                char strand = seg.isReverse() ? '-' : '+';
-                long srcSize = 0; 
-
-                mafFile << "s " << std::left << std::setw(20) << seqID << " "
-                        << std::right << std::setw(10) << start << " "
-                        << std::right << std::setw(8) << size << " "
-                        << strand << " "
-                        << std::right << std::setw(10) << srcSize << " "
-                        << aliString << "\n";
-            }
-        }
-        mafFile << "\n"; 
     }
 
     mafFile.close();
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+    mga::msg::info("MAF written to %s in %.2f ms\n", outputFileName.c_str(), duration.count());
+}
+
+void mga::io::writeLinearMAF(BlockSet* blockSet, const std::string& outputFileName, const std::unordered_map<std::string, int>& seqLengths) {
+    if (!blockSet) return;
+    auto start = std::chrono::high_resolution_clock::now();
+    mga::msg::debug("Writing linear MAF to %s...\n", outputFileName.c_str());
+
+    std::ofstream mafFile(outputFileName);
+    if (!mafFile.is_open()) {
+        mga::msg::error("Could not open file %s for writing Linear MAF.\n", outputFileName.c_str());
+        return;
+    }
+
+    // 1. MAF Header
+    mafFile << "##maf version=1\n";
+    mafFile << "# Generated from BlockSet ID: " << blockSet->getId() << "\n";
+    mafFile << "# Mode: Linearized\n\n";
+
+    // 2. Traverse linear backbone and output blocks with blockID=<BlockID>.<copy num>
+    auto vblocks = blockSet->getLinearizeBlocks();
+    for (const auto& vid : vblocks) {
+        if (auto blk = blockSet->getBlock(vid.first)) {
+            std::string blockLabel = std::to_string(vid.first) + "." + std::to_string(vid.second);
+            writeSingleMAFBlock(mafFile, blk, vid.second, blockLabel, seqLengths);
+        }
+    }
+
+    mafFile.close();
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+    mga::msg::info("Linear MAF written to %s in %.2f ms\n", outputFileName.c_str(), duration.count());
+}
+
+void mga::io::writeConcatMSA(BlockSet* blockSet, const std::string& outputFileName, double threshold, int minBlockLen) {
+    auto start = std::chrono::high_resolution_clock::now();
+    mga::msg::debug("Generating concatenated MSA to %s...\n", outputFileName.c_str());
+
+    if (!blockSet) {
+        mga::msg::error("Null BlockSet provided to writeConcatMSA.\n");
+        return;
+    }
+
+    // 1. Gather all unique sequence names in deterministic order
+    std::vector<std::string> allSeqNames(blockSet->getSequences().begin(), blockSet->getSequences().end());
+    if (allSeqNames.empty()) {
+        mga::msg::warn("No sequences in BlockSet for writeConcatMSA.\n");
+        return;
+    }
+    std::sort(allSeqNames.begin(), allSeqNames.end());
+    size_t totalSeqs = allSeqNames.size();
+
+    // Normalize threshold (accept e.g. 95 or 0.95)
+    double normThreshold = (threshold > 1.0) ? (threshold / 100.0) : threshold;
+
+    // 2. Collect candidate blocks in linear backbone order (Option A)
+    std::unordered_set<BlockID> seen_blocks;
+    std::vector<std::shared_ptr<Block>> candidate_blocks;
+
+    auto vblocks = blockSet->getLinearizeBlocks();
+    for (const auto& vid : vblocks) {
+        if (seen_blocks.insert(vid.first).second) {
+            if (auto blk = blockSet->getBlock(vid.first)) {
+                candidate_blocks.push_back(blk);
+            }
+        }
+    }
+
+    // Append any remaining distant / unvisited blocks not on the linear backbone
+    auto all_blocks = blockSet->getAllBlocks();
+    for (auto& weak_blk : all_blocks) {
+        if (auto blk = weak_blk.lock()) {
+            if (seen_blocks.insert(blk->getId()).second) {
+                candidate_blocks.push_back(blk);
+            }
+        }
+    }
+
+    // 3. Filter blocks exceeding occupancy threshold and minimum length
+    std::vector<std::shared_ptr<Block>> eligible_blocks;
+    for (auto& blk : candidate_blocks) {
+        if (!blk) continue;
+        if (static_cast<int>(blk->getConsensus().getConsensusString().length()) < minBlockLen) {
+            continue;
+        }
+        size_t presentSeqCount = 0;
+        const auto& seqMap = blk->getSequences();
+        for (const auto& seqName : allSeqNames) {
+            auto it = seqMap.find(seqName);
+            if (it != seqMap.end() && !it->second.getSegments().empty()) {
+                presentSeqCount++;
+            }
+        }
+        double occupancy = static_cast<double>(presentSeqCount) / static_cast<double>(totalSeqs);
+        if (occupancy >= normThreshold) {
+            eligible_blocks.push_back(blk);
+        }
+    }
+
+    mga::msg::debug("writeConcatMSA: %zu / %zu blocks passed occupancy (>= %.2f%%) and length (>= %d bp) filters. Generating concatenated MSA...\n",
+                    eligible_blocks.size(), candidate_blocks.size(), normThreshold * 100.0, minBlockLen);
+
+    // 4. Calculate total MSA length and pre-allocate string buffers
+    size_t totalMsaLen = 0;
+    for (const auto& blk : eligible_blocks) {
+        totalMsaLen += blk->getConsensus().getConsensusString().length();
+    }
+
+    std::unordered_map<std::string, std::string> msaMap;
+    for (const auto& seqName : allSeqNames) {
+        msaMap[seqName].reserve(totalMsaLen);
+    }
+
+    // 5. Build MSA strings block by block
+    for (const auto& blk : eligible_blocks) {
+        const std::string& consensus = blk->getConsensus().getConsensusString();
+        size_t consLen = consensus.length();
+        const auto& seqMap = blk->getSequences();
+
+        for (const auto& seqName : allSeqNames) {
+            auto seqIt = seqMap.find(seqName);
+            const Segment* bestSeg = nullptr;
+
+            if (seqIt != seqMap.end() && !seqIt->second.getSegments().empty()) {
+                int bestTotalVar = std::numeric_limits<int>::max();
+                int bestGapLen = std::numeric_limits<int>::max();
+                int bestCopyCount = std::numeric_limits<int>::max();
+
+                for (const auto& segPair : seqIt->second.getSegments()) {
+                    const Segment& seg = segPair.second;
+                    int snpCount = 0;
+                    int gapLen = 0;
+                    for (const auto& var : seg.getVariants()) {
+                        if (var.getType() == VariantType::SNV) {
+                            snpCount++;
+                        } else if (var.getType() == VariantType::GAP) {
+                            gapLen += (var.getEnd() - var.getStart());
+                        }
+                    }
+                    int totalVar = snpCount + gapLen;
+                    int copyCount = seg.getCopyCount();
+
+                    bool isBetter = false;
+                    if (bestSeg == nullptr) {
+                        isBetter = true;
+                    } else if (totalVar < bestTotalVar) {
+                        isBetter = true;
+                    } else if (totalVar == bestTotalVar) {
+                        // Tie-breaker 1: choose fewer gaps (gaps are uninformative, SNPs carry phylogenetic signal)
+                        if (gapLen < bestGapLen) {
+                            isBetter = true;
+                        } else if (gapLen == bestGapLen) {
+                            // Tie-breaker 2: choose smaller copy number
+                            if (copyCount < bestCopyCount) {
+                                isBetter = true;
+                            } else if (copyCount == bestCopyCount) {
+                                // Tie-breaker 3: deterministic start coordinate order
+                                if (seg.getStart() < bestSeg->getStart()) {
+                                    isBetter = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if (isBetter) {
+                        bestSeg = &seg;
+                        bestTotalVar = totalVar;
+                        bestGapLen = gapLen;
+                        bestCopyCount = copyCount;
+                    }
+                }
+            }
+
+            if (bestSeg != nullptr) {
+                std::string aliStr = generateAlignmentString(consensus, bestSeg->getVariants());
+                if (aliStr.length() < consLen) {
+                    aliStr.append(consLen - aliStr.length(), '-');
+                }
+                msaMap[seqName] += aliStr;
+            } else {
+                // Sequence absent in this block: fill with gaps
+                msaMap[seqName].append(consLen, '-');
+            }
+        }
+    }
+
+    // 6. Write FASTA format output
+    std::ofstream outFile(outputFileName);
+    if (!outFile.is_open()) {
+        mga::msg::error("Could not open file %s for writing concat MSA.\n", outputFileName.c_str());
+        return;
+    }
+
+    for (const auto& seqName : allSeqNames) {
+        outFile << ">" << seqName << "\n";
+        outFile << msaMap[seqName] << "\n";
+    }
+
+    outFile.close();
+    auto end = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double, std::milli> duration = end - start;
+    mga::msg::info("Concatenated MSA written to %s (Length: %zu bp) in %.2f ms (%.3f s)\n",
+                   outputFileName.c_str(), totalMsaLen, duration.count(), duration.count() / 1000.0);
 }

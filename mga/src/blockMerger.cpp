@@ -115,7 +115,7 @@ BlockID extractCoreBlock(int globalStart, int globalEnd, bool isRef,
                          std::vector<BlockID> &overlaps,
                          int &out_left_snap, int &out_right_snap,
                          CoordinateManager &coordMgr, BlockSet *mergedSet,
-                         mga::MergeDebugger &dbg, Timer &timer = global_timer) {
+                         mga::MergeDebugger &dbg) {
   out_left_snap = 0;
   out_right_snap = 0;
   if (overlaps.empty())
@@ -128,21 +128,18 @@ BlockID extractCoreBlock(int globalStart, int globalEnd, bool isRef,
   }
 
   // Convert to exact local coordinates
-  timer.start("ecb_1_convert_local_pos");
   int pos1 = coordMgr.getLocalPos(globalStart, isRef);
   int pos2 = coordMgr.getLocalPos(globalEnd - 1, isRef);
 
   // Guard: ensure coordinates belong to the same occurrence
   if (std::abs(pos2 - pos1) != (globalEnd - 1 - globalStart)) {
     dbg.logOccurrenceCrossingReject(true);
-    timer.stop("ecb_1_convert_local_pos");
     return 0;
   }
 
   int localStart = std::min(pos1, pos2);
   int localEnd = std::max(pos1, pos2) + 1;
   int currentLen = mergedSet->getBlock(targetId)->getConsensus().length();
-  timer.stop("ecb_1_convert_local_pos");
 
   // Fast path: if both boundaries are within snap tolerance, proceed without splitting
   if (localStart <= SLICE_SNAP_THRESHOLD &&
@@ -166,29 +163,17 @@ BlockID extractCoreBlock(int globalStart, int globalEnd, bool isRef,
 
   // Determine single split or single-pass double split
   if (localStart > 0 && localEnd < currentLen) {
-    timer.start("ecb_double_split");
     auto parts = mergedSet->splitDoubleBlock(targetId, localStart, localEnd);
-    timer.stop("ecb_double_split");
-    timer.start("ecb_double_update");
     coordMgr.updateAfterDoubleSplit(targetId, parts.leftID, parts.midID, parts.rightID, localStart, localEnd);
     targetId = parts.midID;
-    timer.stop("ecb_double_update");
   } else if (localStart > 0) {
-    timer.start("ecb_2_left_split");
     auto parts = mergedSet->splitSingleBlock(targetId, localStart);
-    timer.stop("ecb_2_left_split");
-    timer.start("ecb_2_left_update");
     coordMgr.updateAfterSplit(targetId, parts.first, parts.second, localStart);
     targetId = parts.second;
-    timer.stop("ecb_2_left_update");
   } else if (localEnd < currentLen) {
-    timer.start("ecb_3_right_split");
     auto parts = mergedSet->splitSingleBlock(targetId, localEnd);
-    timer.stop("ecb_3_right_split");
-    timer.start("ecb_3_right_update");
     coordMgr.updateAfterSplit(targetId, parts.first, parts.second, localEnd);
     targetId = parts.first;
-    timer.stop("ecb_3_right_update");
   }
 
   return targetId;
@@ -239,16 +224,23 @@ CigarString alignFlanks(const std::string &r_seq, const std::string &q_seq) {
 BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
                               AlignmentCollection &alnCollection,
                               BlockSetID newID, Tree *tree, Option *option, int L_min) {
-  // Initialize merge debugger with customizable preset or boolean flag
-  bool DEBUG_MODE = false;
-  mga::MergeDebugger dbg(DEBUG_MODE ? mga::MergeDebugPreset::FULL : mga::MergeDebugPreset::OFF);
+  // =========================================================================
+  // MergeDebugger is disabled by default (OFF) to avoid runtime overhead.
+  // Developers debugging block merging can enable presets here:
+  //   - mga::MergeDebugPreset::SUMMARY   : High-level phases and summary
+  //   - mga::MergeDebugPreset::STANDARD  : Phases, rejections, scenario types
+  //   - mga::MergeDebugPreset::DETAILED  : Standard + per-alignment details & energy
+  //   - mga::MergeDebugPreset::FULL      : Full diagnostic logging and Case D dump
+  // Or configure fine-grained category flags via mga::MergeDebugConfig.
+  // For implementation details and configuration options, see:
+  //   - internal/merge_debug.hpp
+  //   - src/merge_debug.cpp
+  // =========================================================================
+  mga::MergeDebugger dbg(mga::MergeDebugPreset::OFF);
   auto time0 = std::chrono::high_resolution_clock::now();
   
   dbg.logMergeHeader(refSet->getId(), qrySet->getId());
 
-  Timer local_timer;
-
-  local_timer.start("phase1_init_coord_mgr");
   dbg.logPhase(1, "Initialized Coordinate Manager...");
 
   BlockSet *mergedSet = createBlockSet(newID);
@@ -264,7 +256,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
   alnCollection.qry_coverageTracker.syncFromMap(coordMgr, false); // false for Qry
 
   int mergeCounter = 0;
-  local_timer.stop("phase1_init_coord_mgr");
 
   dbg.logPhase(2, "Iteratively merged blocks based on Minimap2 alignments...");
 
@@ -277,12 +268,8 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
   BlockSet *refIndexSet = refSet->createIndexedCopy(this, refIndexID);
   BlockSet *qryIndexSet = qrySet->createIndexedCopy(this, qryIndexID);
 
-  local_timer.start("phase2_iterative_merge");
   while (true) {
-
-    local_timer.start("find_best_alignment");
     Alignments bestAlns = alnCollection.getBestAlignments(refIndexSet, qryIndexSet, coordMgr);
-    local_timer.stop("find_best_alignment");
 
     if (bestAlns.empty())
       break;
@@ -302,10 +289,8 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       int q_end = std::max(bestAln.qryIdx.first, bestAln.qryIdx.second);
 
       bool r_merged = false, q_merged = false;
-      local_timer.start("p2_2_overlap_lookup");
       auto r_overlaps = coordMgr.getOverlapBlocks(r_start, r_end, true, r_merged);
       auto q_overlaps = coordMgr.getOverlapBlocks(q_start, q_end, false, q_merged);
-      local_timer.stop("p2_2_overlap_lookup");
 
       dbg.logAlignmentDetails(bestAln.CIGAR, bestAln.inverse, r_start, r_end, q_start, q_end, r_merged, q_merged, r_overlaps, q_overlaps);
 
@@ -344,7 +329,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       // ==========================================
       // Phase A: Stateless Energy Pre-check
       // ==========================================
-      local_timer.start("p2_3_energy_precheck");
       bool energy_reject = false;
 
       // Policy: rapidly reject alignments spanning multiple blocks (overlaps.size() > 1)
@@ -360,7 +344,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
           isAlignmentRejected(q_start, q_end, false, q_overlaps, coordMgr, mergedSet, dbg)) {
         energy_reject = true;
       }
-      local_timer.stop("p2_3_energy_precheck");
       if (energy_reject) {
         dbg.logTopologySkip();
         continue;
@@ -371,12 +354,8 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
 
       // Only cases B, C, D require realignment; perform string-level pre-test here
       if (r_merged || q_merged) {
-        local_timer.start("p2_4_virtual_realign");
-
-        local_timer.start("p2_4_1_get_virtual_string");
         std::string r_virt_cons = getVirtualConsensusString(r_start, r_end, true, r_overlaps, coordMgr, mergedSet);
         std::string q_virt_cons = getVirtualConsensusString(q_start, q_end, false, q_overlaps, coordMgr, mergedSet);
-        local_timer.stop("p2_4_1_get_virtual_string");
         bool is_r_inv = coordMgr.getIsInverse(r_start, true);
         bool is_q_inv = coordMgr.getIsInverse(q_start, false);
         precomputed_inverse = bestAln.inverse;
@@ -384,13 +363,9 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
         if (precomputed_inverse) q_virt_cons = getReverseComplement(q_virt_cons);
 
         // Execute pre-alignment (Linear Gap Penalty + Tiling Alignment)
-        local_timer.start("p2_4_2_semi_global_aln");
         precomputed_cigar = runTilingAlignmentLinearGap(r_virt_cons, q_virt_cons);
-        local_timer.stop("p2_4_2_semi_global_aln");
         double identity = identityCIGAR(precomputed_cigar);
         double IDENTITY_THRESHOLD = 0.85;
-
-        local_timer.stop("p2_4_virtual_realign");
 
         if (identity < IDENTITY_THRESHOLD) {
           dbg.logLowIdentityReject(identity);
@@ -401,11 +376,10 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       // ==========================================
       // Phase B: Formal extraction and splitting via extractCoreBlock
       // ==========================================
-      local_timer.start("p2_5_extract_core_blocks");
       int r_left_snap = 0, r_right_snap = 0;
       int q_left_snap = 0, q_right_snap = 0;
       if (rLen > 0) {
-        rCore = extractCoreBlock(r_start, r_end, true, r_overlaps, r_left_snap, r_right_snap, coordMgr, mergedSet, dbg, local_timer);
+        rCore = extractCoreBlock(r_start, r_end, true, r_overlaps, r_left_snap, r_right_snap, coordMgr, mergedSet, dbg);
         dbg.logCoreExtraction("REF", rCore, coordMgr.getGlobalCoord(rCore));
       }
 
@@ -413,10 +387,9 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       // Extract Query Core Block
       // ==========================================
       if (qLen > 0) {
-        qCore = extractCoreBlock(q_start, q_end, false, q_overlaps, q_left_snap, q_right_snap, coordMgr, mergedSet, dbg, local_timer);
+        qCore = extractCoreBlock(q_start, q_end, false, q_overlaps, q_left_snap, q_right_snap, coordMgr, mergedSet, dbg);
         dbg.logCoreExtraction("QRY", qCore, coordMgr.getGlobalCoord(qCore));
       }
-      local_timer.stop("p2_5_extract_core_blocks");
 
       // Clean rCore and qCore are now prepared for mergeTwoBlocks
 
@@ -496,7 +469,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
         // =========================================================
         // Flank patching for snapped regions on CIGAR edges
         // =========================================================
-        local_timer.start("p2_6_case_A_flank_patching");
         std::string rCons = rBlk_ptr->getConsensus().getConsensusString();
         std::string qCons = qBlk_ptr->getConsensus().getConsensusString();
 
@@ -540,7 +512,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
                             end_cigar.end());
 
         finalCigar = compressCigar(patchedCigar);
-        local_timer.stop("p2_6_case_A_flank_patching");
 
         dbg.logCaseAPatchedCigar(finalCigar);
       } else {
@@ -579,12 +550,10 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       int actual_rLen = rBlk_ptr ? rBlk_ptr->getConsensus().length() : 0;
       int actual_qLen = qBlk_ptr ? qBlk_ptr->getConsensus().length() : 0;
 
-      local_timer.start("merge_blocks");
       auto mBlk = mergedSet->mergeTwoBlocks(rBlk_ptr, qBlk_ptr, finalCigar,
                                             actual_merge_inverse, merge_mode,
                                             -1, -1,
                                             r_probe_copy, q_probe_copy);
-      local_timer.stop("merge_blocks");
 
       // 3. [Post-merge] Compute resulting Copy IDs in the new merged block
       int r_new_copy = r_probe_copy;
@@ -605,7 +574,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       }
 
       // 4. Update CoordinateManager (apply globally consistent coordinate transforms)
-      local_timer.start("p2_8_coord_tracker_update");
       size_t rSegCount = 0, qSegCount = 0;
       if (rBlk_ptr) {
         for (const auto& kv : rBlk_ptr->getSequences()) rSegCount += kv.second.getSegments().size();
@@ -618,7 +586,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
                                 merge_mode, maxRefCopy, maxQryCopy,
                                 r_probe_copy, q_probe_copy,
                                 rSegCount, qSegCount);
-      local_timer.stop("p2_8_coord_tracker_update");
 
       BlockID mId = mBlk->getId();
       dbg.logMergedBlock(mId, mBlk->getConsensus().length());
@@ -636,12 +603,10 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
 
       alnCollection.ref_coverageTracker.syncFromMap(coordMgr, true); // true for Ref
       alnCollection.qry_coverageTracker.syncFromMap(coordMgr, false); // false for Qry
-      local_timer.stop("p2_8_coord_tracker_update");
 
       dbg.validateAfterMerge(mergedSet, this);
     }
   }
-  local_timer.stop("phase2_iterative_merge");
 
   // Free temporary indexed BlockSets to prevent cluttering BlockManager
   this->removeBlockSet(refIndexID);
@@ -652,7 +617,6 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
   // ==========================================
   // Phase 5: Topology reconstruction and strand normalization
   // ==========================================
-  local_timer.start("phase5_rewire_edges");
   dbg.logPhase(5, "Re-wiring Linear Pangenome Graph Edges...");
   for (auto &block : mergedSet->getAllBlocks()) {
     auto blk = block.lock();
@@ -660,7 +624,9 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
       continue;
     blk->normalizeStrand();
   }
-  mergedSet->debugValidateCopies(true);
+  if (option && option->debug) {
+    mergedSet->debugValidateCopies(true);
+  }
 
   for (auto &seq : refSet->getSequences())
     mergedSet->addSequenceName(seq);
@@ -672,36 +638,28 @@ BlockSet *BlockManager::merge(BlockSet *refSet, BlockSet *qrySet,
   // 🔍 Diagnostic checkpoint B: after distant block additions
   dbg.validateCheckpoint("[DIAG-B] Validating AFTER distant block additions...", mergedSet, this);
 
-  // Phase 5.5: Mark Distant Blocks and perform self-align (timed via local_timer)
+  // Phase 5.5: Mark Distant Blocks and perform self-align
   if (tree) {
     mergedSet->setDistantBlocks(*tree);
   }
 
-  local_timer.start("phase5_5_self_align");
   mergedSet->selfAlignDistant(*option, &coordMgr);
-  // mergedSet->debugValidateCopies(true);
   mergedSet->selfAlign(*option, &coordMgr);
-  // mergedSet->debugValidateCopies(true);
-  local_timer.stop("phase5_5_self_align");
 
   mergedSet->rebuildLinearGraph(coordMgr);
-  local_timer.stop("phase5_rewire_edges");
 
   // [Phase 6] Recover concrete consensus strings and update Consensus and SNVs via majority voting
-  local_timer.start("phase6_recover_consensus");
   dbg.logPhase(6, "Recovering Consensus Strings & Majority Base Voting...");
   for (auto &block : mergedSet->getAllBlocks()) {
     auto blk = block.lock();
     if (!blk) continue;
     blk->refineConsensusAndVariants();
   }
-  mergedSet->debugValidateSequences(this);
-  local_timer.stop("phase6_recover_consensus");
+  if (option && option->debug) {
+    mergedSet->debugValidateSequences(this);
+  }
 
   dbg.logMergeSummary(time0);
-
-  // Merge accumulated thread-local timer data into global_timer
-  global_timer.merge(local_timer);
 
   return mergedSet;
 }

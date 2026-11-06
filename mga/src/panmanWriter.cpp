@@ -2,6 +2,7 @@
 #include "panmanCodec.hpp"
 #include "panmanStructs.hpp"
 #include "panman.capnp.h"
+#include "message_manager.hpp"
 
 #include <capnp/message.h>
 #include <capnp/serialize.h>
@@ -118,7 +119,8 @@ std::vector<::mga::panman::NucMutData> consolidateNucMutations(const std::vector
         uint32_t payload = 0;
         for (size_t k = 0; k < L; ++k) {
             uint32_t code = (sortedMuts[i + k].mutInfo >> 8) & 0x0F;
-            payload |= (code << (8 + 4 * k));
+            // Pack symbols in Big-Endian order to match expandMutationPayloadFromWire in panmanUtils
+            payload |= (code << (8 + 4 * (L - 1 - k)));
         }
 
         ::mga::panman::NucMutData consolidated;
@@ -142,17 +144,18 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
                             const std::string& newickString, 
                             const std::string& outputPath) {
     if (!rootBlockSet || !tree || !tree->root) {
-        std::cerr << "[PanmanWriter Error] Null rootBlockSet or tree provided.\n";
+        mga::msg::error("[PanmanWriter] Null rootBlockSet or tree provided.\n");
         return false;
     }
 
     auto startTime = std::chrono::high_resolution_clock::now();
-    std::cout << "[PanmanWriter] Building PanMAN backbone from linearGraph & running TBB Fitch parsimony passes..." << std::endl;
+    mga::msg::debug("Writing PanMAN to %s...\n", outputPath.c_str());
+    mga::msg::debug("[PanmanWriter] Building PanMAN backbone from linearGraph & running TBB Fitch parsimony passes...\n");
 
     // 1. Get Linear Block Sequence (Backbone) & Audit VBlocks
     const auto& linearBlocks = rootBlockSet->getLinearizeBlocks();
     size_t numInstances = linearBlocks.size();
-    std::cout << "[PanmanWriter] Backbone length (numInstances): " << numInstances << std::endl;
+    mga::msg::debug("[PanmanWriter] Backbone length (numInstances): %zu\n", numInstances);
 
     // --- VBlock Audit: Compare getAllBlocks() vs linearBlocks ---
     std::unordered_map<std::string, size_t> seqTotalBpInAllBlocks;
@@ -219,40 +222,40 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
             }
         }
 
-        std::cout << "\n=======================================================\n";
-        std::cout << "[PanmanWriter VBlock Audit]\n";
-        std::cout << "  Total VBlocks in getAllBlocks(): " << allVBlocksInGraph.size() << "\n";
-        std::cout << "  Total VBlocks in LinearGraph:    " << linearBlocks.size() << " (unique: " << linearSet.size() << ")\n";
-        if (missingVBlocks.empty()) {
-            std::cout << "  Status: ALL VBlocks are INCLUDED in LinearGraph! (0 missing)\n";
-        } else {
-            std::cout << "  Status: MISSING " << missingVBlocks.size() << " VBlocks! (Total missing consensus bp: " << totalMissingBp << ")\n";
-            std::cout << "  -----------------------------------------------------\n";
-            std::cout << "  Missing VBlocks List:\n";
+        if (!missingVBlocks.empty()) {
+            mga::msg::warn("[PanmanWriter VBlock Audit] MISSING %zu VBlocks! (Total missing consensus bp: %zu)\n", missingVBlocks.size(), totalMissingBp);
             for (const auto& vid : missingVBlocks) {
-                std::cout << "    - VBlock (" << vid.first << ", copy " << vid.second << ")"
-                          << " | Length: " << vblockLengths[vid] << " bp"
-                          << " | isDistant: " << (vblockDistant[vid] ? "YES" : "NO")
-                          << " | SeqCount: " << vblockSequences[vid].size()
-                          << " | Seqs: [";
+                std::string seqsStr;
                 for (size_t s = 0; s < vblockSequences[vid].size(); ++s) {
-                    std::cout << vblockSequences[vid][s] << (s + 1 < vblockSequences[vid].size() ? ", " : "");
+                    seqsStr += vblockSequences[vid][s] + (s + 1 < vblockSequences[vid].size() ? ", " : "");
                 }
-                std::cout << "]\n";
+                mga::msg::warn("  - Missing VBlock (%lu, copy %d) | Length: %zu bp | isDistant: %s | SeqCount: %zu | Seqs: [%s]\n",
+                               vid.first, vid.second, vblockLengths[vid],
+                               vblockDistant[vid] ? "YES" : "NO",
+                               vblockSequences[vid].size(), seqsStr.c_str());
             }
-            std::cout << "  -----------------------------------------------------\n";
         }
 
-        std::cout << "  Per-Sequence Length Audit (AllBlocks vs LinearGraph):\n";
         auto seqNames = rootBlockSet->getSequences();
+        size_t lengthMismatchCount = 0;
         for (const auto& seq : seqNames) {
             size_t total = seqTotalBpInAllBlocks[seq];
             size_t lin = seqTotalBpInLinear[seq];
             long long diff = static_cast<long long>(lin) - static_cast<long long>(total);
-            std::cout << "    - " << seq << ": AllBlocks = " << total << " bp, Linear = " << lin << " bp (Diff: " << diff << " bp)\n";
+            if (diff != 0) {
+                mga::msg::warn("[PanmanWriter VBlock Audit] Sequence '%s' length mismatch: AllBlocks = %zu bp, Linear = %zu bp (Diff: %lld bp)\n",
+                               seq.c_str(), total, lin, diff);
+                lengthMismatchCount++;
+            }
         }
-        std::cout << "=======================================================\n\n";
+
+        if (missingVBlocks.empty() && lengthMismatchCount == 0) {
+            mga::msg::debug("[PanmanWriter VBlock Audit] LinearGraph contains %zu VBlocks (unique: %zu); all %zu sequences verified (0 missing, 0 bp diff).\n",
+                            linearBlocks.size(), linearSet.size(), seqNames.size());
+        }
     }
+
+
 
     // Collect pre-order & post-order node lists and map to flat integer indices
     std::vector<phylogeny::Node*> preorderNodes;
@@ -324,10 +327,10 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
                         matchCount++;
                         if (matchCount > 1) {
                             seqOverwrittenSegments[seqName]++;
-                            std::cout << "    💥 [Overwrite Detail] Seq: " << seqName 
-                                      << " in Block_" << blk->getId() << " (vblk.copy=" << vblk.second << ")"
-                                      << " | Seg start=" << segPair.first << ", end=" << segPair.second.getEnd()
-                                      << ", len=" << std::abs(segPair.second.getEnd() - segPair.second.getStart()) << " bp\n";
+                            mga::msg::debug("    💥 [Overwrite Detail] Seq: %s in Block_%lu (vblk.copy=%d) | Seg start=%d, end=%d, len=%d bp\n",
+                                            seqName.c_str(), blk->getId(), vblk.second,
+                                            segPair.first, segPair.second.getEnd(),
+                                            std::abs(segPair.second.getEnd() - segPair.second.getStart()));
                         }
                         writtenSegments[seqName].insert({blk->getId(), segPair.first});
 
@@ -363,17 +366,21 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
         }
     }
 
-    std::cout << "\n[PanmanWriter Segment & Base Audit]\n";
+    size_t segmentAuditMismatches = 0;
     for (const auto& seq : seqNames) {
         size_t totalBp = seqTotalBpInAllBlocks[seq];
         size_t writtenBp = seqWrittenBp[seq];
         long long diff = static_cast<long long>(writtenBp) - static_cast<long long>(totalBp);
         int over = seqOverwrittenSegments[seq];
-        std::cout << "  - " << seq << ": AllBlocks = " << totalBp << " bp | Written = " << writtenBp 
-                  << " bp (Diff: " << diff << " bp, Overwritten Segments: " << over << ")\n";
+        if (diff != 0 || over > 0) {
+            mga::msg::warn("[PanmanWriter Segment Audit] Sequence '%s': AllBlocks = %zu bp | Written = %zu bp (Diff: %lld bp, Overwritten Segments: %d)\n",
+                           seq.c_str(), totalBp, writtenBp, diff, over);
+            segmentAuditMismatches++;
+        }
     }
 
     // Check for any unwritten segments
+    size_t unwrittenCount = 0;
     for (auto& blkWeak : rootBlockSet->getAllBlocks()) {
         auto blk = blkWeak.lock();
         if (!blk) continue;
@@ -381,20 +388,26 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
             const auto& seqName = seqPair.first;
             for (const auto& segPair : seqPair.second.getSegments()) {
                 if (!writtenSegments[seqName].count({blk->getId(), segPair.first})) {
-                    std::cout << "    ⚠️ Unwritten Segment in " << seqName 
-                              << ": Block_" << blk->getId() << " (start " << segPair.second.getStart() 
-                              << ", end " << segPair.second.getEnd() << ", copy " << segPair.second.getCopyCount() 
-                              << ", len " << std::abs(segPair.second.getEnd() - segPair.second.getStart()) << " bp)\n";
+                    mga::msg::warn("[PanmanWriter] Unwritten Segment in %s: Block_%lu (start %d, end %d, copy %d, len %d bp)\n",
+                                   seqName.c_str(), blk->getId(),
+                                   segPair.second.getStart(), segPair.second.getEnd(),
+                                   segPair.second.getCopyCount(),
+                                   std::abs(segPair.second.getEnd() - segPair.second.getStart()));
+                    unwrittenCount++;
                 }
             }
         }
     }
-    std::cout << "=======================================================\n\n";
+
+    if (segmentAuditMismatches == 0 && unwrittenCount == 0) {
+        mga::msg::debug("[PanmanWriter Segment Audit] All %zu sequences segment and base audit passed.\n", seqNames.size());
+    }
 
     // 2.5 Compute Rotation Indexes and Sequence Inversion for circular/inverted genomes
     std::unordered_map<std::string, int> presentCounter, minRank, maxRank;
     std::unordered_map<std::string, int64_t> minStart, maxStart;
     std::unordered_map<std::string, int> fwdCount, revCount;
+    std::unordered_map<std::string, std::vector<std::pair<int64_t, int64_t>>> seqInstanceCoords;
 
     for (size_t r = 0; r < numInstances; r++) {
         const auto& vblk = linearBlocks[r];
@@ -419,6 +432,7 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
                 }
 
                 if (startCoord != -1) {
+                    seqInstanceCoords[seqName].push_back({startCoord, static_cast<int64_t>(r) << 32});
                     auto mit = minStart.find(seqName);
                     if (mit == minStart.end() || startCoord < mit->second) {
                         minStart[seqName] = startCoord;
@@ -446,6 +460,34 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
             if (minRank.count(seq)) rot = minRank[seq];
         }
         rotationIndexes[seq] = rot;
+    }
+
+    // Compute SequenceBlockOrders for sequences that have non-linear / inverted block order
+    std::unordered_map<std::string, std::vector<int64_t>> sequenceBlockOrders;
+    for (const auto& seq : seqNames) {
+        auto& coords = seqInstanceCoords[seq];
+        if (coords.empty()) continue;
+
+        std::stable_sort(coords.begin(), coords.end(), [](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
+
+        bool isMonotonic = true;
+        for (size_t k = 1; k < coords.size(); ++k) {
+            if (coords[k].second <= coords[k - 1].second) {
+                isMonotonic = false;
+                break;
+            }
+        }
+
+        if (!isMonotonic) {
+            std::vector<int64_t> orderedIds;
+            orderedIds.reserve(coords.size());
+            for (const auto& p : coords) {
+                orderedIds.push_back(p.second);
+            }
+            sequenceBlockOrders[seq] = std::move(orderedIds);
+        }
     }
 
     // 3. Parallel TBB Fitch Parsimony Pass (Block & Nucleotide Mutations)
@@ -905,14 +947,31 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
 
     // Initialize circular / rotation / inverted structures
     treeBuilder.initCircularSequences(0);
+    treeBuilder.initChrLists(0);
     treeBuilder.initRotationIndexes(0);
     treeBuilder.initSequencesInverted(0);
-    treeBuilder.initChrLists(0);
+
+    if (!sequenceBlockOrders.empty()) {
+        auto sboBuilder = treeBuilder.initSequenceBlockOrders(sequenceBlockOrders.size());
+        size_t sboIdx = 0;
+        for (const auto& kv : sequenceBlockOrders) {
+            auto sboItem = sboBuilder[sboIdx++];
+            sboItem.setSequenceId(kv.first);
+            auto idsBuilder = sboItem.initOrderedBlockIds(kv.second.size());
+            for (size_t j = 0; j < kv.second.size(); ++j) {
+                idsBuilder.set(j, kv.second[j]);
+            }
+        }
+        mga::msg::debug("[PanmanWriter] Serialized %zu sequenceBlockOrders entries for non-linear sequences.\n",
+                        sequenceBlockOrders.size());
+    } else {
+        treeBuilder.initSequenceBlockOrders(0);
+    }
 
     // 5. Write Compressed Message to File
     std::ofstream outputFile(outputPath, std::ios::binary);
     if (!outputFile.is_open()) {
-        std::cerr << "[PanmanWriter Error] Cannot open file for writing: " << outputPath << "\n";
+        mga::msg::error("[PanmanWriter] Cannot open file for writing: %s\n", outputPath.c_str());
         return false;
     }
 
@@ -931,8 +990,8 @@ bool PanmanWriter::writePanMAN(BlockSet* rootBlockSet,
     outputFile.close();
 
     auto endTime = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> diff = endTime - startTime;
-    std::cout << "[PanmanWriter] Successfully wrote PanMAN file in " << diff.count() << " seconds: " << outputPath << std::endl;
+    std::chrono::duration<double, std::milli> diffMs = endTime - startTime;
+    mga::msg::info("PanMAN written to %s in %.2f ms (%.3f s)\n", outputPath.c_str(), diffMs.count(), diffMs.count() / 1000.0);
     return true;
 }
 

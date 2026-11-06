@@ -2,6 +2,7 @@
 #include "mga.hpp"
 #include "type.hpp"
 #include "block_manager.hpp"
+#include "message_manager.hpp"
 
 #include <chrono>
 #include <functional>
@@ -148,9 +149,7 @@ void updateNode(NodePairs& nodes, BlockManager* blockManager) {
 
 void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairs>& alnPairsPerLevel, BlockManager* blockManager) {
     int level = 0;
-    if (option.verbose) {
-        std::cerr << "Total " << alnPairsPerLevel.size() << " levels.\n";
-    }
+    mga::msg::debug("Total %d level(s)\n", alnPairsPerLevel.size());
     for (auto& m : alnPairsPerLevel) {
         auto alnStart = std::chrono::high_resolution_clock::now();
         
@@ -161,33 +160,25 @@ void progressiveAlignment(Tree& T, Option& option, std::vector<NodePairs>& alnPa
         auto alnEnd = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double, std::milli> alnTime = alnEnd - alnStart;
         ++level;
-        if (option.verbose) {
-            std::cerr << "Level " << level << ", aligned " << m.size() 
-                      << " pair(s) in " << alnTime.count() << " ms\n";
-        }
-    
+        mga::msg::debug("Level %d, aligned %zu pair(s) in %.2f ms\n", level, m.size(), alnTime.count());
     }
 }
 
 void buildMGA(Tree& T, Option& option, BlockManager* blockManager, int subtree) {
-
+    mga::msg::debug("Starting progressive multiple genome alignment...\n");
     auto progressiveStart = std::chrono::high_resolution_clock::now();
-    
+
     std::vector<NodePairs> alnPairsPerLevel;
     
     int mode = 0;
     scheduling(T.root.get(), alnPairsPerLevel, mode);
-    auto scheduleEnd = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::micro> scheduleTime = scheduleEnd - progressiveStart;
-    if (option.verbose) {
-        std::cerr << "Scheduling in " << scheduleTime.count() << " us\n";
-    }
 
     progressiveAlignment(T, option, alnPairsPerLevel, blockManager);
     
     auto progressiveEnd = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> progressiveTime = progressiveEnd - progressiveStart;
-    std::cerr << "Alignment completed in " << progressiveTime.count() << " s\n";
+    mga::msg::info("Progressive alignment completed in %.3f s (%.2f ms)\n",
+                   progressiveTime.count(), progressiveTime.count() * 1000.0);
 }
 
 } // namespace progressive

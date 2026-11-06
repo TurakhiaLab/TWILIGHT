@@ -18,6 +18,12 @@ std::shared_ptr<Block> extractBlockFromSuper(BlockSet *bSet,
                                              std::shared_ptr<Block> superBlock,
                                              int start, int end);
 
+struct MedoidInfo {
+  std::string seq;
+  std::vector<int> m2c; // Medoid index -> Consensus index
+  std::vector<int> c2m; // Consensus index -> Medoid index (-1 if deleted)
+};
+
 class Block {
 private:
   BlockID ID;
@@ -30,7 +36,13 @@ private:
 
   Booleans distant;
 
+  mutable bool has_medoid_cache = false;
+  mutable MedoidInfo medoid_cache;
+
 public:
+  void invalidateMedoidCache() const { has_medoid_cache = false; }
+  const MedoidInfo &getMedoidInfo() const;
+
   Block(BlockID id, Consensus consensus)
       : ID(id), consensus(std::move(consensus)),
         distant(Booleans(1, false)) {};
@@ -113,6 +125,7 @@ public:
   // --- Helper ---
   void addSequence(const Sequence &seq) { sequences[seq.getId()] = seq; }
   void reverse() {
+    invalidateMedoidCache();
     int len = consensus.length();
     consensus.setStoredString(getReverseComplement(consensus.getConsensusString()));
     consensus.setUseStoredString(true);

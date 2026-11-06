@@ -17,6 +17,7 @@ extern "C" {
 #include <algorithm>
 #include <mutex>
 #include <tbb/parallel_for.h>
+#include <tbb/blocked_range.h>
 
 Alignments parser::parseMinimap2PAF(const std::string& filename) {
     bool DEBUG_MODE = false;
@@ -327,107 +328,140 @@ Alignments runMinimap2(const SequenceRefs& ref, const SequenceRefs& qry, std::st
         }
     }
 
-    // 4. Map query sequences sequentially with 1 thread
-    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Starting query sequence mapping loop with 1 thread..." << std::endl;
+    // 4. Map query sequences in parallel across available CPU threads
+    if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Starting parallel query mapping for " << qry.size() << " sequences..." << std::endl;
 
-    mm_tbuf_t* tbuf = mm_tbuf_init();
-    for (size_t i = 0; i < qry.size(); ++i) {
-        const auto& qRef = qry[i];
-        const std::string& q_name = qRef.name;
-        const std::string& q_seq = qRef.seq;
-        int n_regs = 0;
+    struct QueryMappingResult {
+        Alignments alignments;
+        std::string pafRecords;
+    };
+    std::vector<QueryMappingResult> query_results(qry.size());
 
-        if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Mapping query: " << q_name << " (length: " << q_seq.length() << " bp)..." << std::endl;
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, qry.size()),
+        [&](const tbb::blocked_range<size_t>& range) {
+            // Allocate a thread-local buffer per chunk to ensure thread safety
+            mm_tbuf_t* tbuf = mm_tbuf_init();
 
-        mm_reg1_t* regs = mm_map(mi, static_cast<int>(q_seq.length()), q_seq.c_str(),
-                                 &n_regs, tbuf, &mopt, q_name.c_str());
+            for (size_t i = range.begin(); i != range.end(); ++i) {
+                const auto& qRef = qry[i];
+                const std::string& q_name = qRef.name;
+                const std::string& q_seq = qRef.seq;
+                int n_regs = 0;
 
-        for (int j = 0; j < n_regs; ++j) {
-            mm_reg1_t* aln_reg = &regs[j];
+                mm_reg1_t* regs = mm_map(mi, static_cast<int>(q_seq.length()), q_seq.c_str(),
+                                         &n_regs, tbuf, &mopt, q_name.c_str());
 
-            if (write_paf && pafOut.is_open()) {
-                std::string r_name = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].name : "unknown_ref";
-                uint32_t r_len     = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].len : 0;
+                std::stringstream pafStream;
 
-                pafOut << q_name << "\t"
-                       << q_seq.length() << "\t"
-                       << aln_reg->qs << "\t"
-                       << aln_reg->qe << "\t"
-                       << (aln_reg->rev ? "-" : "+") << "\t"
-                       << r_name << "\t"
-                       << r_len << "\t"
-                       << aln_reg->rs << "\t"
-                       << aln_reg->re << "\t"
-                       << aln_reg->mlen << "\t"
-                       << aln_reg->blen << "\t"
-                       << aln_reg->mapq << "\t"
-                       << "tp:A:" << (aln_reg->sam_pri ? "P" : "S") << "\n";
-            }
+                for (int j = 0; j < n_regs; ++j) {
+                    mm_reg1_t* aln_reg = &regs[j];
 
-            Alignment aln;
-            aln.ID = 0;
-            if (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) {
-                aln.refName = mi->seq[aln_reg->rid].name;
-            } else {
-                aln.refName = "unknown_ref";
-            }
-            aln.qryName = q_name;
-            aln.refIdx = {aln_reg->rs, aln_reg->re};
-            aln.qryIdx = {aln_reg->qs, aln_reg->qe};
-            aln.inverse = (aln_reg->rev != 0);
-            aln.primary = (aln_reg->sam_pri != 0);
-            aln.valid = true;
+                    if (write_paf) {
+                        std::string r_name = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].name : "unknown_ref";
+                        uint32_t r_len     = (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) ? mi->seq[aln_reg->rid].len : 0;
 
-            int totLen = 0, ins = 0, del = 0, numEdits = 0;
-            int score = 0;
-
-            if (aln_reg->p) {
-                score = aln_reg->p->dp_max;
-                numEdits = aln_reg->p->n_ambi;
-
-                aln.CIGAR.reserve(aln_reg->p->n_cigar);
-                for (uint32_t k = 0; k < aln_reg->p->n_cigar; ++k) {
-                    uint32_t c32 = aln_reg->p->cigar[k];
-                    int length = c32 >> 4;
-                    char opType = "MIDNSHPE="[c32 & 0xf];
-
-                    aln.CIGAR.push_back({length, opType});
-
-                    switch (opType) {
-                        case 'M':
-                        case 'X':
-                        case '=':
-                            totLen += length;
-                            break;
-                        case 'D':
-                        case 'N':
-                            totLen += length;
-                            del += length;
-                            break;
-                        case 'I':
-                            totLen += length;
-                            ins += length;
-                            break;
-                        default:
-                            break;
+                        pafStream << q_name << "\t"
+                                  << q_seq.length() << "\t"
+                                  << aln_reg->qs << "\t"
+                                  << aln_reg->qe << "\t"
+                                  << (aln_reg->rev ? "-" : "+") << "\t"
+                                  << r_name << "\t"
+                                  << r_len << "\t"
+                                  << aln_reg->rs << "\t"
+                                  << aln_reg->re << "\t"
+                                  << aln_reg->mlen << "\t"
+                                  << aln_reg->blen << "\t"
+                                  << aln_reg->mapq << "\t"
+                                  << "tp:A:" << (aln_reg->sam_pri ? "P" : "S") << "\n";
                     }
+
+                    Alignment aln;
+                    aln.ID = 0;
+                    if (aln_reg->rid >= 0 && aln_reg->rid < mi->n_seq) {
+                        aln.refName = mi->seq[aln_reg->rid].name;
+                    } else {
+                        aln.refName = "unknown_ref";
+                    }
+                    aln.qryName = q_name;
+                    aln.refIdx = {aln_reg->rs, aln_reg->re};
+                    aln.qryIdx = {aln_reg->qs, aln_reg->qe};
+                    aln.inverse = (aln_reg->rev != 0);
+                    aln.primary = (aln_reg->sam_pri != 0);
+                    aln.valid = true;
+
+                    int totLen = 0, ins = 0, del = 0, numEdits = 0;
+                    int score = 0;
+
+                    if (aln_reg->p) {
+                        score = aln_reg->p->dp_max;
+                        numEdits = aln_reg->p->n_ambi;
+
+                        aln.CIGAR.reserve(aln_reg->p->n_cigar);
+                        for (uint32_t k = 0; k < aln_reg->p->n_cigar; ++k) {
+                            uint32_t c32 = aln_reg->p->cigar[k];
+                            int length = c32 >> 4;
+                            char opType = "MIDNSHPE="[c32 & 0xf];
+
+                            aln.CIGAR.push_back({length, opType});
+
+                            switch (opType) {
+                                case 'M':
+                                case 'X':
+                                case '=':
+                                    totLen += length;
+                                    break;
+                                case 'D':
+                                case 'N':
+                                    totLen += length;
+                                    del += length;
+                                    break;
+                                case 'I':
+                                    totLen += length;
+                                    ins += length;
+                                    break;
+                                default:
+                                    break;
+                            }
+                        }
+                        free(aln_reg->p);
+                    } else {
+                        totLen = aln_reg->blen;
+                    }
+
+                    aln.alnLength = totLen;
+                    aln.alnScore = score;
+                    aln.ins = ins;
+                    aln.del = del;
+                    aln.mis = std::max(0, numEdits - ins - del);
+
+                    query_results[i].alignments.push_back(std::move(aln));
                 }
-                free(aln_reg->p);
-            } else {
-                totLen = aln_reg->blen;
+
+                if (write_paf) {
+                    query_results[i].pafRecords = pafStream.str();
+                }
+
+                if (regs) free(regs);
             }
 
-            aln.alnLength = totLen;
-            aln.alnScore = score;
-            aln.ins = ins;
-            aln.del = del;
-            aln.mis = std::max(0, numEdits - ins - del);
+            mm_tbuf_destroy(tbuf);
+        });
 
-            alignments.push_back(std::move(aln));
-        }
-        if (regs) free(regs);
+    // 5. Aggregate results from all queries in deterministic order
+    size_t total_alns = 0;
+    for (const auto& res : query_results) {
+        total_alns += res.alignments.size();
     }
-    mm_tbuf_destroy(tbuf);
+    alignments.reserve(total_alns);
+
+    for (auto& res : query_results) {
+        if (write_paf && pafOut.is_open() && !res.pafRecords.empty()) {
+            pafOut << res.pafRecords;
+        }
+        alignments.insert(alignments.end(),
+                          std::make_move_iterator(res.alignments.begin()),
+                          std::make_move_iterator(res.alignments.end()));
+    }
 
     // 5. Clean up minimap2 memory
     if (DEBUG_MODE) std::cout << "[DEBUG runMinimap2] Cleaning up minimap2 index..." << std::endl;

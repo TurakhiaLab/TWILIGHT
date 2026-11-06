@@ -91,6 +91,10 @@ public:
     auto it = sequence_lengths.find(seqName);
     return (it != sequence_lengths.end()) ? it->second : 0;
   }
+  std::unordered_map<std::string, int> getSequenceLengths() {
+    tbb::spin_rw_mutex::scoped_lock lock(seq_mutex, /*write=*/false);
+    return sequence_lengths;
+  }
   void addSequence(std::string &seqName, std::string &seq) {
     tbb::spin_rw_mutex::scoped_lock lock(seq_mutex, /*write=*/true);
     if (sequences.find(seqName) != sequences.end()) {

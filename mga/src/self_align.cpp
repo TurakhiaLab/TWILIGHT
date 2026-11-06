@@ -16,10 +16,10 @@
 #include <map>
 #include <algorithm>
 
-// 輔助函式：根據累積的 Reference Insertions 調整後續 Query 的 CIGAR
-static CigarString adjustCigarForRefInsertions(const CigarString &origCigar, 
-                                               const std::map<int, int> &ref_insertions, 
-                                               int startRefPos = 0) 
+// Helper function: Adjust subsequent query CIGAR based on accumulated reference insertions
+[[maybe_unused]] static CigarString adjustCigarForRefInsertions(const CigarString &origCigar, 
+                                                               const std::map<int, int> &ref_insertions, 
+                                                               int startRefPos = 0) 
 {
     if (ref_insertions.empty()) return origCigar;
 
@@ -79,11 +79,9 @@ static CigarString adjustCigarForRefInsertions(const CigarString &origCigar,
 }
 
 Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, double min_ratio) {
-    bool DEBUG_MODE = false;
-
-    // 1. 分類 Blocks：
-    // - distant_blocks (Queries)：完全 distant 的 block (所有 copy 均為 distant)
-    // - ref_blocks (References)：至少有一個 copy 不是 distant 的 block
+    // 1. Classify blocks:
+    // - distant_blocks (Queries): completely distant blocks (all copies are distant)
+    // - ref_blocks (References): blocks with at least one non-distant copy
     uint64_t total_distant_len = 0;
     std::vector<BlockPtr> distant_blocks;
     std::vector<BlockPtr> ref_blocks;
@@ -105,49 +103,23 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
         }
     }
 
-    // 2. 取得 reference (非 distant) blocks 長度總和用於門檻確認 (不需依賴 Ancestral Cache)
+    // 2. Obtain total length of reference (non-distant) blocks for threshold verification
     size_t anc_len = 0;
     for (const auto &blk : ref_blocks) {
         if (blk) anc_len += blk->getConsensus().length();
     }
 
-    if (DEBUG_MODE) {
-        std::cout << "\n=================== [SelfAlign DEBUG MODE] ===================\n";
-        std::cout << "[DEBUG SelfAlign] Before Alignment:\n";
-        std::cout << "  - Ancestral sequence length : " << anc_len << " bp\n";
-        std::cout << "  - Distant blocks count      : " << distant_blocks.size() << " blocks\n";
-        std::cout << "  - Distant blocks total len  : " << total_distant_len << " bp\n";
-        std::cout << "  - Reference blocks count    : " << ref_blocks.size() << " blocks\n";
-    }
-
     if (anc_len == 0 || distant_blocks.empty() || ref_blocks.empty()) {
-        if (option.verbose || DEBUG_MODE) {
-            std::cout << "[SelfAlign] Ancestral sequence is empty, or no distant/reference blocks found. Skipping.\n";
-            std::cout << "=============================================================\n\n";
-        }
         return {};
     }
 
     min_ratio = 0;
-    // 3. 確認 distant block 總長度是否有 >= ancestral sequence 的 min_ratio (預設 10%)
+    // 3. Verify if total distant block length >= min_ratio of reference sequence length
     if (total_distant_len < static_cast<uint64_t>(anc_len * min_ratio)) {
-        if (option.verbose || DEBUG_MODE) {
-            std::cout << "[SelfAlign] Distant blocks total length (" << total_distant_len
-                      << " bp) < " << (min_ratio * 100.0) << "% of ancestral sequence length ("
-                      << anc_len << " bp). Skipping self alignment.\n";
-            std::cout << "=============================================================\n\n";
-        }
         return {};
     }
 
-    if (option.verbose || DEBUG_MODE) {
-        std::cout << "[SelfAlign] Distant blocks total length (" << total_distant_len
-                  << " bp) >= " << (min_ratio * 100.0) << "% of ancestral sequence length ("
-                  << anc_len << " bp). Proceeding with self alignment ("
-                  << distant_blocks.size() << " queries vs " << ref_blocks.size() << " references)...\n";
-    }
-
-    // 4. 準備 reference (非全 distant 的 blocks) 與 query (全 distant 的 blocks) 序列
+    // 4. Prepare reference sequences (non-distant blocks) and query sequences (distant blocks)
     std::vector<std::string> ref_seqs;
     ref_seqs.reserve(ref_blocks.size());
     SequenceRefs ref;
@@ -174,15 +146,13 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
         qry.push_back({ q_name, query_seqs[i] });
     }
 
-    // 5. 設定 minimap2 參數
-    Minimap2Config config("asm5", true);
-    config.setBestN(50);      // 允許搜尋多個候選 reference block
-    config.setPriRatio(0.0f); // -p 0
+    // 5. Configure minimap2 parameters matching alignment_kernel
+    mm_config_whole_genome config(option.mmAsm);
 
-    // 6. 執行 minimap2 alignment
+    // 6. Run minimap2 alignment
     Alignments raw_alignments = runMinimap2(ref, qry, "NonDistantBlocks_" + ID, "DistantBlocks_" + ID, option, config);
 
-    // 7. 過濾結果：每個 query 選擇 score 最高的 alignment 留下來
+    // 7. Filter results: retain highest scoring alignment for each query
     std::unordered_map<std::string, Alignment> best_alignment_per_query;
 
     for (const auto &aln : raw_alignments) {
@@ -203,29 +173,13 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
         final_alignments.push_back(pair.second);
     }
 
-    if (DEBUG_MODE) {
-        std::cout << "\n[DEBUG SelfAlign] Query to Reference Alignments (" << final_alignments.size() << " query blocks mapped):\n";
-        for (const auto &aln : final_alignments) {
-            auto qIt = name_to_block.find(aln.qryName);
-            auto rIt = name_to_block.find(aln.refName);
-            size_t qLen = (qIt != name_to_block.end() && qIt->second) ? qIt->second->getConsensus().length() : 0;
-            size_t rLen = (rIt != name_to_block.end() && rIt->second) ? rIt->second->getConsensus().length() : 0;
-
-            std::cout << "  - " << aln.qryName << " (len: " << qLen << ") -> " << aln.refName << " (len: " << rLen << ")"
-                      << " | Score: " << aln.alnScore
-                      << " | AlnLen: " << aln.alnLength
-                      << " | Inverse: " << (aln.inverse ? "true" : "false")
-                      << " | CIGAR: " << cigarToStr(aln.CIGAR) << "\n";
-        }
-    }
-
-    // 8. 依據 Reference Block 群組 Alignments
+    // 8. Group alignments by reference block
     std::unordered_map<std::string, std::vector<Alignment>> alignments_by_ref;
     for (const auto &aln : final_alignments) {
         alignments_by_ref[aln.refName].push_back(aln);
     }
 
-    // 9. 針對每個 Reference Block，只選擇 Align Score 最高的單一 Query Block 進行 merge (Rank 1)
+    // 9. For each reference block, select the single highest scoring query block to merge (Rank 1)
     int total_merged_count = 0;
     std::unordered_set<std::string> merged_queries;
 
@@ -233,7 +187,7 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
         const std::string &refName = pair.first;
         auto &group = pair.second;
 
-        // 依據 alnScore 降序排序 (Score 越高越優先 merge，長度作為同分比對)
+        // Sort by alnScore descending (higher score prioritized, length used for tie-breaking)
         std::sort(group.begin(), group.end(), [](const Alignment &a, const Alignment &b) {
             if (a.alnScore == b.alnScore) return a.alnLength > b.alnLength;
             return a.alnScore > b.alnScore;
@@ -244,7 +198,7 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
 
         BlockPtr currRefBlock = refIt->second;
 
-        // 每個 Reference Block 在本輪中僅 Merge 分數最高的單一 Query Block (Rank 1)
+        // Each reference block only merges the top scoring query block in this iteration (Rank 1)
         for (size_t i = 0; i < std::min<size_t>(1, group.size()); ++i) {
             const Alignment &aln = group[i];
             if (merged_queries.count(aln.qryName)) continue;
@@ -276,9 +230,9 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
             bool cutQTail = (padQTail > 100);
 
             // ==========================================
-            // A. Reference Block 切割 (> 100 bp)
+            // A. Split Reference Block (> 100 bp)
             // ==========================================
-            // 先切 Tail（避免切 Head 導致 Tail 的相對座標位移）
+            // Split tail first to avoid coordinate shifts when splitting head
             if (cutRTail && rEnd > 0 && currRefBlock && rEnd < (int)currRefBlock->getConsensus().length()) {
                 BlockID oldRefId = currRefBlock->getId();
                 auto splitPair = this->splitSingleBlock(oldRefId, rEnd);
@@ -304,7 +258,7 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
             }
 
             // ==========================================
-            // B. Query Block 切割 (> 100 bp) 且繼承 distant 屬性
+            // B. Split Query Block (> 100 bp) and preserve distant flags
             // ==========================================
             bool qryIsAllDistant = qryBlock ? qryBlock->isAllDistant() : false;
             auto preserveDistant = [&](BlockPtr blk) {
@@ -352,7 +306,7 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
             }
 
             // ==========================================
-            // C. 頭尾剩餘 <= 100 bp 的 Overhang：Linear Gap Tiling 動態對齊
+            // C. Overhang flanks <= 100 bp: Linear Gap Tiling dynamic alignment
             // ==========================================
             CigarString headCigar;
             if (padRHead > 0 || padQHead > 0) {
@@ -411,14 +365,7 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
             for (const auto &op : tailCigar) paddedCigar.push_back(op);
             paddedCigar = compressCigar(paddedCigar);
 
-            if (DEBUG_MODE) {
-                size_t qLen = qryBlock ? qryBlock->getConsensus().length() : 0;
-                size_t rLen = currRefBlock ? currRefBlock->getConsensus().length() : 0;
-                std::cout << "  [DEBUG Merge] Merging " << aln.qryName << " (len: " << qLen << ") into " << refName << " (len: " << rLen << ")"
-                          << " [CIGAR Padded: " << cigarToStr(paddedCigar) << "]\n";
-            }
-
-            // 執行 mergeTwoBlocks (Mode 3: Scenario B, Ref 已存在而 Query 為新 Block)
+            // Execute mergeTwoBlocks (Mode 3: Scenario B, existing Ref and new Query block)
             BlockPtr nextRefBlock = mergeTwoBlocks(currRefBlock, qryBlock, paddedCigar, aln.inverse, 3);
             if (nextRefBlock) {
                 currRefBlock = nextRefBlock;
@@ -431,31 +378,11 @@ Alignments BlockSet::selfAlign(Option &option, CoordinateManager *coordMgr, doub
         }
     }
 
-    if (DEBUG_MODE) {
-        int after_distant_count = 0;
-        uint64_t after_distant_len = 0;
-        for (const auto &pair : blocks) {
-            BlockPtr blk = pair.second;
-            if (blk && blk->isAllDistant()) {
-                after_distant_count++;
-                after_distant_len += blk->getConsensus().length();
-            }
-        }
-
-        std::cout << "\n[DEBUG SelfAlign] After Alignment & Merge:\n";
-        std::cout << "  - Merged query blocks count : " << total_merged_count << " blocks\n";
-        std::cout << "  - Remaining distant blocks  : " << after_distant_count << " blocks (was " << distant_blocks.size() << ")\n";
-        std::cout << "  - Remaining distant length  : " << after_distant_len << " bp (was " << total_distant_len << " bp)\n";
-        std::cout << "=============================================================\n\n";
-    }
-
     return final_alignments;
 }
 
 Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMgr, double min_ratio) {
-    bool DEBUG_MODE = false;
-
-    // 1. 分類出所有 distant blocks (Queries & References 均為 distant blocks)
+    // 1. Classify all distant blocks (both queries and references are distant blocks)
     uint64_t total_distant_len = 0;
     std::vector<BlockPtr> distant_blocks;
     std::unordered_map<std::string, BlockPtr> name_to_block;
@@ -473,22 +400,11 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
         }
     }
 
-    if (DEBUG_MODE) {
-        std::cout << "\n=================== [SelfAlignDistant DEBUG MODE] ===================\n";
-        std::cout << "[DEBUG SelfAlignDistant] Before Alignment:\n";
-        std::cout << "  - Distant blocks count     : " << distant_blocks.size() << " blocks\n";
-        std::cout << "  - Distant blocks total len : " << total_distant_len << " bp\n";
-    }
-
     if (distant_blocks.size() < 2) {
-        if (option.verbose || DEBUG_MODE) {
-            std::cout << "[SelfAlignDistant] Less than 2 distant blocks found. Skipping.\n";
-            std::cout << "=============================================================\n\n";
-        }
         return {};
     }
 
-    // 2. 準備 distant vs distant 的 minimap2 序列
+    // 2. Prepare distant vs distant sequences for minimap2
     std::vector<std::string> distant_seqs;
     distant_seqs.reserve(distant_blocks.size());
     SequenceRefs refs;
@@ -502,15 +418,13 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
         refs.push_back({ r_name, distant_seqs[i] });
     }
 
-    // 3. 設定 minimap2 參數
-    Minimap2Config config("asm5", true);
-    config.setBestN(50);
-    config.setPriRatio(0.0f);
+    // 3. Configure minimap2 parameters matching alignment_kernel
+    mm_config_whole_genome config(option.mmAsm);
 
-    // 4. 執行 minimap2 alignment (distant blocks vs distant blocks)
+    // 4. Run minimap2 alignment (distant blocks vs distant blocks)
     Alignments raw_alignments = runMinimap2(refs, refs, "DistantBlocks_Ref_" + ID, "DistantBlocks_Qry_" + ID, option, config);
 
-    // 5. 使用 DSU (Disjoint Set Union) 根據 Coverage >= 90% 將 Distant Blocks 分組 (Group / Cluster)
+    // 5. Group distant blocks into clusters using Disjoint Set Union (DSU)
     struct DSU {
         std::unordered_map<std::string, std::string> parent;
         std::string find(const std::string &i) {
@@ -527,8 +441,8 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
 
     int candidate_edge_count = 0;
     for (const auto &aln : raw_alignments) {
-        if (aln.refName == aln.qryName) continue; // 排除自比自
-        if (aln.alnLength < 100) continue; // 排除 alignment 長度 < 100 bp
+        if (aln.refName == aln.qryName) continue; // Exclude self-alignment
+        if (aln.alnLength < 100) continue;        // Exclude alignment length < 100 bp
 
         auto refIt = name_to_block.find(aln.refName);
         auto qryIt = name_to_block.find(aln.qryName);
@@ -542,20 +456,14 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
         double covR = (double)(aln.refIdx.second - aln.refIdx.first) / rLen;
         double covQ = (double)(aln.qryIdx.second - aln.qryIdx.first) / qLen;
 
-        if (DEBUG_MODE) {
-            std::cout << "  [DEBUG SelfAlignDistant Candidate] " << aln.qryName << " (len:" << (int)qLen << ") -> "
-                      << aln.refName << " (len:" << (int)rLen << ") | alnLen:" << aln.alnLength
-                      << " | covR:" << (covR * 100.0) << "% | covQ:" << (covQ * 100.0) << "%\n";
-        }
-
-        // 放寬 Coverage 條件：只要任一邊對齊覆蓋率 >= 50% 且 alnLength >= 100 bp 即可劃入同一 Group
+        // Group into same cluster if coverage on either side >= 50% and alnLength >= 100 bp
         if (covR >= 0.50 || covQ >= 0.50) {
             dsu.unite(aln.refName, aln.qryName);
             candidate_edge_count++;
         }
     }
 
-    // 6. 收集各大群組 (Clusters)
+    // 6. Collect block clusters
     std::unordered_map<std::string, std::vector<BlockPtr>> cluster_map;
     for (const auto &blk : distant_blocks) {
         std::string blkName = "Block_" + std::to_string(blk->getId());
@@ -563,17 +471,7 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
         cluster_map[root].push_back(blk);
     }
 
-    if (DEBUG_MODE) {
-        int valid_clusters = 0;
-        for (const auto &pair : cluster_map) {
-            if (pair.second.size() >= 2) valid_clusters++;
-        }
-        std::cout << "[DEBUG SelfAlignDistant] Accepted " << candidate_edge_count << " alignment edges. Formed " 
-                  << valid_clusters << " clusters (with size >= 2) out of "
-                  << cluster_map.size() << " total groups.\n";
-    }
-
-    // 7. 針對每個 Cluster 的 Blocks 進行一條一條對齊與合併 (Sequential Merge)
+    // 7. Sequentially align and merge blocks within each cluster
     int total_merged_count = 0;
     Alignments final_selected_alignments;
 
@@ -581,7 +479,7 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
         auto &cluster = pair.second;
         if (cluster.size() < 2) continue;
 
-        // 依據 consensus 長度降序排序，選擇最長者作為初始 anchor reference block
+        // Sort descending by consensus length, choosing longest as initial anchor reference block
         std::sort(cluster.begin(), cluster.end(), [](const BlockPtr &a, const BlockPtr &b) {
             return a->getConsensus().length() > b->getConsensus().length();
         });
@@ -627,7 +525,7 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
             bool cutQHead = (padQHead > 100);
             bool cutQTail = (padQTail > 100);
 
-            // A. Reference Block 切割 (> 100 bp)
+            // A. Split Reference Block (> 100 bp)
             bool refIsAllDistant = currRefBlock ? currRefBlock->isAllDistant() : false;
             auto preserveDistantRef = [&](BlockPtr blk) {
                 if (blk && refIsAllDistant) {
@@ -669,7 +567,7 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
                 }
             }
 
-            // B. Query Block 切割 (> 100 bp)
+            // B. Split Query Block (> 100 bp)
             bool qryIsAllDistant = qryBlock ? qryBlock->isAllDistant() : false;
             auto preserveDistantQry = [&](BlockPtr blk) {
                 if (blk && qryIsAllDistant) {
@@ -715,7 +613,7 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
                 }
             }
 
-            // C. 頭尾剩餘 <= 100 bp 的 Overhang：Linear Gap Tiling 動態對齊
+            // C. Overhang flanks <= 100 bp: Linear Gap Tiling dynamic alignment
             CigarString headCigar;
             if (padRHead > 0 || padQHead > 0) {
                 std::string rHeadSeq = (padRHead > 0 && currRefBlock) ? 
@@ -773,37 +671,12 @@ Alignments BlockSet::selfAlignDistant(Option &option, CoordinateManager *coordMg
             for (const auto &op : tailCigar) paddedCigar.push_back(op);
             paddedCigar = compressCigar(paddedCigar);
 
-            if (DEBUG_MODE) {
-                size_t qLen = qryBlock ? qryBlock->getConsensus().length() : 0;
-                size_t rLen = currRefBlock ? currRefBlock->getConsensus().length() : 0;
-                std::cout << "  [DEBUG MergeDistantGroup] Merging " << aln.qryName << " (len: " << qLen << ") into " << aln.refName << " (len: " << rLen << ")"
-                          << " [CIGAR Padded: " << cigarToStr(paddedCigar) << "]\n";
-            }
-
             BlockPtr nextRefBlock = mergeTwoBlocks(currRefBlock, qryBlock, paddedCigar, aln.inverse, 3);
             if (nextRefBlock) {
                 currRefBlock = nextRefBlock;
                 total_merged_count++;
             }
         }
-    }
-
-    if (DEBUG_MODE) {
-        int after_distant_count = 0;
-        uint64_t after_distant_len = 0;
-        for (const auto &pair : blocks) {
-            BlockPtr blk = pair.second;
-            if (blk && blk->isAllDistant()) {
-                after_distant_count++;
-                after_distant_len += blk->getConsensus().length();
-            }
-        }
-
-        std::cout << "\n[DEBUG SelfAlignDistant] After Grouping & Sequential Merge:\n";
-        std::cout << "  - Total merged distant blocks : " << total_merged_count << " blocks\n";
-        std::cout << "  - Remaining distant blocks    : " << after_distant_count << " blocks (was " << distant_blocks.size() << ")\n";
-        std::cout << "  - Remaining distant length    : " << after_distant_len << " bp (was " << total_distant_len << " bp)\n";
-        std::cout << "=============================================================\n\n";
     }
 
     return final_selected_alignments;

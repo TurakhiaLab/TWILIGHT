@@ -236,6 +236,7 @@ add_executable (twilight_mga
 				mga/src/refine.cpp
 				mga/src/global_alignment.cpp
 				mga/src/self_align.cpp
+				mga/src/medoid_realigner.cpp
 				mga/src/panmanCodec.cpp
 				mga/src/panmanWriter.cpp
 				${CAPNP_SRCS}

@@ -47,6 +47,19 @@ inline char complement(char base) {
         case 'C': return 'G'; case 'G': return 'C';
         case 'a': return 't'; case 't': return 'a';
         case 'c': return 'g'; case 'g': return 'c';
+        // IUPAC degenerate nucleotide complements
+        case 'R': return 'Y'; case 'Y': return 'R';
+        case 'S': return 'S'; case 'W': return 'W';
+        case 'K': return 'M'; case 'M': return 'K';
+        case 'B': return 'V'; case 'V': return 'B';
+        case 'D': return 'H'; case 'H': return 'D';
+        case 'N': return 'N';
+        case 'r': return 'y'; case 'y': return 'r';
+        case 's': return 's'; case 'w': return 'w';
+        case 'k': return 'm'; case 'm': return 'k';
+        case 'b': return 'v'; case 'v': return 'b';
+        case 'd': return 'h'; case 'h': return 'd';
+        case 'n': return 'n';
         default: return base;
     }
 }

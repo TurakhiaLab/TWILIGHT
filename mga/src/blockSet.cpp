@@ -31,20 +31,38 @@ void BlockSet::buildCaches() {
 
   // Representative
   ancestral_seq_cache.clear();
-  for (auto vblkID : ancestral_block_cache) {
-    auto blk = this->getBlock(vblkID.first);
-    if (blk)
-      ancestral_seq_cache += blk->getConsensus().getConsensusString();
-  }
+  ancestral_medoid_seq_cache.clear();
+  ancestral_entries.clear();
+  ancestral_entries.reserve(ancestral_block_cache.size());
 
   // Offset
   ancestral_offset_cache.clear();
-  int current_offset = 0;
+  int current_cons_offset = 0;
+  int current_med_offset = 0;
+
   for (const auto &vblkID : ancestral_block_cache) {
     auto blk = this->getBlock(vblkID.first);
     if (blk) {
-      ancestral_offset_cache[current_offset] = vblkID;
-      current_offset += blk->getConsensus().length();
+      ancestral_offset_cache[current_cons_offset] = vblkID;
+      ancestral_seq_cache += blk->getConsensus().getConsensusString();
+
+      const auto &m_info = blk->getMedoidInfo();
+      ancestral_medoid_seq_cache += m_info.seq;
+
+      int c_len = blk->getConsensus().length();
+      int m_len = static_cast<int>(m_info.seq.length());
+
+      ancestral_entries.push_back({
+          vblkID,
+          current_cons_offset,
+          c_len,
+          current_med_offset,
+          m_len,
+          blk
+      });
+
+      current_cons_offset += c_len;
+      current_med_offset += m_len;
     }
   }
 
@@ -516,11 +534,8 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
     }
   }
 
-  this->linear_block_cache.clear();
-
-  std::vector<VBlockID> finalLinearVBlocks(initialLinearVBlocks.begin(), initialLinearVBlocks.end());
-  std::unordered_set<VBlockID, VBlockIDHash> inLinearSet(initialLinearVBlocks.begin(), initialLinearVBlocks.end());
-
+  // 3. Collect remaining VBlocks that have segments but are not yet placed in initialLinearVBlocks
+  std::vector<VBlockID> unplacedVBlocks;
   for (auto &blkWeak : this->getAllBlocks()) {
     auto blk = blkWeak.lock();
     if (!blk) continue;
@@ -540,10 +555,226 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
 
       if (hasSegments) {
         VBlockID vid = {blk->getId(), c};
-        if (inLinearSet.insert(vid).second) {
-          finalLinearVBlocks.push_back(vid);
+        if (!processed.count(vid)) {
+          unplacedVBlocks.push_back(vid);
         }
       }
+    }
+  }
+
+  std::vector<VBlockID> finalLinearVBlocks;
+
+  if (unplacedVBlocks.empty()) {
+    finalLinearVBlocks = std::move(initialLinearVBlocks);
+  } else if (initialLinearVBlocks.empty()) {
+    finalLinearVBlocks = std::move(unplacedVBlocks);
+  } else {
+    // 4. Build sequence anchor coordinate map from initialLinearVBlocks to insert unplaced VBlocks in-place
+    struct AnchorPos {
+      int start;
+      int index;
+    };
+    std::unordered_map<std::string, std::vector<AnchorPos>> seqAnchorsMap;
+
+    for (int i = 0; i < static_cast<int>(initialLinearVBlocks.size()); ++i) {
+      auto anchorBlk = this->getBlock(initialLinearVBlocks[i].first);
+      int anchorCopy = initialLinearVBlocks[i].second;
+      if (!anchorBlk) continue;
+
+      for (const auto &seqPair : anchorBlk->getSequences()) {
+        for (const auto &segPair : seqPair.second.getSegments()) {
+          if (segPair.second.getCopyCount() == anchorCopy) {
+            int startPos = std::min(segPair.second.getStart(), segPair.second.getEnd());
+            seqAnchorsMap[seqPair.first].push_back({startPos, i});
+            break;
+          }
+        }
+      }
+    }
+
+    for (auto &kv : seqAnchorsMap) {
+      std::sort(kv.second.begin(), kv.second.end(), [](const AnchorPos &a, const AnchorPos &b) {
+        return a.start < b.start;
+      });
+    }
+
+    // Map each unplaced VBlock to its best slot based on sequence coordinates
+    // Slot key: {-1, nextIdx} = before anchor nextIdx; {0, prevIdx} = after anchor prevIdx; {1, 0} = orphan at end
+    std::map<std::pair<int, int>, std::vector<VBlockID>> slotVBlocks;
+
+    for (const auto &vid : unplacedVBlocks) {
+      auto blk = this->getBlock(vid.first);
+      if (!blk) continue;
+
+      int bestInsertIdx = -1;
+      int minPrevGap = std::numeric_limits<int>::max();
+      int minNextIdx = -1;
+      int minNextGap = std::numeric_limits<int>::max();
+
+      for (const auto &seqPair : blk->getSequences()) {
+        for (const auto &segPair : seqPair.second.getSegments()) {
+          if (segPair.second.getCopyCount() == vid.second) {
+            const std::string &seqName = seqPair.first;
+            int segStart = std::min(segPair.second.getStart(), segPair.second.getEnd());
+
+            auto mapIt = seqAnchorsMap.find(seqName);
+            if (mapIt != seqAnchorsMap.end()) {
+              for (const auto &anchor : mapIt->second) {
+                if (anchor.start <= segStart) {
+                  int gap = segStart - anchor.start;
+                  if (gap < minPrevGap) {
+                    minPrevGap = gap;
+                    bestInsertIdx = anchor.index;
+                  }
+                } else {
+                  int gap = anchor.start - segStart;
+                  if (gap < minNextGap) {
+                    minNextGap = gap;
+                    minNextIdx = anchor.index;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      std::pair<int, int> slotKey;
+      if (bestInsertIdx != -1 && (minNextIdx == -1 || minPrevGap <= minNextGap)) {
+        slotKey = {0, bestInsertIdx};
+      } else if (minNextIdx != -1) {
+        slotKey = {-1, minNextIdx};
+      } else {
+        slotKey = {1, 0};
+      }
+
+      slotVBlocks[slotKey].push_back(vid);
+    }
+
+    // Sort unplaced VBlocks sharing the same slot by common sequence coordinates or relative distance to anchor
+    for (auto &kv : slotVBlocks) {
+      int slotType = kv.first.first;
+      int anchorIdx = kv.first.second;
+      VBlockID anchorVid = {-1, -1};
+      std::shared_ptr<Block> anchorBlk = nullptr;
+      if (anchorIdx >= 0 && anchorIdx < static_cast<int>(initialLinearVBlocks.size())) {
+        anchorVid = initialLinearVBlocks[anchorIdx];
+        anchorBlk = this->getBlock(anchorVid.first);
+      }
+
+      std::sort(kv.second.begin(), kv.second.end(), [&](const VBlockID &a, const VBlockID &b) {
+        if (a == b) return false;
+        auto blkA = this->getBlock(a.first);
+        auto blkB = this->getBlock(b.first);
+        if (!blkA || !blkB) return a < b;
+
+        // 1. Try to find a common sequence between blkA and blkB
+        for (const auto &spA : blkA->getSequences()) {
+          const std::string &seqName = spA.first;
+          auto itB = blkB->getSequences().find(seqName);
+          if (itB != blkB->getSequences().end()) {
+            int startA = -1, startB = -1;
+            for (const auto &sg : spA.second.getSegments()) {
+              if (sg.second.getCopyCount() == a.second) {
+                startA = std::min(sg.second.getStart(), sg.second.getEnd());
+                break;
+              }
+            }
+            for (const auto &sg : itB->second.getSegments()) {
+              if (sg.second.getCopyCount() == b.second) {
+                startB = std::min(sg.second.getStart(), sg.second.getEnd());
+                break;
+              }
+            }
+            if (startA != -1 && startB != -1 && startA != startB) {
+              return startA < startB;
+            }
+          }
+        }
+
+        // 2. No common sequence: compare relative offset to anchor
+        if (anchorBlk) {
+          int distA = -1, distB = -1;
+          for (const auto &spA : blkA->getSequences()) {
+            auto itAnc = anchorBlk->getSequences().find(spA.first);
+            if (itAnc != anchorBlk->getSequences().end()) {
+              int segStartA = -1, ancStart = -1;
+              for (const auto &sg : spA.second.getSegments()) {
+                if (sg.second.getCopyCount() == a.second) {
+                  segStartA = std::min(sg.second.getStart(), sg.second.getEnd());
+                  break;
+                }
+              }
+              for (const auto &sg : itAnc->second.getSegments()) {
+                if (sg.second.getCopyCount() == anchorVid.second) {
+                  ancStart = std::min(sg.second.getStart(), sg.second.getEnd());
+                  break;
+                }
+              }
+              if (segStartA != -1 && ancStart != -1) {
+                distA = std::abs(segStartA - ancStart);
+                break;
+              }
+            }
+          }
+
+          for (const auto &spB : blkB->getSequences()) {
+            auto itAnc = anchorBlk->getSequences().find(spB.first);
+            if (itAnc != anchorBlk->getSequences().end()) {
+              int segStartB = -1, ancStart = -1;
+              for (const auto &sg : spB.second.getSegments()) {
+                if (sg.second.getCopyCount() == b.second) {
+                  segStartB = std::min(sg.second.getStart(), sg.second.getEnd());
+                  break;
+                }
+              }
+              for (const auto &sg : itAnc->second.getSegments()) {
+                if (sg.second.getCopyCount() == anchorVid.second) {
+                  ancStart = std::min(sg.second.getStart(), sg.second.getEnd());
+                  break;
+                }
+              }
+              if (segStartB != -1 && ancStart != -1) {
+                distB = std::abs(segStartB - ancStart);
+                break;
+              }
+            }
+          }
+
+          if (distA != -1 && distB != -1 && distA != distB) {
+            if (slotType == -1) {
+              return distA > distB;
+            } else {
+              return distA < distB;
+            }
+          }
+        }
+
+        // 3. Fallback: tie-breaker by VBlockID
+        return a < b;
+      });
+    }
+
+    // Assemble finalLinearVBlocks with in-place slot insertions
+    finalLinearVBlocks.reserve(initialLinearVBlocks.size() + unplacedVBlocks.size());
+
+    for (int i = 0; i < static_cast<int>(initialLinearVBlocks.size()); ++i) {
+      auto preIt = slotVBlocks.find({-1, i});
+      if (preIt != slotVBlocks.end()) {
+        finalLinearVBlocks.insert(finalLinearVBlocks.end(), preIt->second.begin(), preIt->second.end());
+      }
+
+      finalLinearVBlocks.push_back(initialLinearVBlocks[i]);
+
+      auto postIt = slotVBlocks.find({0, i});
+      if (postIt != slotVBlocks.end()) {
+        finalLinearVBlocks.insert(finalLinearVBlocks.end(), postIt->second.begin(), postIt->second.end());
+      }
+    }
+
+    auto orphanIt = slotVBlocks.find({1, 0});
+    if (orphanIt != slotVBlocks.end()) {
+      finalLinearVBlocks.insert(finalLinearVBlocks.end(), orphanIt->second.begin(), orphanIt->second.end());
     }
   }
 
@@ -586,10 +817,6 @@ void BlockSet::rebuildLinearGraph(const CoordinateManager &coordMgr) {
     this->setDistantBlocks(*tree_ptr);
   }
   this->buildCaches();
-
-  mga::msg::info("  📊 [LinearGraph] Node '%s' -> Linear Graph VBlocks: %zu | Ancestral VBlocks: %zu | Ancestral Seq Length: %zu bp\n",
-                 this->getId().c_str(), linear_block_cache.size(),
-                 ancestral_block_cache.size(), ancestral_seq_cache.length());
 }
 
 void BlockSet::normalizeCopyCounts() {
@@ -1019,6 +1246,17 @@ const std::string &BlockSet::getAncestralSequence() {
   return ancestral_seq_cache;
 }
 
+const std::string &BlockSet::getAncestralMedoidSequence() {
+  if (is_cached)
+    return ancestral_medoid_seq_cache;
+  if (this->getSequenceCount() > 1) {
+    mga::msg::error("getAncestralMedoidSequence cache miss for non-leaf node (sequence count = %zu > 1)! Non-leaf nodes must be rebuilt via rebuildLinearGraph.\n",
+                    this->getSequenceCount());
+  }
+  this->rebuildAllPointers();
+  return ancestral_medoid_seq_cache;
+}
+
 const std::map<int, VBlockID> &BlockSet::getAncestralBlocksOffsets() {
   if (is_cached)
     return ancestral_offset_cache;
@@ -1028,6 +1266,62 @@ const std::map<int, VBlockID> &BlockSet::getAncestralBlocksOffsets() {
   }
   this->rebuildAllPointers();
   return ancestral_offset_cache;
+}
+
+int BlockSet::medoidToConsensusOffset(int med_global_offset) const {
+  if (ancestral_entries.empty()) return med_global_offset;
+  if (med_global_offset <= 0) return 0;
+
+  // Binary search for entry where med_global_offset falls in [med_start, med_start + med_len)
+  auto it = std::upper_bound(
+      ancestral_entries.begin(), ancestral_entries.end(), med_global_offset,
+      [](int val, const AncestralBlockEntry &entry) {
+        return val < entry.med_start;
+      });
+
+  if (it != ancestral_entries.begin()) {
+    --it;
+  } else {
+    it = ancestral_entries.begin();
+  }
+
+  int local_med = med_global_offset - it->med_start;
+  const auto &m_info = it->blk->getMedoidInfo();
+  if (local_med >= 0 && local_med < static_cast<int>(m_info.m2c.size())) {
+    return it->cons_start + m_info.m2c[local_med];
+  } else if (local_med >= static_cast<int>(m_info.m2c.size())) {
+    return it->cons_start + it->cons_len;
+  }
+  return it->cons_start;
+}
+
+int BlockSet::consensusToMedoidOffset(int cons_global_offset) const {
+  if (ancestral_entries.empty()) return cons_global_offset;
+  if (cons_global_offset <= 0) return 0;
+
+  // Binary search for entry where cons_global_offset falls in [cons_start, cons_start + cons_len)
+  auto it = std::upper_bound(
+      ancestral_entries.begin(), ancestral_entries.end(), cons_global_offset,
+      [](int val, const AncestralBlockEntry &entry) {
+        return val < entry.cons_start;
+      });
+
+  if (it != ancestral_entries.begin()) {
+    --it;
+  } else {
+    it = ancestral_entries.begin();
+  }
+
+  int local_cons = cons_global_offset - it->cons_start;
+  const auto &m_info = it->blk->getMedoidInfo();
+  if (local_cons >= 0 && local_cons < static_cast<int>(m_info.c2m.size())) {
+    int m_pos = m_info.c2m[local_cons];
+    if (m_pos != -1) {
+      return it->med_start + m_pos;
+    }
+    return -1; // Position was deleted in medoid
+  }
+  return it->med_start + it->med_len;
 }
 
 std::string BlockSet::reconstructSequence(const std::string &seqName) {
@@ -2257,7 +2551,7 @@ void BlockSet::setDistantBlocks(Tree &tree, int lookdownDepth) {
   }
 
   if (debug) {
-    mga::msg::info("Node %s (Lookdown %d levels -> %zu sets) | Core VBlocks=%d, Distant VBlocks=%d\n",
+    mga::msg::debug("Node %s (Lookdown %d levels -> %zu sets) | Core VBlocks=%d, Distant VBlocks=%d\n",
                    targetNodeId.c_str(), lookdownDepth, sequenceSets.size(),
                    coreCount.load(), distantCount.load());
   }
@@ -2601,6 +2895,11 @@ BlockSet *BlockSet::createIndexedCopy(BlockManager *manager, const BlockSetID &n
   indexedSet->ancestral_block_cache = this->ancestral_block_cache;
   indexedSet->ancestral_seq_cache = this->ancestral_seq_cache;
   indexedSet->ancestral_offset_cache = this->ancestral_offset_cache;
+  indexedSet->ancestral_medoid_seq_cache = this->ancestral_medoid_seq_cache;
+  indexedSet->ancestral_entries = this->ancestral_entries;
+  for (auto &entry : indexedSet->ancestral_entries) {
+    entry.blk = indexedSet->getBlock(entry.vblkID.first);
+  }
   indexedSet->is_cached = true;
 
   // 依據繼承的線性圖譜骨幹重新連接 Block 與 Segment 的前後指標

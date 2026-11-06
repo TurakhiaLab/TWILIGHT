@@ -38,9 +38,9 @@ public:
         if (!preset.empty()) {
             mm_set_opt(preset.c_str(), &iopt, &mopt);
         }
-        // Project defaults
-        mopt.pri_ratio = 0.0f; // -p 0
-        mopt.best_n = 10;      // default best_n
+        // Project defaults: small positive ratio to enforce secondary filtering and best_n capping
+        mopt.pri_ratio = 0.00001f;
+        mopt.best_n = 50;      // default best_n
         return *this;
     }
 

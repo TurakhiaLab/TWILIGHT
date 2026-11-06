@@ -562,4 +562,112 @@ return;
     // 5. Write back corrected majority consensus string and switch mode
     consensus.setStoredString(std::move(new_cons));
     consensus.setUseStoredString(true);
+    invalidateMedoidCache();
+}
+
+const MedoidInfo &Block::getMedoidInfo() const {
+    if (has_medoid_cache) {
+        return medoid_cache;
+    }
+
+    const std::string &cons_str = consensus.getConsensusString();
+    int cons_len = static_cast<int>(cons_str.length());
+    if (cons_len == 0) {
+        medoid_cache = {"", {}, {}};
+        has_medoid_cache = true;
+        return medoid_cache;
+    }
+
+    // 1. Find the best segment
+    // Preference: Forward segments (> 50% majority in normalized block).
+    // Penalty score: (total GAP bases * 2.0) + (SNV count * 1.0).
+    const Segment *best_seg = nullptr;
+    double min_penalty = 1e18;
+    bool found_forward = false;
+
+    for (const auto &seqPair : sequences) {
+        const auto &segs = seqPair.second.getSegments();
+        for (const auto &segPair : segs) {
+            const Segment &seg = segPair.second;
+            bool is_rev = seg.isReverse();
+
+            // Calculate penalty
+            double pen = 0.0;
+            for (const auto &v : seg.getVariants()) {
+                if (v.getType() == VariantType::GAP) {
+                    pen += static_cast<double>(v.getEnd() - v.getStart()) * 2.0;
+                } else if (v.getType() == VariantType::SNV) {
+                    pen += 1.0;
+                }
+            }
+
+            if (!is_rev) {
+                if (!found_forward || pen < min_penalty) {
+                    found_forward = true;
+                    min_penalty = pen;
+                    best_seg = &seg;
+                }
+            } else if (!found_forward) {
+                if (pen < min_penalty) {
+                    min_penalty = pen;
+                    best_seg = &seg;
+                }
+            }
+        }
+    }
+
+    // Fallback if no segment exists (e.g. newly initialized block)
+    if (!best_seg) {
+        medoid_cache.seq = cons_str;
+        medoid_cache.m2c.resize(cons_len);
+        medoid_cache.c2m.resize(cons_len);
+        for (int i = 0; i < cons_len; ++i) {
+            medoid_cache.m2c[i] = i;
+            medoid_cache.c2m[i] = i;
+        }
+        has_medoid_cache = true;
+        return medoid_cache;
+    }
+
+    // 2. Reconstruct sequence strictly forward (aligned with Consensus coordinates)
+    // Apply SNVs on a local copy of consensus
+    std::string base_str = cons_str;
+    for (const auto &v : best_seg->getVariants()) {
+        if (v.getType() == VariantType::SNV) {
+            if (v.getStart() >= 0 && v.getStart() < static_cast<int>(base_str.length())) {
+                base_str[v.getStart()] = v.getAlt();
+            }
+        }
+    }
+
+    // Mark deleted positions
+    std::vector<bool> is_deleted(cons_len, false);
+    for (const auto &v : best_seg->getVariants()) {
+        if (v.getType() == VariantType::GAP) {
+            int g_start = std::max(0, v.getStart());
+            int g_end = std::min(cons_len, v.getEnd());
+            for (int i = g_start; i < g_end; ++i) {
+                is_deleted[i] = true;
+            }
+        }
+    }
+
+    // Build medoid sequence and 1:1 forward coordinate mappings
+    medoid_cache.seq.clear();
+    medoid_cache.m2c.clear();
+    medoid_cache.c2m.assign(cons_len, -1);
+    medoid_cache.seq.reserve(cons_len);
+    medoid_cache.m2c.reserve(cons_len);
+
+    for (int c = 0; c < cons_len; ++c) {
+        if (!is_deleted[c]) {
+            int m_idx = static_cast<int>(medoid_cache.seq.length());
+            medoid_cache.seq.push_back(base_str[c]);
+            medoid_cache.m2c.push_back(c);
+            medoid_cache.c2m[c] = m_idx;
+        }
+    }
+
+    has_medoid_cache = true;
+    return medoid_cache;
 }

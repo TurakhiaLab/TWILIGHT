@@ -257,8 +257,8 @@ class CoordinateManager {
                 auto prevIt = std::prev(it);
                 if (prevIt->second.end > start) {
                     overlapIds.push_back(prevIt->second.blkId);
-                    // 🌟 O(1) 檢查該區段是否已 Merge
-                    if (targetMap[prevIt->first].isMerged) alreadyMerged = true;
+                    // O(1) check if block is merged with bounds check
+                    if (prevIt->first >= 0 && prevIt->first < static_cast<int>(targetMap.size()) && targetMap[prevIt->first].isMerged) alreadyMerged = true;
                 }
             }
         
@@ -270,8 +270,8 @@ class CoordinateManager {
                         overlapIds.push_back(currentId);
                     }
                 }
-                // 🌟 O(1) 檢查該區段是否已 Merge
-                if (targetMap[it->first].isMerged) alreadyMerged = true;
+                // O(1) check if block is merged with bounds check
+                if (it->first >= 0 && it->first < static_cast<int>(targetMap.size()) && targetMap[it->first].isMerged) alreadyMerged = true;
                 it++;
             }
         
@@ -532,13 +532,19 @@ class CoordinateManager {
 
                 auto tree_it = intervalMap.find(gStart);
                 if (tree_it != intervalMap.end()) {
-                    tree_it->second = {leftFirst ? gCut1 : gCut2, b1};
-                } else {
-                    tree_it = intervalMap.insert({gStart, BlockInterval{leftFirst ? gCut1 : gCut2, b1}}).first;
+                    intervalMap.erase(tree_it);
                 }
 
-                auto hint1 = intervalMap.insert(std::next(tree_it), {leftFirst ? gCut1 : gCut2, BlockInterval{leftFirst ? gCut2 : gCut1, b2}});
-                intervalMap.insert(std::next(hint1), {leftFirst ? gCut2 : gCut1, BlockInterval{gEnd, b3}});
+                // Insert only non-empty intervals to prevent 0-length boundary intervals
+                if (leftFirst) {
+                    if (lStart < lEnd) intervalMap[lStart] = {lEnd, leftID};
+                    if (mStart < mEnd) intervalMap[mStart] = {mEnd, midID};
+                    if (rStart < rEnd) intervalMap[rStart] = {rEnd, rightID};
+                } else {
+                    if (rStart < rEnd) intervalMap[rStart] = {rEnd, rightID};
+                    if (mStart < mEnd) intervalMap[mStart] = {mEnd, midID};
+                    if (lStart < lEnd) intervalMap[lStart] = {lEnd, leftID};
+                }
 
                 if (lStart < lEnd) {
                     left_occs.push_back({occ.isRef, lStart, lEnd, occ.isInverse});
@@ -771,6 +777,7 @@ class CoordinateManager {
 
                 for (auto& occ : occs) {
                     std::vector<GlobalPosTracker>& targetMap = occ.isRef ? refMap : qryMap;
+                    if (occ.globalStart >= occ.globalEnd || occ.globalStart < 0 || occ.globalEnd > static_cast<int>(targetMap.size())) continue;
                     bool new_isInverse = occ.isInverse;
                     if (invert_coords) new_isInverse = !new_isInverse;
 
@@ -857,9 +864,11 @@ class CoordinateManager {
             if (lookForward) {
                 auto it = intervalMap.lower_bound(pos);
                 while (it != intervalMap.end()) {
-                    if (targetMap[it->first].isMerged && targetMap[it->first].inBoth) {
-                        // 🌟 同時回傳 BlockID 與該位置當下的 Copy Number
-                        return {it->second.blkId, targetMap[it->first].copyId};
+                    if (it->first >= 0 && it->first < static_cast<int>(targetMap.size())) {
+                        if (targetMap[it->first].isMerged && targetMap[it->first].inBoth) {
+                            // Return BlockID and current Copy Number
+                            return {it->second.blkId, targetMap[it->first].copyId};
+                        }
                     }
                     it++; 
                 }
@@ -868,9 +877,11 @@ class CoordinateManager {
                 while (it != intervalMap.begin()) {
                     --it;
                     if (it->second.end <= pos) {
-                        if (targetMap[it->first].isMerged && targetMap[it->first].inBoth) {
-                            // 🌟 同時回傳 BlockID 與該位置當下的 Copy Number
-                            return {it->second.blkId, targetMap[it->first].copyId};
+                        if (it->first >= 0 && it->first < static_cast<int>(targetMap.size())) {
+                            if (targetMap[it->first].isMerged && targetMap[it->first].inBoth) {
+                                // Return BlockID and current Copy Number
+                                return {it->second.blkId, targetMap[it->first].copyId};
+                            }
                         }
                     }
                 }

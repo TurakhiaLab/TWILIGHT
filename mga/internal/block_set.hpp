@@ -37,6 +37,16 @@ private:
   VBlockIDs ancestral_block_cache;
   std::string ancestral_seq_cache;
   std::map<int, VBlockID> ancestral_offset_cache;
+  struct AncestralBlockEntry {
+    VBlockID vblkID;
+    int cons_start;
+    int cons_len;
+    int med_start;
+    int med_len;
+    BlockPtr blk;
+  };
+  std::vector<AncestralBlockEntry> ancestral_entries;
+  std::string ancestral_medoid_seq_cache;
 
   std::atomic<BlockID> next_block_id_{1};
 
@@ -75,8 +85,9 @@ public:
   BlockSet(BlockSetID id) : ID(id), is_cached(false), tree_ptr(nullptr) {};
   ~BlockSet() = default;
 
-  // --- Getter ---
+  // --- Getter & Setter ---
   BlockSetID getId() const { return ID; }
+  void setId(const BlockSetID &id) { ID = id; }
   BlockPtr getBlock(BlockID id) {
     return (blocks.find(id) == blocks.end()) ? nullptr : blocks[id];
   };
@@ -84,7 +95,10 @@ public:
   const VBlockIDs &getLinearizeBlocks();
   const VBlockIDs &getAncestralBlocks();
   const std::string &getAncestralSequence();
+  const std::string &getAncestralMedoidSequence();
   const std::map<int, VBlockID> &getAncestralBlocksOffsets();
+  int medoidToConsensusOffset(int med_global_offset) const;
+  int consensusToMedoidOffset(int cons_global_offset) const;
 
   BlockWeakPtrs getAllBlocks() {
     BlockWeakPtrs all_blocks;

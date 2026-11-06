@@ -2,9 +2,11 @@
 #include "block_manager.hpp"
 #include "consensus.hpp"
 #include "timer.hpp"
+#include "message_manager.hpp"
 
 #include <cmath>
 #include <iomanip>
+#include <sstream>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 #include <tbb/parallel_reduce.h>
@@ -243,13 +245,9 @@ void BlockSet::debugValidateLinkages(bool verbose) {
 
 void BlockSet::debugValidateQuality(bool verbose) {
   global_timer.start("debug_validate_quality");
-  std::cout
-      << "\n============================================================\n"
-      << "=== Pangenome Graph Quality Report (NEW): " << ID << " ===\n"
-      << "============================================================\n";
 
   if (blocks.empty()) {
-    std::cout << "  [Warning] Graph is empty. No metrics to calculate.\n";
+    std::cout << "  [Warning] Graph is empty for Node [" << ID << "]. No metrics to calculate.\n";
     global_timer.stop("debug_validate_quality");
     return;
   }
@@ -268,13 +266,20 @@ void BlockSet::debugValidateQuality(bool verbose) {
   totalSequenceCount = seqRealLengths.size();
 
   int maxSeqLen = 0;
+  int minSeqLen = (seqRealLengths.empty() ? 0 : INT_MAX);
+  uint64_t totalInputBp = 0;
   std::string longestSeqName = "";
   for (const auto &kv : seqRealLengths) {
+    totalInputBp += kv.second;
     if (kv.second > maxSeqLen) {
       maxSeqLen = kv.second;
       longestSeqName = kv.first;
     }
+    if (kv.second < minSeqLen) {
+      minSeqLen = kv.second;
+    }
   }
+  uint64_t avgSeqLen = (totalSequenceCount > 0) ? (totalInputBp / totalSequenceCount) : 0;
 
   int threshold95 = std::ceil(totalSequenceCount * 0.95);
   int threshold90 = std::ceil(totalSequenceCount * 0.90);
@@ -300,6 +305,12 @@ void BlockSet::debugValidateQuality(bool verbose) {
   int narrowCoreBlocksCount = 0;
   int distantBlocksCount = 0;
   int totalVBlocksCount = 0;
+  int multiCopyBlocksCount = 0;
+  uint64_t multiCopyLenSum = 0;
+
+  uint64_t totalSNVs = 0;
+  uint64_t totalIndels = 0;
+  uint64_t totalGapBp = 0;
 
   uint64_t coreLenSum = 0;
   uint64_t softCore95LenSum = 0;
@@ -322,8 +333,12 @@ void BlockSet::debugValidateQuality(bool verbose) {
     uint64_t blockVarLen = 0;
     std::set<std::string> uniqueSeqsInBlock;
     std::set<int> uniqueCopiesInBlock;
+    bool isMultiCopy = false;
 
     for (auto &seqPair : blk->getSequences()) {
+      if (seqPair.second.getSegments().size() > 1) {
+        isMultiCopy = true;
+      }
       uniqueSeqsInBlock.insert(seqPair.first);
       for (auto &segPair : seqPair.second.getSegments()) {
         blockSegCount++;
@@ -331,16 +346,24 @@ void BlockSet::debugValidateQuality(bool verbose) {
         for (auto &var : segPair.second.getVariants()) {
           if (var.getType() == VariantType::SNV) {
             blockVarLen += 1;
+            totalSNVs += 1;
           } else if (var.getType() == VariantType::GAP) {
-            blockVarLen += (var.getEnd() - var.getStart());
+            int gapLen = (var.getEnd() - var.getStart());
+            blockVarLen += gapLen;
+            totalGapBp += gapLen;
+            totalIndels += 1;
           }
         }
       }
     }
     totalVBlocksCount += (uniqueCopiesInBlock.empty() ? 1 : uniqueCopiesInBlock.size());
+    if (isMultiCopy) {
+      multiCopyBlocksCount++;
+      multiCopyLenSum += consLen;
+    }
 
 
-    // 統計 Distant Block (若該 block 所有 copy 都是 distant)
+    // Count Distant Blocks (if all copies of this block are distant)
     if (blk->isAllDistant()) {
       distantBlocksCount++;
       distantLenSum += consLen;
@@ -349,7 +372,7 @@ void BlockSet::debugValidateQuality(bool verbose) {
       }
     }
 
-    // 統計 Core, Soft-core (95%, 90%), Accessory
+    // Count Core, Soft-core (95%, 90%), and Accessory blocks
     int uniqueSeqCount = uniqueSeqsInBlock.size();
 
     if (uniqueSeqCount == totalSequenceCount &&
@@ -378,13 +401,13 @@ void BlockSet::debugValidateQuality(bool verbose) {
       accessoryLenSum += consLen;
     }
 
-    // 判斷 Singleton
+    // Evaluate Singleton block
     if (blockSegCount == 1) {
       singletonLenSum += consLen;
       singletonCount++;
-      // Singleton 不印出 Identity，也不列入 Global 計算
+      // Singletons do not print identity and are excluded from global identity calculation
     } else if (blockSegCount > 1 && consLen > 0) {
-      // 計算並印出非 Singleton 的 Identity
+      // Calculate and print identity for non-singleton blocks
       uint64_t blockDenominator = (uint64_t)blockSegCount * consLen;
       double blockIdentity = 1.0 - ((double)blockVarLen / blockDenominator);
 
@@ -395,7 +418,7 @@ void BlockSet::debugValidateQuality(bool verbose) {
                   << " | Identity: " << std::fixed << std::setprecision(4)
                   << blockIdentity << "\n";
       }
-      // 累積至全局計算
+      // Accumulate into global calculation
       globalVarLen += blockVarLen;
       globalDenominator += blockDenominator;
 
@@ -412,9 +435,9 @@ void BlockSet::debugValidateQuality(bool verbose) {
   }
 
   // ---------------------------------------------------------
-  // 3. 計算 N50
+  // 3. Calculate N50
   // ---------------------------------------------------------
-  std::sort(allBlockLengths.rbegin(), allBlockLengths.rend()); // 降序排列
+  std::sort(allBlockLengths.rbegin(), allBlockLengths.rend()); // Descending sort
   uint64_t runningSum = 0;
   int n50 = 0;
   for (int len : allBlockLengths) {
@@ -426,7 +449,7 @@ void BlockSet::debugValidateQuality(bool verbose) {
   }
 
   // ---------------------------------------------------------
-  // 4. 計算衍生指標與輸出
+  // 4. Calculate derived metrics and print output
   // ---------------------------------------------------------
   double lenIncreaseRatio =
       (maxSeqLen > 0) ? ((double)totalConsensusLen / maxSeqLen - 1.0) * 100.0
@@ -435,6 +458,24 @@ void BlockSet::debugValidateQuality(bool verbose) {
       (totalConsensusLen > 0)
           ? ((double)singletonLenSum / totalConsensusLen) * 100.0
           : 0.0;
+  double compressionRatio =
+      (totalConsensusLen > 0)
+          ? (static_cast<double>(totalInputBp) / totalConsensusLen)
+          : 0.0;
+  double multiCopyRatio =
+      (totalConsensusLen > 0)
+          ? (static_cast<double>(multiCopyLenSum) / totalConsensusLen * 100.0)
+          : 0.0;
+  double snvDensity =
+      (totalConsensusLen > 0)
+          ? (static_cast<double>(totalSNVs) / totalConsensusLen * 1000.0)
+          : 0.0;
+
+  double narrowCorePct = (avgSeqLen > 0) ? (static_cast<double>(narrowCoreLenSum) / avgSeqLen * 100.0) : 0.0;
+  double strictCorePct = (avgSeqLen > 0) ? (static_cast<double>(coreLenSum) / avgSeqLen * 100.0) : 0.0;
+  double softCore95Pct = (avgSeqLen > 0) ? (static_cast<double>(softCore95LenSum) / avgSeqLen * 100.0) : 0.0;
+  double softCore90Pct = (avgSeqLen > 0) ? (static_cast<double>(softCore90LenSum) / avgSeqLen * 100.0) : 0.0;
+
   double globalIdentity =
       (globalDenominator > 0)
           ? (1.0 - ((double)globalVarLen / globalDenominator))
@@ -451,67 +492,76 @@ void BlockSet::debugValidateQuality(bool verbose) {
                              ? (double)distantLenSum / distantBlocksCount
                              : 0.0;
 
-  std::cout
-      << "\n------------------------------------------------------------\n";
-  std::cout << ">>> GRAPH METRICS SUMMARY <<<\n\n";
+  std::ostringstream ss;
+  ss << "\n============================================================\n";
+  ss << ">>> GRAPH METRICS SUMMARY: Node [" << ID << "] <<<\n\n";
 
-  std::cout << "[1. Sequence & Graph Size]\n";
-  std::cout << "  - Total Sequences        : " << totalSequenceCount << "\n";
-  std::cout << "  - Total Blocks           : " << blocks.size() << "\n";
-  std::cout << "  - Total VBlocks          : " << totalVBlocksCount << "\n";
-  std::cout << "  - Longest Input Sequence : " << maxSeqLen << " bp ("
-            << longestSeqName << ")\n";
-  std::cout << "  - Total Graph Length     : " << totalConsensusLen << " bp\n";
-  std::cout << "  - Graph Size Inflation   : +" << std::fixed
-            << std::setprecision(2) << lenIncreaseRatio << " %\n";
+  ss << "[1. Sequence & Graph Size]\n";
+  ss << "  - BlockSet ID (Node)     : " << ID << "\n";
+  ss << "  - Total Sequences        : " << totalSequenceCount << "\n";
+  ss << "  - Total Blocks           : " << blocks.size() << "\n";
+  ss << "  - Total VBlocks          : " << totalVBlocksCount << "\n";
+  ss << "  - Total Input Bases      : " << totalInputBp << " bp (Avg: " << avgSeqLen << " bp, Range: [" << minSeqLen << ", " << maxSeqLen << "] bp)\n";
+  ss << "  - Longest Input Sequence : " << maxSeqLen << " bp ("
+     << longestSeqName << ")\n";
+  ss << "  - Total Graph Length     : " << totalConsensusLen << " bp\n";
+  ss << "  - Graph Compression Ratio: " << std::fixed
+     << std::setprecision(2) << compressionRatio << " x\n";
+  ss << "  - Graph Size Inflation   : +" << std::fixed
+     << std::setprecision(2) << lenIncreaseRatio << " %\n";
 
-  std::cout << "\n[2. Fragmentation & Contiguity]\n";
-  std::cout << "  - Block N50              : " << n50 << " bp\n";
-  std::cout << "  - Singleton Blocks       : " << singletonCount << " blocks\n";
-  std::cout << "  - Singleton Length       : " << singletonLenSum << " bp\n";
-  std::cout << "  - Singleton Length Ratio : " << std::fixed
-            << std::setprecision(2) << singletonRatio << " %\n";
+  ss << "\n[2. Fragmentation & Duplication]\n";
+  ss << "  - Block N50              : " << n50 << " bp\n";
+  ss << "  - Singleton Blocks       : " << singletonCount << " blocks (" << singletonLenSum << " bp, "
+     << std::fixed << std::setprecision(2) << singletonRatio << " % of graph)\n";
+  ss << "  - Duplicated Blocks      : " << multiCopyBlocksCount << " blocks (" << multiCopyLenSum << " bp, "
+     << std::fixed << std::setprecision(2) << multiCopyRatio << " % of graph)\n";
 
-  std::cout << "\n[3. Evolution & Conservation]\n";
-  std::cout << "  - Narrow Core (1-to-1)   : " << narrowCoreBlocksCount
-            << " blocks (" << narrowCoreLenSum << " bp)\n";
-  std::cout << "  - Strict Core (100%)     : " << coreBlocksCount << " blocks ("
-            << coreLenSum << " bp)\n";
-  std::cout << "  - Soft Core (>= 95%)     : " << softCore95BlocksCount
-            << " blocks (" << softCore95LenSum << " bp)\n";
-  std::cout << "  - Soft Core (>= 90%)     : " << softCore90BlocksCount
-            << " blocks (" << softCore90LenSum << " bp)\n";
-  std::cout << "  - Distant Blocks         : " << distantBlocksCount
-            << " blocks (" << distantLenSum << " bp, Max: " << distantMaxLen
-            << " bp, Avg: " << std::fixed << std::setprecision(2)
-            << distantAvgLen << " bp)\n";
-  // std::cout << "  - Accessory (< 100%)     : " << accessoryBlocksCount << "
-  // blocks (" << accessoryLenSum << " bp)\n";
+  ss << "\n[3. Evolution & Conservation]\n";
+  ss << "  - Narrow Core (1-to-1)   : " << narrowCoreBlocksCount
+     << " blocks (" << narrowCoreLenSum << " bp, "
+     << std::fixed << std::setprecision(2) << narrowCorePct << " % of avg genome)\n";
+  ss << "  - Strict Core (100%)     : " << coreBlocksCount << " blocks ("
+     << coreLenSum << " bp, "
+     << std::fixed << std::setprecision(2) << strictCorePct << " % of avg genome)\n";
+  ss << "  - Soft Core (>= 95%)     : " << softCore95BlocksCount
+     << " blocks (" << softCore95LenSum << " bp, "
+     << std::fixed << std::setprecision(2) << softCore95Pct << " % of avg genome)\n";
+  ss << "  - Soft Core (>= 90%)     : " << softCore90BlocksCount
+     << " blocks (" << softCore90LenSum << " bp, "
+     << std::fixed << std::setprecision(2) << softCore90Pct << " % of avg genome)\n";
+  ss << "  - Distant Blocks         : " << distantBlocksCount
+     << " blocks (" << distantLenSum << " bp, Max: " << distantMaxLen
+     << " bp, Avg: " << std::fixed << std::setprecision(2)
+     << distantAvgLen << " bp)\n";
 
-  std::cout << "\n[4. Alignment Quality]\n";
+  ss << "\n[4. Alignment Quality & Diversity]\n";
   if (globalDenominator > 0) {
-    std::cout << "  - Global Average Identity: " << std::fixed
-              << std::setprecision(4) << globalIdentity
-              << " (Excluded singletons)\n";
+    ss << "  - Global Average Identity: " << std::fixed
+       << std::setprecision(4) << globalIdentity
+       << " (Excluded singletons)\n";
   } else {
-    std::cout << "  - Global Average Identity: N/A (No valid multi-segment "
-                 "blocks found)\n";
+    ss << "  - Global Average Identity: N/A (No valid multi-segment blocks found)\n";
   }
   if (softCore90Denominator > 0) {
-    std::cout << "  - Broad Core (>=90%) Identity: " << std::fixed
-              << std::setprecision(4) << softCore90Identity << "\n";
+    ss << "  - Broad Core (>=90%) Identity: " << std::fixed
+       << std::setprecision(4) << softCore90Identity << "\n";
   } else {
-    std::cout << "  - Broad Core (>=90%) Identity: N/A\n";
+    ss << "  - Broad Core (>=90%) Identity: N/A\n";
   }
   if (narrowCoreDenominator > 0) {
-    std::cout << "  - Narrow Core (1-to-1) Identity: " << std::fixed
-              << std::setprecision(4) << narrowCoreIdentity << "\n";
+    ss << "  - Narrow Core (1-to-1) Identity: " << std::fixed
+       << std::setprecision(4) << narrowCoreIdentity << "\n";
   } else {
-    std::cout << "  - Narrow Core (1-to-1) Identity: N/A\n";
+    ss << "  - Narrow Core (1-to-1) Identity: N/A\n";
   }
+  ss << "  - Total SNVs             : " << totalSNVs << " (Density: "
+     << std::fixed << std::setprecision(2) << snvDensity << " / kb)\n";
+  ss << "  - Total InDel Events     : " << totalIndels << " ("
+     << totalGapBp << " gap bp)\n";
+  ss << "============================================================\n\n";
 
-  std::cout
-      << "============================================================\n\n";
+  mga::msg::print(ss.str());
   global_timer.stop("debug_validate_quality");
 }
 

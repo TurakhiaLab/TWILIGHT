@@ -2,6 +2,7 @@
 #define MGA_HPP
 
 
+#include <unordered_map>
 #include <boost/program_options.hpp>
 
 #include "type.hpp"
@@ -20,7 +21,9 @@ namespace mga {
     {
         std::unique_ptr<BlockManager> readSequences(std::string& fileName, Option& option, Tree& tree);
         void writeAlignment(std::string fileName, StringPairs& seqs, bool compressed, bool append);
-        void writeMAF(BlockSet* blockSet, const std::string& outputFileName, bool grouped=false);
+        void writeMAF(BlockSet* blockSet, const std::string& outputFileName, const std::unordered_map<std::string, int>& seqLengths = {});
+        void writeLinearMAF(BlockSet* blockSet, const std::string& outputFileName, const std::unordered_map<std::string, int>& seqLengths = {});
+        void writeConcatMSA(BlockSet* blockSet, const std::string& outputFileName, double threshold = 0.95, int minBlockLen = 500);
     }
 
     namespace progressive {

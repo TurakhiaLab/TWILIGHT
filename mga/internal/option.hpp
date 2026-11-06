@@ -33,15 +33,20 @@ struct Option {
     bool cpuOnly;
     bool verbose;
     bool quite;
+    bool debug;
     bool circular;
     bool writeOriented;
+    std::string refSeq;
     // Output Format Options
     bool outputMAF;
     bool outputPanman;
     std::string outputFormat;
+    double msaThreshold;
+    int msaMinLen;
     // Minimap2 Options
     int mmAsm;
     std::string mmAsmPreset;
+    bool useMedoid = false;
     // File Names
     std::string treeFile;
     std::string seqFile;

@@ -26,8 +26,10 @@ void parseArguments(int argc, char** argv)
     po::options_description outputDesc("Output/File Options");
     outputDesc.add_options()
         ("output,o", po::value<std::string>(), "Output file format: maf or panman. Default: output both formats.")
+        ("msa-threshold", po::value<double>()->default_value(0.95), "Minimum sequence occupancy threshold (0.0 - 1.0) for blocks in concatenated MSA. Default: 0.95.")
+        ("msa-min-len", po::value<int>()->default_value(500), "Minimum block consensus length (bp) for blocks in concatenated MSA. Default: 500.")
         ("dir,d", po::value<std::string>(), "Directory for storing intermediate and final output files.")
-        ("prefix,p", po::value<std::string>(), "Prefix for output files")
+        ("prefix,p", po::value<std::string>(), "Prefix for output files. Default: derived from input sequence file name.")
         ("log", po::value<std::string>(), "Log file path for output messages.")
         ("overwrite", "Force overwriting. Remove the current dir.");
 
@@ -41,8 +43,11 @@ void parseArguments(int argc, char** argv)
     alignDesc.add_options()
         ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)")
         ("circular", "Treat input genomes as circular and orient them relative to the reference genome before alignment.")
+        ("ref,r", po::value<std::string>(), "Reference sequence name for circular orientation (default: longest sequence).")
+        ("reference", po::value<std::string>(), "Alias for --ref.")
         ("output-oriented", "Write the oriented genome sequences in FASTA format.")
-        ("mm-asm", po::value<int>()->default_value(5), "Minimap2 asm preset divergence level: 5, 10, or 20 (corresponding to asm5, asm10, asm20). Default: 5.");
+        ("mm-asm", po::value<int>()->default_value(5), "Minimap2 asm preset divergence level: 5, 10, or 20 (corresponding to asm5, asm10, asm20). Default: 5.")
+        ("use-medoid", "Use medoid sequences for intermediate alignment to reduce repetition and chimeric noise, then realign to consensus.");
 
     po::options_description seqFilterDesc("Sequence Filtering Options");
     seqFilterDesc.add_options()
@@ -56,6 +61,7 @@ void parseArguments(int argc, char** argv)
     po::options_description generalDesc("General");
     generalDesc.add_options()
         ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
+        ("debug", "Run internal debugging checks and validation routines.")
         ("verbose,v", "Print out every detail process.")
         ("quiet,q", "Quiet mode")
         ("help,h", "Print help messages.")
@@ -80,13 +86,14 @@ int main(int argc, char** argv) {
             return 0;
         }
         else {
-            std::cerr << "Error: " << e.what() << std::endl;
-            std::cerr << "For more details, please use the --help option.\n";
+            mga::msg::error("%s\nFor more details, please use the --help option.\n", e.what());
             return 1;
         }
     }
     if(vm.count("help") || argc == 1) {
-        std::cerr << mainDesc << std::endl;
+        std::ostringstream ss;
+        ss << mainDesc << "\n";
+        mga::msg::print(ss.str());
         return 0;
     }
 
@@ -96,47 +103,52 @@ int main(int argc, char** argv) {
 
 
     // Read Tree
+    mga::msg::debug("Reading phylogenetic tree from %s...\n", option.treeFile.c_str());
+    auto treeStart = std::chrono::high_resolution_clock::now();
     phylogeny::Tree T(option.treeFile);
     phylogeny::Tree subT(T.root.get(), true);
-    subT.print();
+    auto treeEnd = std::chrono::high_resolution_clock::now();
+    auto treeDuration = std::chrono::duration_cast<std::chrono::microseconds>(treeEnd - treeStart);
+    mga::msg::info("Tree (Depth - Original: %d, Binary: %d, Reroot: %d) read in %ld us\n",
+                   subT.depthOriginal, subT.depthBinary, subT.depthReroot, treeDuration.count());
 
     // Read Sequences
     auto manager = mga::io::readSequences(option.seqFile, option, subT);
-    if (option.circular) manager->orientCircularGenomes(option);
+    if (option.circular) manager->orientCircularGenomes(option, option.refSeq);
 
     mga::progressive::buildMGA(subT, option, manager.get(), 0);
 
     auto final_set = manager.get()->getBlockSet(manager.get()->getBlockSets().begin()->first);
+    if (final_set) {
+        // Rename final blockSet to "Root" instead of internal intermediate node ID (e.g. node_3)
+        manager->changeBlockSetId(final_set->getId(), "Root");
+    }
 
+    if (option.verbose && final_set) {
+        final_set->debugValidateQuality(false);
+    }
 
-    // Output PanMAN
+    // Output MAF and Concatenated MSA
     auto outputStart = std::chrono::high_resolution_clock::now();
-    mga::io::writeMAF(final_set, option.tempDir + "/output.maf", true);
+    auto seqLengths = manager->getSequenceLengths();
+    if (option.outputMAF) {
+        mga::io::writeMAF(final_set, option.tempDir + "/" + option.prefix + ".maf", seqLengths);
+        mga::io::writeLinearMAF(final_set, option.tempDir + "/" + option.prefix + ".linear.maf", seqLengths);
+    }
+    mga::io::writeConcatMSA(final_set, option.tempDir + "/" + option.prefix + ".concat_msa.fa", option.msaThreshold, option.msaMinLen);
 
     std::chrono::nanoseconds refineTime(0);
     
-    if (final_set) {
-        std::string panmanOutputPath = option.tempDir + "/output.panman";
-        final_set->insertDistantBlockInPlace();
+    if (final_set && option.outputPanman) {
+        std::string panmanOutputPath = option.tempDir + "/" + option.prefix + ".panman";
         mga::panman::PanmanWriter::writePanMAN(final_set, &subT, "", panmanOutputPath);
     }
 
     auto outputEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds outputTime = outputEnd - outputStart;
     
-
-    std::cout << "--- Profiling Results (ms) ---\n";
-    std::cout << "Minimap2 Time:         " << global_timer.getTime("Minimap2") << " ms\n";
-    std::cout << "Merge Time:            " << option.merge_time << " ms\n";
-    std::cout << "Refine(BlockSet) Time: " << option.refineBlockSet_time << " ms\n";
-    std::cout << "Refine(Block) Time:    " << option.refineBlock_time << " ms\n";
-    std::cout << "Debug Time:            " << option.debug_time << " ms\n";
-    std::cout << "Realign Time:          " << refineTime.count() / 1000000.0 << " ms\n";
-    std::cout << "Output Time:           " << outputTime.count() / 1000000.0 << " ms\n";
-    std::cout << "------------------------------\n";
-    
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
-    std::cerr << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
+    mga::msg::info("Total execution completed in %.6f s\n", static_cast<double>(mainTime.count()) / 1e9);
     return 0;
 }
