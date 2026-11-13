@@ -604,14 +604,18 @@ namespace msa
         float gapTerminal;
         float localGapOpen;   // Gap-open penalty for pairwise local alignment
         float localGapExtend; // Gap-extend penalty for pairwise local alignment
+        float localOffset;    // Offset subtracted from local alignment scoring matrix
+        float localMinScore;  // Minimum SW alignment score threshold for emitting local segments
         float xdrop;       // optional for now
         float scaleFactor;
         float offset;      // Matrix offset in internal units
         float **scoringMatrix;
+        float **localScoringMatrix;
         int matrixSize;
         Params(po::variables_map &vm, char type);
         ~Params();
-        void normalizeScoringMatrix(float targetScore = 60.0f, float offset = 0.0f); 
+        void normalizeScoringMatrix(float targetScore = 60.0f, float offset = 0.0f);
+        void normalizeMatrix(float **matrix, float targetScore = 60.0f, float offsetVal = 0.0f);
     };
 
     struct SequenceDB

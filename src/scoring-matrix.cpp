@@ -97,8 +97,12 @@ msa::Params::Params(po::variables_map& vm, char type) {
     }
     float defaultScale = (type == 'n') ? 20.0f : 600.0f;
     float targetScore = vm.count("scale") ? vm["scale"].as<float>() : defaultScale;
-    float userLocalGOP = vm.count("local-gap-open") ? vm["local-gap-open"].as<float>() : -2.00f;
-    float userLocalGEP = vm.count("local-gap-extend") ? vm["local-gap-extend"].as<float>() : -0.10f;
+    // Hardcoded MAFFT-aligned local alignment defaults (laof=0.1; DNA uses 3x gap scaling like MAFFT constants.c)
+    float defaultLocalGOP = (type == 'n') ? -6.00f : -2.00f;
+    float defaultLocalGEP = (type == 'n') ? -0.30f : -0.10f;
+    float userLocalGOP = vm.count("local-gap-open") ? vm["local-gap-open"].as<float>() : defaultLocalGOP;
+    float userLocalGEP = vm.count("local-gap-extend") ? vm["local-gap-extend"].as<float>() : defaultLocalGEP;
+    float userLocalOffset = 0.10f;
     if (userLocalGOP > 0 || userLocalGEP > 0) {
         std::cerr << "ERROR: Local gap penalties must be less than or equal to 0.\n";
         exit(1);
@@ -107,14 +111,18 @@ msa::Params::Params(po::variables_map& vm, char type) {
     this->gapOpen = userGOP * targetScore;
     this->gapExtend = userGEP * targetScore;
     this->gapBoundary = userGBoundary * targetScore;
+    this->localOffset = userLocalOffset * targetScore;
     this->localGapOpen = userLocalGOP * targetScore;
     this->localGapExtend = userLocalGEP * targetScore;
+    this->localMinScore = 2.0f * targetScore;
     this->gapTerminal = 0.0f;
     this->xdrop =  (this->gapExtend == 0) ? xdrop : -1*xdrop*this->gapExtend;
 
     this->matrixSize = (type == 'n') ? 5 : 21;
     this->scoringMatrix = new float* [this->matrixSize];
     for (int i = 0; i < this->matrixSize; ++i) this->scoringMatrix[i] = new float[this->matrixSize];
+    this->localScoringMatrix = new float* [this->matrixSize];
+    for (int i = 0; i < this->matrixSize; ++i) this->localScoringMatrix[i] = new float[this->matrixSize];
         
     int blosumType = vm["blosum"].as<int>();
     if (!userDefine) {
@@ -228,6 +236,31 @@ msa::Params::Params(po::variables_map& vm, char type) {
     }
     if (!userDefine) this->normalizeScoringMatrix(targetScore, this->offset);
 
+    // Build dedicated local alignment substitution matrix (MAFFT DNA200(2) for DNA, normalized + localOffset)
+    if (type == 'n' && !userDefine) {
+        // Hardcoded MAFFT DNA200 (kimuraR=2) normalized ratios: match=1.0, transition=+0.214135, transversion=-0.607068
+        for (int i = 0; i < 5; ++i) {
+            for (int j = 0; j < 5; ++j) {
+                if (i == 4 || j == 4)        this->localScoringMatrix[i][j] = 0.0f;
+                else if (i == j)             this->localScoringMatrix[i][j] = 1.0f;
+                else if (std::abs(i-j) == 2) this->localScoringMatrix[i][j] = 0.21413506f;
+                else                         this->localScoringMatrix[i][j] = -0.60706753f;
+            }
+        }
+        this->normalizeMatrix(this->localScoringMatrix, targetScore, this->localOffset);
+    } else {
+        int standardSize = this->matrixSize - 1;
+        for (int i = 0; i < this->matrixSize; ++i) {
+            for (int j = 0; j < this->matrixSize; ++j) {
+                if (i < standardSize && j < standardSize) {
+                    this->localScoringMatrix[i][j] = this->scoringMatrix[i][j] - this->localOffset;
+                } else {
+                    this->localScoringMatrix[i][j] = 0.0f;
+                }
+            }
+        }
+    }
+
     std::map<char, int> letterMap;
     if (type == 'n') {
         letterMap = {{'A', 0}, {'C', 1}, {'G', 2}, {'T', 3}, {'U', 3}, {'-', 5}};
@@ -271,11 +304,18 @@ msa::Params::Params(po::variables_map& vm, char type) {
                   << "Gap-Extend:     " << this->gapExtend << " (normalized: " << userGEP << ")\n"
                   << "Gap-Terminal:   " << this->gapTerminal << "\n"
                   << "Offset:         " << this->offset << " (normalized: " << userOffset << ")\n"
+                  << "Local-Gap-Open: " << this->localGapOpen << " (normalized: " << userLocalGOP << ")\n"
+                  << "Local-Gap-Ext:  " << this->localGapExtend << " (normalized: " << userLocalGEP << ")\n"
+                  << "Local-Offset:   " << this->localOffset << " (normalized: " << userLocalOffset << ")\n"
                   << "Xdrop:          " << this->xdrop << '\n';
     }
 }
 
 void msa::Params::normalizeScoringMatrix(float targetScore, float offset) {
+    this->normalizeMatrix(this->scoringMatrix, targetScore, offset);
+}
+
+void msa::Params::normalizeMatrix(float** matrix, float targetScore, float offsetVal) {
     
     int standardSize = matrixSize - 1; 
     std::vector<float> freq(standardSize, 0.0f);
@@ -297,34 +337,34 @@ void msa::Params::normalizeScoringMatrix(float targetScore, float offset) {
     float bg_average = 0.0f;
     for (int i = 0; i < standardSize; ++i) {
         for (int j = 0; j < standardSize; ++j) {
-            bg_average += scoringMatrix[i][j] * freq[i] * freq[j];
+            bg_average += matrix[i][j] * freq[i] * freq[j];
         }
     }
 
     for (int i = 0; i < standardSize; ++i) {
         for (int j = 0; j < standardSize; ++j) {
-            scoringMatrix[i][j] -= bg_average;
+            matrix[i][j] -= bg_average;
         }
     }
 
     // Step 2: Rescaling to targetScore (60-scale / 20-scale) on diagonal average
     float id_average = 0.0f;
     for (int i = 0; i < standardSize; ++i) {
-        id_average += scoringMatrix[i][i] * freq[i];
+        id_average += matrix[i][i] * freq[i];
     }
 
     float scale = (id_average != 0.0f) ? (targetScore / id_average) : 1.0f;
     for (int i = 0; i < standardSize; ++i) {
         for (int j = 0; j < standardSize; ++j) {
-            scoringMatrix[i][j] *= scale;
+            matrix[i][j] *= scale;
         }
     }
 
     // Step 3: Offset subtraction on standard alphabet
-    if (offset != 0.0f) {
+    if (offsetVal != 0.0f) {
         for (int i = 0; i < standardSize; ++i) {
             for (int j = 0; j < standardSize; ++j) {
-                scoringMatrix[i][j] -= offset;
+                matrix[i][j] -= offsetVal;
             }
         }
     }
@@ -332,12 +372,16 @@ void msa::Params::normalizeScoringMatrix(float targetScore, float offset) {
     // Step 4: Wildcard/ambiguous character reset to strictly 0.0
     int wildcardIdx = matrixSize - 1;
     for (int i = 0; i < matrixSize; ++i) {
-        scoringMatrix[i][wildcardIdx] = 0.0f;
-        scoringMatrix[wildcardIdx][i] = 0.0f;
+        matrix[i][wildcardIdx] = 0.0f;
+        matrix[wildcardIdx][i] = 0.0f;
     }
 }
 
 msa::Params::~Params() {
-    for (int i = 0; i < this->matrixSize; ++i) delete[] this->scoringMatrix[i];
-    delete [] scoringMatrix;
+    for (int i = 0; i < this->matrixSize; ++i) {
+        delete[] this->scoringMatrix[i];
+        delete[] this->localScoringMatrix[i];
+    }
+    delete[] scoringMatrix;
+    delete[] localScoringMatrix;
 }

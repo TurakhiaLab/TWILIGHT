@@ -19,10 +19,10 @@ namespace accurate {
     struct Aligner
     {
         // Reusable DP scratchpad buffers to eliminate per-pair heap allocations
-        std::vector<int> score_0;
-        std::vector<int> score_1;
-        std::vector<int> score_2;
-        std::vector<int> E_buf;
+        std::vector<float> score_0;
+        std::vector<float> score_1;
+        std::vector<float> score_2;
+        std::vector<float> E_buf;
         std::vector<uint8_t> tb_buf;
         std::vector<int> qry_idx_buf;
         std::vector<AlignedResiduePair> aligned_pairs_buf;

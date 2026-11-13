@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdint>
 
 namespace msa {
@@ -246,9 +247,9 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
     msa::Params& params,
     int bandWidth)
 {
-    const int gOpen = static_cast<int>(params.localGapOpen);
-    const int gExt  = static_cast<int>(params.localGapExtend);
-    const int MIN_INF = -100000000;
+    const float gOpen = params.localGapOpen;
+    const float gExt  = params.localGapExtend;
+    const float MIN_INF = -1e9f;
 
     const int totalRef = static_cast<int>(reference.size());
     const int totalQry = static_cast<int>(query.size());
@@ -270,13 +271,13 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
     if (tb_buf.size() < tbSize) tb_buf.resize(tbSize);
 
     // Initialize DP state arrays
-    std::fill_n(score_0.data(), qrySize, 0);
-    std::fill_n(score_1.data(), qrySize, 0);
-    std::fill_n(score_2.data(), qrySize, 0);
+    std::fill_n(score_0.data(), qrySize, 0.0f);
+    std::fill_n(score_1.data(), qrySize, 0.0f);
+    std::fill_n(score_2.data(), qrySize, 0.0f);
     std::fill_n(E_buf.data(), qrySize, MIN_INF);
 
-    int* scoreRows[3] = { score_0.data(), score_1.data(), score_2.data() };
-    int* E = E_buf.data();
+    float* scoreRows[3] = { score_0.data(), score_1.data(), score_2.data() };
+    float* E = E_buf.data();
     uint8_t* traceback = tb_buf.data();
 
     // Precompute query residue indices
@@ -285,7 +286,7 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
     }
     const int* qryIndices = qry_idx_buf.data();
 
-    int max_score = 0;
+    float max_score = 0.0f;
     int max_i = 0;
     int max_j = 0;
 
@@ -296,8 +297,8 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
     for (int i = 1; i <= totalRef; ++i) {
         int curr = i % 3;
         int prev = (i - 1 + 3) % 3;
-        int* score_curr = scoreRows[curr];
-        int* score_prev = scoreRows[prev];
+        float* score_curr = scoreRows[curr];
+        float* score_prev = scoreRows[prev];
 
         // Slanted center tracking along the main diagonal
         int j_center = static_cast<int>((static_cast<int64_t>(i) * totalQry) / totalRef);
@@ -305,30 +306,30 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
         int j_max = std::min(totalQry, j_center + halfBand);
 
         // Sanitize score_curr: zero out boundary cells
-        score_curr[0] = 0;
-        if (j_min > 0) score_curr[j_min - 1] = 0;
+        score_curr[0] = 0.0f;
+        if (j_min > 0) score_curr[j_min - 1] = 0.0f;
 
         // Clean up E and score_prev for indices that fell out of the active band
         if (j_min > prev_j_min) {
             for (int k = prev_j_min; k < j_min; ++k) {
                 E[k] = MIN_INF;
-                score_prev[k] = 0;
+                score_prev[k] = 0.0f;
             }
         }
         if (prev_j_max + 1 <= totalQry) {
-            score_prev[prev_j_max + 1] = 0;
+            score_prev[prev_j_max + 1] = 0.0f;
         }
 
         int refIdx = letterIdx(type, reference[i - 1]);
-        const float* scoreRow = params.scoringMatrix[refIdx];
+        const float* scoreRow = params.localScoringMatrix[refIdx];
         size_t rowOffset = static_cast<size_t>(i) * pitch;
 
-        int F_val = MIN_INF;
+        float F_val = MIN_INF;
         for (int j = j_min; j <= j_max; ++j) {
             uint8_t tb = 0;
 
-            int e_open = score_prev[j] + gOpen; 
-            int e_ext  = E[j] + gExt;
+            float e_open = score_prev[j] + gOpen; 
+            float e_ext  = E[j] + gExt;
             if (e_open >= e_ext) {
                 E[j] = e_open;
             } else {
@@ -336,8 +337,8 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
                 tb |= 0x04;
             }
 
-            int f_open = score_curr[j - 1] + gOpen;
-            int f_ext  = F_val + gExt;
+            float f_open = score_curr[j - 1] + gOpen;
+            float f_ext  = F_val + gExt;
             if (f_open >= f_ext) {
                 F_val = f_open;
             } else {
@@ -345,10 +346,10 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
                 tb |= 0x08;
             }
 
-            int match = static_cast<int>(scoreRow[qryIndices[j - 1]]);
-            int diag = score_prev[j - 1] + match;
+            float match = scoreRow[qryIndices[j - 1]];
+            float diag = score_prev[j - 1] + match;
 
-            int best = 0; 
+            float best = 0.0f; 
             uint8_t h_src = 0;
 
             if (diag > best) { best = diag; h_src = 1; }
@@ -367,7 +368,7 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
         }
 
         if (j_max + 1 <= totalQry) {
-            score_curr[j_max + 1] = 0;
+            score_curr[j_max + 1] = 0.0f;
             E[j_max + 1] = MIN_INF;
         }
 
@@ -375,8 +376,8 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
         prev_j_max = j_max;
     }
 
-    result.score = max_score;
-    if (max_score <= 0) {
+    result.score = static_cast<int>(std::lround(max_score));
+    if (max_score <= 0.0f || max_score < params.localMinScore) {
         return result;
     }
 
@@ -434,18 +435,23 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
         const char qry_c = static_cast<char>(std::toupper(static_cast<unsigned char>(query[alignedPair.second])));
         if (ref_c == qry_c) ++identicalPairs;
     }
-    // Compute ungapped substitution score sum across aligned pairs (MAFFT-compatible)
-    int sum_subst_score = 0;
+    result.identity = static_cast<float>(identicalPairs) / static_cast<float>(pair_idx_buf.size());
+
+    // Compute ungapped substitution score sum across aligned pairs using localScoringMatrix
+    float sum_subst_score = 0.0f;
     for (const auto& p : pair_idx_buf) {
         int refIdx = letterIdx(type, reference[p.first]);
         int qryIdx = letterIdx(type, query[p.second]);
-        sum_subst_score += static_cast<int>(params.scoringMatrix[refIdx][qryIdx]);
+        sum_subst_score += params.localScoringMatrix[refIdx][qryIdx];
     }
 
     // Normalize pairwise substitution score by overlap length to obtain average per-residue score
     const float normOptScore = (!pair_idx_buf.empty()) 
-        ? (static_cast<float>(sum_subst_score) / static_cast<float>(pair_idx_buf.size())) 
+        ? (sum_subst_score / static_cast<float>(pair_idx_buf.size())) 
         : 0.0f;
+    if (normOptScore <= 0.0f) {
+        return result;
+    }
 
     // Decompose contiguous match pairs into ungapped segments (putlocalhom2 equivalent)
     int segStart1 = pair_idx_buf[0].first;
@@ -491,9 +497,9 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments_banded(
 
 AlignmentResult Aligner::align_affine_local (const std::string& reference, const std::string& query, char type, msa::Params& params)
 {
-    const int gOpen = static_cast<int>(params.gapOpen);
-    const int gExt  = static_cast<int>(params.gapExtend);
-    const int MIN_INF = -100000000; 
+    const float gOpen = params.localGapOpen;
+    const float gExt  = params.localGapExtend;
+    const float MIN_INF = -1e9f; 
 
     const int totalRef = static_cast<int>(reference.size());
     const int totalQry = static_cast<int>(query.size());
@@ -515,11 +521,11 @@ AlignmentResult Aligner::align_affine_local (const std::string& reference, const
     if (tb_buf.size() < tbSize) tb_buf.resize(tbSize);
 
     // Fast O(totalQry) boundary initialization (no memset on tb_buf!)
-    std::fill_n(score_0.data(), qrySize, 0);
+    std::fill_n(score_0.data(), qrySize, 0.0f);
     std::fill_n(E_buf.data(), qrySize, MIN_INF);
 
-    int* scoreRows[3] = { score_0.data(), score_1.data(), score_2.data() };
-    int* E = E_buf.data();
+    float* scoreRows[3] = { score_0.data(), score_1.data(), score_2.data() };
+    float* E = E_buf.data();
     uint8_t* traceback = tb_buf.data();
 
     // Precompute query residue indices
@@ -528,7 +534,7 @@ AlignmentResult Aligner::align_affine_local (const std::string& reference, const
     }
     const int* qryIndices = qry_idx_buf.data();
 
-    int max_score = 0;
+    float max_score = 0.0f;
     int max_i = 0;
     int max_j = 0;
 
@@ -536,21 +542,21 @@ AlignmentResult Aligner::align_affine_local (const std::string& reference, const
     for (int i = 1; i <= totalRef; ++i) {
         int curr = i % 3;
         int prev = (i - 1 + 3) % 3;
-        int* score_curr = scoreRows[curr];
-        const int* score_prev = scoreRows[prev];
-        score_curr[0] = 0;
+        float* score_curr = scoreRows[curr];
+        const float* score_prev = scoreRows[prev];
+        score_curr[0] = 0.0f;
 
         int refIdx = letterIdx(type, reference[i - 1]);
-        const float* scoreRow = params.scoringMatrix[refIdx];
+        const float* scoreRow = params.localScoringMatrix[refIdx];
         size_t rowOffset = static_cast<size_t>(i) * pitch;
 
-        int F_val = MIN_INF;
+        float F_val = MIN_INF;
         for (int j = 1; j <= totalQry; ++j) {
             uint8_t tb = 0;
 
             // Up (E state - delete in query)
-            int e_open = score_prev[j] + gOpen; 
-            int e_ext  = E[j] + gExt;
+            float e_open = score_prev[j] + gOpen; 
+            float e_ext  = E[j] + gExt;
             if (e_open >= e_ext) {
                 E[j] = e_open;
             } else {
@@ -559,8 +565,8 @@ AlignmentResult Aligner::align_affine_local (const std::string& reference, const
             }
 
             // Left (F state - insert in query)
-            int f_open = score_curr[j - 1] + gOpen;
-            int f_ext  = F_val + gExt;
+            float f_open = score_curr[j - 1] + gOpen;
+            float f_ext  = F_val + gExt;
             if (f_open >= f_ext) {
                 F_val = f_open;
             } else {
@@ -569,11 +575,11 @@ AlignmentResult Aligner::align_affine_local (const std::string& reference, const
             }
 
             // Diagonal (Match / Mismatch)
-            int match = static_cast<int>(scoreRow[qryIndices[j - 1]]);
-            int diag = score_prev[j - 1] + match;
+            float match = scoreRow[qryIndices[j - 1]];
+            float diag = score_prev[j - 1] + match;
 
             // Local alignment score floor is 0
-            int best = 0; 
+            float best = 0.0f; 
             uint8_t h_src = 0;
 
             if (diag > best) { best = diag; h_src = 1; }
@@ -592,8 +598,8 @@ AlignmentResult Aligner::align_affine_local (const std::string& reference, const
         }
     }
 
-    result.score = max_score;
-    if (max_score <= 0) {
+    result.score = static_cast<int>(std::lround(max_score));
+    if (max_score <= 0.0f || max_score < params.localMinScore) {
         return result;
     }
 
@@ -652,9 +658,9 @@ AlignmentResult Aligner::align_affine_local (const std::string& reference, const
 
 LocalHomTable::PairResult Aligner::align_affine_local_segments(const std::string& reference, const std::string& query, char type, msa::Params& params)
 {
-    const int gOpen = static_cast<int>(params.localGapOpen);
-    const int gExt  = static_cast<int>(params.localGapExtend);
-    const int MIN_INF = -100000000; 
+    const float gOpen = params.localGapOpen;
+    const float gExt  = params.localGapExtend;
+    const float MIN_INF = -1e9f; 
 
     const int totalRef = static_cast<int>(reference.size());
     const int totalQry = static_cast<int>(query.size());
@@ -676,11 +682,11 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments(const std::string
     if (tb_buf.size() < tbSize) tb_buf.resize(tbSize);
 
     // Fast O(totalQry) boundary initialization (no memset on tb_buf!)
-    std::fill_n(score_0.data(), qrySize, 0);
+    std::fill_n(score_0.data(), qrySize, 0.0f);
     std::fill_n(E_buf.data(), qrySize, MIN_INF);
 
-    int* scoreRows[3] = { score_0.data(), score_1.data(), score_2.data() };
-    int* E = E_buf.data();
+    float* scoreRows[3] = { score_0.data(), score_1.data(), score_2.data() };
+    float* E = E_buf.data();
     uint8_t* traceback = tb_buf.data();
 
     // Precompute query residue indices
@@ -689,27 +695,27 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments(const std::string
     }
     const int* qryIndices = qry_idx_buf.data();
 
-    int max_score = 0;
+    float max_score = 0.0f;
     int max_i = 0;
     int max_j = 0;
 
     for (int i = 1; i <= totalRef; ++i) {
         int curr = i % 3;
         int prev = (i - 1 + 3) % 3;
-        int* score_curr = scoreRows[curr];
-        const int* score_prev = scoreRows[prev];
-        score_curr[0] = 0;
+        float* score_curr = scoreRows[curr];
+        const float* score_prev = scoreRows[prev];
+        score_curr[0] = 0.0f;
 
         int refIdx = letterIdx(type, reference[i - 1]);
-        const float* scoreRow = params.scoringMatrix[refIdx];
+        const float* scoreRow = params.localScoringMatrix[refIdx];
         size_t rowOffset = static_cast<size_t>(i) * pitch;
 
-        int F_val = MIN_INF;
+        float F_val = MIN_INF;
         for (int j = 1; j <= totalQry; ++j) {
             uint8_t tb = 0;
 
-            int e_open = score_prev[j] + gOpen; 
-            int e_ext  = E[j] + gExt;
+            float e_open = score_prev[j] + gOpen; 
+            float e_ext  = E[j] + gExt;
             if (e_open >= e_ext) {
                 E[j] = e_open;
             } else {
@@ -717,8 +723,8 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments(const std::string
                 tb |= 0x04;
             }
 
-            int f_open = score_curr[j - 1] + gOpen;
-            int f_ext  = F_val + gExt;
+            float f_open = score_curr[j - 1] + gOpen;
+            float f_ext  = F_val + gExt;
             if (f_open >= f_ext) {
                 F_val = f_open;
             } else {
@@ -726,10 +732,10 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments(const std::string
                 tb |= 0x08;
             }
 
-            int match = static_cast<int>(scoreRow[qryIndices[j - 1]]);
-            int diag = score_prev[j - 1] + match;
+            float match = scoreRow[qryIndices[j - 1]];
+            float diag = score_prev[j - 1] + match;
 
-            int best = 0; 
+            float best = 0.0f; 
             uint8_t h_src = 0;
 
             if (diag > best) { best = diag; h_src = 1; }
@@ -748,8 +754,8 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments(const std::string
         }
     }
 
-    result.score = max_score;
-    if (max_score <= 0) {
+    result.score = static_cast<int>(std::lround(max_score));
+    if (max_score <= 0.0f || max_score < params.localMinScore) {
         return result;
     }
 
@@ -844,18 +850,21 @@ LocalHomTable::PairResult Aligner::align_affine_local_segments(const std::string
         result.segments.push_back(lastSeg);
     };
 
-    // Calculate sum of substitution scores for aligned ungapped residue pairs (MAFFT-compatible)
-    int sum_subst_score = 0;
+    // Calculate sum of substitution scores for aligned ungapped residue pairs using localScoringMatrix
+    float sum_subst_score = 0.0f;
     for (const auto& p : pair_idx_buf) {
         int refIdx = letterIdx(type, reference[p.first]);
         int qryIdx = letterIdx(type, query[p.second]);
-        sum_subst_score += static_cast<int>(params.scoringMatrix[refIdx][qryIdx]);
+        sum_subst_score += params.localScoringMatrix[refIdx][qryIdx];
     }
 
     // Normalize primary pairwise score by overlap length (ungapped average match score)
     const float primaryNormOpt = (!pair_idx_buf.empty())
-        ? (static_cast<float>(sum_subst_score) / static_cast<float>(pair_idx_buf.size()))
+        ? (sum_subst_score / static_cast<float>(pair_idx_buf.size()))
         : 0.0f;
+    if (primaryNormOpt <= 0.0f) {
+        return result;
+    }
     appendSegmentsFromPairs(pair_idx_buf, primaryNormOpt);
 
     return result;
