@@ -160,6 +160,16 @@ msa::Option::Option(po::variables_map& vm) {
         }
     }
 
+    // Parse refine-subtree options
+    this->refineSubtree = vm.count("refine-subtree") > 0;
+    this->refineMethod = (vm.count("refine-method")) ? vm["refine-method"].as<std::string>() : "upgma";
+    std::transform(this->refineMethod.begin(), this->refineMethod.end(), this->refineMethod.begin(), ::tolower);
+    if (this->refineMethod != "upgma" && this->refineMethod != "nj") {
+        std::cerr << "ERROR: Invalid value for --refine-method: \"" << this->refineMethod 
+                  << "\". Valid options are: \"upgma\" or \"nj\".\n";
+        exit(1);
+    }
+
     // Initialize with 0 sequences first (will be dynamically resolved per dataset / subtree)
     this->resolveAccurateParams(0);
 
@@ -253,6 +263,28 @@ msa::Option::Option(po::variables_map& vm) {
         exit(1);
     }
     this->outFile = vm["output"].as<std::string>();
+
+    // Parse score options
+    if (vm.count("score")) {
+        this->scoreMode = vm["score"].as<int>();
+        if (this->scoreMode != 1 && this->scoreMode != 2) {
+            std::cerr << "ERROR: Invalid value for --score: " << this->scoreMode 
+                      << ". Valid options are 1 (Consistency objective score) or 2 (WSP).\n";
+            exit(1);
+        }
+    } else if (vm.count("score-file")) {
+        this->scoreMode = 1; // Default to consistency score if score-file is given but not score
+    } else {
+        this->scoreMode = 0; // Disabled by default
+    }
+
+    if (vm.count("score-file")) {
+        this->scoreFile = vm["score-file"].as<std::string>();
+    } else if (this->scoreMode > 0) {
+        this->scoreFile = this->outFile + ".score";
+    } else {
+        this->scoreFile = "";
+    }
     if (!vm.count("overwrite")) {
         std::string outFileStr = (this->compressed) ? this->outFile + ".gz" : this->outFile;
         if (fs::exists(outFileStr)) {

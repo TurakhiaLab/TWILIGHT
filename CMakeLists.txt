@@ -75,6 +75,8 @@ if(USE_CUDA)
 					  src/consistency-library.cpp
 					  src/accurate-kernel.cpp
 					  src/accurate-plan.cpp
+					  src/subtree-refine.cpp
+					  src/score.cpp
 					  src/TALCO-XDrop.cpp
 		)
 	else()
@@ -112,6 +114,8 @@ elseif(USE_HIP)
 					  src/consistency-library.cpp
 					  src/accurate-kernel.cpp
 					  src/accurate-plan.cpp
+					  src/subtree-refine.cpp
+					  src/score.cpp
 					  src/TALCO-XDrop.cpp
 	    )	
 	else()
@@ -163,6 +167,8 @@ else()
 					      src/consistency-library.cpp
 					      src/accurate-kernel.cpp
 					      src/accurate-plan.cpp
+					      src/subtree-refine.cpp
+					      src/score.cpp
 					      src/TALCO-XDrop.cpp
 			)
 		else()
@@ -199,6 +205,8 @@ else()
 					      src/consistency-library.cpp
 					      src/accurate-kernel.cpp
 					      src/accurate-plan.cpp
+					      src/subtree-refine.cpp
+					      src/score.cpp
 					      src/TALCO-XDrop.cpp
 	    	)
 		else()
@@ -223,6 +231,8 @@ else()
 					      src/consistency-library.cpp
 					      src/accurate-kernel.cpp
 					      src/accurate-plan.cpp
+					      src/subtree-refine.cpp
+					      src/score.cpp
 					      src/TALCO-XDrop.cpp
 		    )	
 		endif()

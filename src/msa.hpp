@@ -339,7 +339,7 @@ namespace msa
         std::vector<std::vector<float>> buildConsistencyTable( const ColumnProvenance& refProvenance, const ColumnProvenance& qryProvenance, msa::accurate::SubtreeAccurateState& accurateState);    
         std::shared_ptr<msa::accurate::SubtreeAccurateState> buildSubtreeAccurateState(SequenceDB* database, Option* option, Tree* tree, int subtreeIdx, Params& params);
         std::vector<int> gatherClustersFromTree(Node* node, SequenceDB* database, std::size_t targetSize, std::vector<std::vector<int>>& clusters);
-        void msaOnSubtree_accurate(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel = nullptr, int subtree = -1);
+        void msaOnSubtree_accurate(Tree *&T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel = nullptr, int subtree = -1);
         void mergeSubtreesAccurate(Tree* subRoot_T, SequenceDB* database, Option* option, Params& param);
 
         struct Representative {
@@ -481,7 +481,7 @@ namespace msa
         );
         void msaOnGroup_accurate(
             HierarchyGroup& group,
-            Tree* T,
+            Tree*& T,
             SequenceDB* database,
             Option* option,
             Params& param,
@@ -575,7 +575,12 @@ namespace msa
         int userAccMaxGroup;
         float userAccSampleRate;
         float userAccSampleTop;
+        bool refineSubtree;
+        std::string refineMethod; // "upgma" (default) or "nj"
         void resolveAccurateParams(int numSeqs);
+        // Scoring Options
+        int scoreMode; // 0: disabled, 1: consistency objective score, 2: WSP
+        std::string scoreFile;
         // -------
         // File Names
         std::string treeFile;
@@ -683,7 +688,7 @@ namespace msa
         void writeAlignment(std::string fileName, stringPairVec& seqs, bool compressed, bool append);
         int update_and_writeAlignment(SequenceDB* database, Option* option, std::string fileName, int subtreeIdx);
         void update_and_writeAlignments(SequenceDB* database, Option* option, int& totalSeqs);
-        void writeFinalMSA(SequenceDB* database, Option* option, int alnLen);
+        void writeFinalMSA(SequenceDB* database, Option* option, int alnLen, const Params* param = nullptr);
     }
 
     // Profile indexing constants for alignment scoring and gap penalty offsets

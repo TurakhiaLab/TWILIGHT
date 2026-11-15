@@ -28,7 +28,9 @@ void parseArguments(int argc, char** argv)
         ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files.")
         ("keep-temp,k", "Keep the temporary directory.")
         ("compress,c", "Write output files in compressed (.gz) format")
-        ("overwrite", "Force overwriting the output file.");
+        ("overwrite", "Force overwriting the output file.")
+        ("score", po::value<int>()->implicit_value(1), "Compute alignment score: 1: Consistency objective score (default), 2: WSP (Weighted Profile Sum-of-Pairs).")
+        ("score-file", po::value<std::string>(), "Output file path for score. Default: <output-file>.score.");
 
     // Section: Hardware
     po::options_description hardwareDesc("Hardware Usage");
@@ -81,7 +83,9 @@ void parseArguments(int argc, char** argv)
         ("sample-rate", po::value<float>(), "Sample rate for hierarchical consistency representative selection (must be >0, <1).")
         ("sample-top-centrality", po::value<float>(), "Fraction of representative quota to select by highest centrality before column coverage (must be >0, <=1).")
         ("sample-max-group", po::value<int>(), "Maximum number of sequences in a consistency group. Controls all-to-all pairwise complexity.")
-        ("consistency-weight", po::value<float>()->default_value(5.0f), "Weight multiplier for consistency bonus in accurate mode (default: 5.0).");
+        ("consistency-weight", po::value<float>()->default_value(5.0f), "Weight multiplier for consistency bonus in accurate mode (default: 5.0).")
+        ("refine-subtree", "Reconstruct/refine Layer 1 guide subtrees using pairwise local alignment distances.")
+        ("refine-method", po::value<std::string>()->default_value("upgma"), "Subtree refinement algorithm: \"upgma\" (default) or \"nj\".");
 
     po::options_description generalDesc("General");
     generalDesc.add_options()
@@ -184,7 +188,7 @@ int main(int argc, char** argv) {
             else {
                 // Output final alignment
                 auto outStart = std::chrono::high_resolution_clock::now();
-                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask));
+                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask), param);
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -210,7 +214,7 @@ int main(int argc, char** argv) {
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
             msa::io::update_and_writeAlignments(database, option, totalSeqs);
-            msa::io::writeFinalMSA(database, option, subRoot_T->root->getAlnLen(database->currentTask));
+            msa::io::writeFinalMSA(database, option, subRoot_T->root->getAlnLen(database->currentTask), param);
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -228,7 +232,7 @@ int main(int argc, char** argv) {
         int totalSeqs = 0;
         auto outStart = std::chrono::high_resolution_clock::now();
         msa::io::update_and_writeAlignments(database, option, totalSeqs);
-        msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask));
+        msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask), param);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -257,7 +261,7 @@ int main(int argc, char** argv) {
         boost::filesystem::path seqPath(option->seqFile);
         std::string placedSeqFile = option->tempDir + "/" + seqPath.stem().string() + ".final.aln";
         msa::io::writeAlignment(placedSeqFile, database, T->root->getAlnLen(database->currentTask), option->compressed);
-        msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask));
+        msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask), param);
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -307,7 +311,7 @@ int main(int argc, char** argv) {
             else {
                 // Output final alignment
                 auto outStart = std::chrono::high_resolution_clock::now();
-                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask));
+                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask), param);
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -330,7 +334,7 @@ int main(int argc, char** argv) {
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
             msa::io::update_and_writeAlignments(database, option, totalSeqs);
-            msa::io::writeFinalMSA(database, option, subRoot_T->root->getAlnLen(database->currentTask));
+            msa::io::writeFinalMSA(database, option, subRoot_T->root->getAlnLen(database->currentTask), param);
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;

@@ -1,5 +1,6 @@
 #include "msa.hpp"
 #include "align-method.hpp"
+#include "subtree-refine.hpp"
 
 #include <iostream>
 #include <iomanip>
@@ -16,7 +17,7 @@
 namespace msa {
 namespace accurate {
 
-void msaOnSubtree_accurate(Tree *T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree) {
+void msaOnSubtree_accurate(Tree *&T, SequenceDB *database, Option *option, Params &param, alnFunction alignmentKernel, int subtree) {
     if (!alignmentKernel) {
         alignmentKernel = [](Tree* t, NodePairVec& n, SequenceDB* d, Option* o, Params& p) {
             msa::accurate::alignmentKernel_Accurate_CPU(t, n, d, o, p);
@@ -93,7 +94,7 @@ void msaOnSubtree_accurate(Tree *T, SequenceDB *database, Option *option, Params
 // -----------------------------------------------------------------------------
 void msaOnGroup_accurate(
     HierarchyGroup& group,
-    Tree* T,
+    Tree*& T,
     SequenceDB* database,
     Option* option,
     Params& param,
@@ -106,6 +107,11 @@ void msaOnGroup_accurate(
 
     // 2. Build consistency score library & calculate centrality scores
     std::vector<float> centralityScores = buildGroupConsistencyLibrary(group, localHomTable, T, database, option, param);
+
+    // 2.5 Refine Layer 1 guide subtree if requested
+    if (option->refineSubtree && group.layer == 1 && localHomTable && localHomTable->getNumSeqs() > 1) {
+        T = refineGroupSubtreeFromHomTable(group, *localHomTable, T, database, option, param);
+    }
 
     // 3. Progressive alignment with consistency score
     progressiveAlignGroupWithConsistency(group, localHomTable, T, database, option, param, alignmentKernel, subrootProvenance);
@@ -266,7 +272,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                 }
             } else {
                 auto outStart = std::chrono::high_resolution_clock::now();
-                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask));
+                msa::io::writeFinalMSA(database, option, subT->root->getAlnLen(database->currentTask), &param);
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -348,6 +354,26 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto phase1Ms = std::chrono::duration_cast<std::chrono::milliseconds>(phase1End - phase1Start).count();
             if (option->printDetail) {
                 std::cerr << "Consistency library built on " << batchContexts.size() << " groups in " << phase1Ms << " ms\n";
+            }
+
+            // Phase 1.5: Optional Layer 1 Subtree Refinement using pairwise distances from localHomTable
+            if (option->refineSubtree) {
+                auto refineStart = std::chrono::high_resolution_clock::now();
+                tbb::this_task_arena::isolate([&] {
+                    tbb::parallel_for(tbb::blocked_range<size_t>(0, batchContexts.size()), [&](const tbb::blocked_range<size_t>& r) {
+                        for (size_t i = r.begin(); i < r.end(); ++i) {
+                            auto& ctx = batchContexts[i];
+                            if (ctx.localHomTable && ctx.localHomTable->getNumSeqs() > 1) {
+                                ctx.subT = refineGroupSubtreeFromHomTable(*ctx.group, *ctx.localHomTable, ctx.subT, database, option, param);
+                            }
+                        }
+                    });
+                });
+                auto refineEnd = std::chrono::high_resolution_clock::now();
+                auto refineMs = std::chrono::duration_cast<std::chrono::milliseconds>(refineEnd - refineStart).count();
+                if (option->printDetail) {
+                    std::cerr << "Layer 1 subtree refinement on " << batchContexts.size() << " groups in " << refineMs << " ms\n";
+                }
             }
 
             // Phase 2: Group-Level Parallel Progressive Alignment
@@ -494,7 +520,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                 } else {
                     // Single tree alignment finished
                     auto outStart = std::chrono::high_resolution_clock::now();
-                    msa::io::writeFinalMSA(database, option, ctx.subT->root->getAlnLen(database->currentTask));
+                    msa::io::writeFinalMSA(database, option, ctx.subT->root->getAlnLen(database->currentTask), &param);
                     auto outEnd = std::chrono::high_resolution_clock::now();
                     std::chrono::nanoseconds outTime = outEnd - outStart;
                     std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -776,7 +802,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
         if (inMemoryMode) {
             database->currentTask = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
-            msa::io::writeFinalMSA(database, option, finalAlnLen);
+            msa::io::writeFinalMSA(database, option, finalAlnLen, &param);
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
@@ -787,7 +813,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             int totalSeqs = 0;
             auto outStart = std::chrono::high_resolution_clock::now();
             msa::io::update_and_writeAlignments(database, option, totalSeqs);
-            msa::io::writeFinalMSA(database, option, finalAlnLen);
+            msa::io::writeFinalMSA(database, option, finalAlnLen, &param);
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;

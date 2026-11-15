@@ -2,6 +2,7 @@
 #include "msa.hpp"
 #endif
 
+#include "score.hpp"
 #include "kseq.h"
 #include <zlib.h>
 #include <boost/filesystem.hpp>
@@ -485,7 +486,7 @@ void msa::io::update_and_writeAlignments(SequenceDB* database, Option* option, i
     return;
 }
 
-void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen) {
+void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen, const Params* param) {
     std::string fileName = option->outFile;
     if (database->currentTask == 2) {
         if (option->compressed) fileName += ".gz";
@@ -494,6 +495,9 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen) {
         if (catResult != 0) {
             if (option->deleteTemp) std::cerr << "ERROR: Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\". Temporary files will not be deleted.\n";
             else                    std::cerr << "ERROR: Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\".\n";
+        }
+        if (option->scoreMode > 0) {
+            msa::score::evaluateAndOutputScore(database, option, param, alnLen);
         }
         if (catResult == 0 && option->deleteTemp) {
             command = "rm -rf " + option->tempDir;
@@ -506,6 +510,9 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen) {
         std::vector<std::pair<std::string,std::string>> seqs;
         std::cerr << "Final Alignment Length: " << alnLen << '\n';
         writeAlignment(fileName, database, alnLen, option->compressed);
+        if (option->scoreMode > 0) {
+            msa::score::evaluateAndOutputScore(database, option, param, alnLen);
+        }
         if (option->deleteTemp && option->tempDir != "") {
             std::string command = "rm -rf " + option->tempDir;
             int delResult = system(command.c_str());

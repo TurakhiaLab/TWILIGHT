@@ -16,6 +16,11 @@
 namespace msa {
 namespace accurate {
 
+namespace {
+// Shared mutex for synchronizing subrootProvenance access across parallel TBB threads
+std::mutex provMutex;
+}
+
 // -----------------------------------------------------------------------------
 // 1. All-to-all pairwise alignment for consistency score
 // -----------------------------------------------------------------------------
@@ -219,7 +224,6 @@ void alignmentKernel_Accurate_CPU(
             // Extract column provenance for reference and query sub-MSAs (hierarchical lookup with fallback)
             auto findProvenance = [&](phylogeny::Node* node) -> accurate::ColumnProvenance {
                 if (!subrootProvenance) return {};
-                static std::mutex provMutex;
                 std::lock_guard<std::mutex> lock(provMutex);
 
                 // 1. Direct match by node identifier
@@ -402,7 +406,6 @@ void alignmentKernel_Accurate_CPU(
                         }
                     }
                     Node* parentNode = nodes[nIdx].first->parent ? nodes[nIdx].first->parent : nodes[nIdx].second->parent;
-                    static std::mutex provMutex;
                     std::lock_guard<std::mutex> lock(provMutex);
                     std::string saveID = parentNode ? parentNode->identifier : nodes[nIdx].first->identifier;
                     (*subrootProvenance)[saveID] = std::move(mergedProv);
