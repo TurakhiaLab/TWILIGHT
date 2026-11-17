@@ -160,8 +160,14 @@ msa::Option::Option(po::variables_map& vm) {
         }
     }
 
-    // Parse refine-subtree options
-    this->refineSubtree = vm.count("refine-subtree") > 0;
+    // Parse refine-subtree options: default ON in accurate mode (-A 2, -A 3), OFF otherwise.
+    if (vm.count("no-refine-subtree")) {
+        this->refineSubtree = false;
+    } else if (this->accurate) {
+        this->refineSubtree = true;
+    } else {
+        this->refineSubtree = false;
+    }
     this->refineMethod = (vm.count("refine-method")) ? vm["refine-method"].as<std::string>() : "upgma";
     std::transform(this->refineMethod.begin(), this->refineMethod.end(), this->refineMethod.begin(), ::tolower);
     if (this->refineMethod != "upgma" && this->refineMethod != "nj") {
@@ -355,6 +361,7 @@ msa::Option::Option(po::variables_map& vm) {
         if (this->hasUserAccSampleRate) std::cerr << ", sample-rate=" << this->userAccSampleRate << " [user]";
         if (this->hasUserAccSampleTop) std::cerr << ", sample-top-centrality=" << this->userAccSampleTop << " [user]";
         std::cerr << ", consistency weight=" << this->consistencyWeight << ")\n";
+        std::cerr << "Layer 1 subtree refinement: " << (this->refineSubtree ? ("enabled (" + this->refineMethod + ")") : "disabled") << "\n";
     } else {
         std::cerr << "Accuracy level: 1 (traditional sum-of-pairs scoring)\n";
     }

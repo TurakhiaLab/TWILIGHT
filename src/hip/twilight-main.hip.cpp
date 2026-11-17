@@ -10,6 +10,7 @@
 #include <hip/hip_runtime.h>
 
 po::options_description mainDesc("TWILIGHT Command Line Arguments", 120);
+po::options_description visibleDesc("TWILIGHT Command Line Arguments", 120);
 
 void parseArguments(int argc, char** argv)
 {
@@ -84,8 +85,12 @@ void parseArguments(int argc, char** argv)
         ("sample-top-centrality", po::value<float>(), "Fraction of representative quota to select by highest centrality before column coverage (must be >0, <=1).")
         ("sample-max-group", po::value<int>(), "Maximum number of sequences in a consistency group. Controls all-to-all pairwise complexity.")
         ("consistency-weight", po::value<float>()->default_value(5.0f), "Weight multiplier for consistency bonus in accurate mode (default: 5.0).")
-        ("refine-subtree", "Reconstruct/refine Layer 1 guide subtrees using pairwise local alignment distances.")
+        ("no-refine-subtree", "Disable Layer 1 guide subtree refinement in accurate mode (enabled by default).")
         ("refine-method", po::value<std::string>()->default_value("upgma"), "Subtree refinement algorithm: \"upgma\" (default) or \"nj\".");
+
+    po::options_description hiddenDesc("Hidden Options");
+    hiddenDesc.add_options()
+        ("refine-subtree", "Legacy option to enable Layer 1 guide subtree refinement (now enabled by default in accurate mode).");
 
     po::options_description generalDesc("General");
     generalDesc.add_options()
@@ -95,7 +100,8 @@ void parseArguments(int argc, char** argv)
         ("version,V", "Show program version.");
 
     // Setup boost::program_options
-    mainDesc.add(inputDesc).add(outputDesc).add(hardwareDesc).add(alignDesc).add(seqFilterDesc).add(scoringDesc).add(accurateDesc).add(generalDesc);
+    visibleDesc.add(inputDesc).add(outputDesc).add(hardwareDesc).add(alignDesc).add(seqFilterDesc).add(scoringDesc).add(accurateDesc).add(generalDesc);
+    mainDesc.add(visibleDesc).add(hiddenDesc);
 }
 
 int main(int argc, char** argv) {
@@ -119,7 +125,7 @@ int main(int argc, char** argv) {
         }
     }
     if(vm.count("help") || argc == 1) {
-        std::cerr << mainDesc << std::endl;
+        std::cerr << visibleDesc << std::endl;
         return 0;
     }
     if(vm.count("version")) {

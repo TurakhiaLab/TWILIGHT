@@ -50,7 +50,6 @@ Parameters:
                            1: Consistency Objective Score (Default, recommended)
                            2: WSP (Weighted Profile Sum-of-Pairs)
   --sample-max-group     Max sequences per consistency group in TWILIGHT (Default: 100).
-  --refine-subtree       Enable Layer 1 guide subtree refinement (Default: True).
   --refine-method        Subtree refinement algorithm: 'upgma' (Default) or 'nj'.
   --twilight-bin         Path to TWILIGHT executable (Default: <repo>/bin/twilight).
   --dipper-bin           Path to DIPPER executable (Default: dipper_cpu).
@@ -76,7 +75,8 @@ def parse_arguments():
         epilog="""
 Disclaimer:
   This iterative script is designed for NUCLEOTIDE sequences (DNA/RNA)
-  because DIPPER currently does not support protein sequence guide trees.
+  because standard DIPPER currently does not support protein sequence guide trees.
+  (Protein hooks are kept commented out for future DIPPER protein releases).
 """
     )
 
@@ -103,18 +103,21 @@ Disclaimer:
 
     # TWILIGHT Alignment Options
     tw_group = parser.add_argument_group("TWILIGHT Alignment Options")
+    # Protein support is commented out until DIPPER upstream officially supports protein trees:
+    # tw_group.add_argument("--data-type", default="auto", choices=["auto", "n", "p"],
+    #                       help="Sequence data type: 'auto' (detect from FASTA, default), 'n' (nucleotide), or 'p' (protein).")
+    tw_group.add_argument("--dipper-kmer", default=None, type=int,
+                          help="K-mer size for DIPPER initial tree (Default: 15 for nucleotide).")
     tw_group.add_argument("-A", "--acc-mode", default=2, type=int, choices=[2, 3],
                           help="TWILIGHT accuracy level: 2 (+ pairwise consistency, default) or 3 (+ transitive consistency).")
     tw_group.add_argument("--score-type", default=1, type=int, choices=[1, 2],
                           help="Convergence scoring objective: 1: Consistency Score (Default, recommended), 2: WSP.")
     tw_group.add_argument("--sample-max-group", default=100, type=int,
                           help="Maximum group size for consistency partitioning in TWILIGHT (Default: 100).")
-    tw_group.add_argument("--refine-subtree", dest="refine_subtree", action="store_true", default=True,
-                          help="Enable Layer 1 guide subtree refinement using pairwise local alignment distances (Default: True).")
-    tw_group.add_argument("--no-refine-subtree", dest="refine_subtree", action="store_false",
-                          help="Disable Layer 1 guide subtree refinement.")
     tw_group.add_argument("--refine-method", default="upgma", choices=["upgma", "nj"],
                           help="Algorithm for Layer 1 subtree refinement: 'upgma' (Default, recommended) or 'nj'.")
+    tw_group.add_argument("--trim-gappy-cols", default=0.0, type=float,
+                          help="Trim columns with gap proportion >= threshold from MSA before passing to DIPPER (e.g. 0.99 for >=99%% gaps). Default: 0.0 (disabled).")
 
     # Executables & Hardware
     exec_group = parser.add_argument_group("Executables & Hardware Options")
@@ -245,6 +248,84 @@ def parse_score_file(score_file_path):
     return stats
 
 
+def trim_gappy_columns(aln_in, aln_out, max_gap_ratio=0.99):
+    """
+    Trim alignment columns where gap proportion >= max_gap_ratio.
+    Accelerates DIPPER guide tree reconstruction without losing phylogenetic signal.
+    """
+    try:
+        import numpy as np
+        headers = []
+        seqs = []
+        with open(aln_in, 'rb') as f:
+            curr_h = None
+            curr_seq = []
+            for line in f:
+                if line.startswith(b'>'):
+                    if curr_h:
+                        seqs.append(b''.join(curr_seq))
+                    curr_h = line
+                    headers.append(line)
+                    curr_seq = []
+                else:
+                    curr_seq.append(line.strip())
+            if curr_h:
+                seqs.append(b''.join(curr_seq))
+        if not seqs:
+            return aln_in
+        num_seqs = len(seqs)
+        aln_len = len(seqs[0])
+        arr = np.frombuffer(b''.join(seqs), dtype=np.uint8).reshape((num_seqs, aln_len))
+        gap_char = ord(b'-')
+        non_gap_counts = np.sum(arr != gap_char, axis=0)
+        min_non_gaps = int(np.ceil(num_seqs * (1.0 - max_gap_ratio)))
+        keep_cols = non_gap_counts >= min_non_gaps
+        trimmed_len = int(np.sum(keep_cols))
+        if trimmed_len == aln_len or trimmed_len == 0:
+            return aln_in
+        trimmed_arr = arr[:, keep_cols]
+        with open(aln_out, 'wb') as f:
+            for h, row in zip(headers, trimmed_arr):
+                f.write(h)
+                f.write(row.tobytes())
+                f.write(b'\n')
+        return aln_out
+    except Exception as e:
+        sys.stderr.write(f"Warning: trimming failed ({e}), using untrimmed alignment\n")
+        return aln_in
+
+
+# def detect_sequence_type(fasta_path):
+#     """
+#     Detect whether FASTA contains nucleotide ('n') or protein ('p') sequences
+#     by scanning the non-header characters for amino-acid specific residues.
+#     (Commented out until upstream DIPPER supports protein guide trees)
+#     """
+#     unique_aa = set("EFILPQVZefilpqvz")
+#     with open(fasta_path, 'r') as f:
+#         lines_checked = 0
+#         for line in f:
+#             line = line.strip()
+#             if not line or line.startswith('>'):
+#                 continue
+#             for ch in line:
+#                 if ch in unique_aa:
+#                     return 'p'
+#             lines_checked += 1
+#             if lines_checked >= 50:
+#                 break
+#     return 'n'
+
+
+def check_dipper_threads_support(dipper_bin):
+    """Check if the provided DIPPER binary supports the -T (threads) argument."""
+    try:
+        res = subprocess.run([dipper_bin, "-h"], capture_output=True, text=True)
+        return "-T" in res.stdout or "-T" in res.stderr
+    except Exception:
+        return False
+
+
 def print_banner():
     """Print pipeline banner and disclaimer."""
     print("=" * 80)
@@ -258,13 +339,14 @@ def print_banner():
 
 def main():
     args = parse_arguments()
-    print_banner()
 
     # Validate input FASTA
     input_fasta = os.path.abspath(args.input)
     if not os.path.isfile(input_fasta) or os.path.getsize(input_fasta) == 0:
         sys.stderr.write(f"ERROR: Input sequence file '{input_fasta}' does not exist or is empty.\n")
         sys.exit(1)
+
+    print_banner()
 
     output_aln = os.path.abspath(args.output)
     output_dir = os.path.dirname(output_aln)
@@ -273,13 +355,15 @@ def main():
 
     # Resolve executable binaries
     twilight_bin, dipper_bin = resolve_executables(args.twilight_bin, args.dipper_bin)
+    dipper_has_threads = check_dipper_threads_support(dipper_bin)
+
     print(f"[*] TWILIGHT Binary : {twilight_bin}")
-    print(f"[*] DIPPER Binary   : {dipper_bin}")
+    print(f"[*] DIPPER Binary   : {dipper_bin} (Threads support: {dipper_has_threads})")
     print(f"[*] Input Sequences : {input_fasta}")
     print(f"[*] Output MSA      : {output_aln}")
     print(f"[*] Max Iterations  : {args.max_iters} (Min: {args.min_iters}, Patience: {args.patience})")
     print(f"[*] Score Mode      : {'1: Consistency Objective Score' if args.score_type == 1 else '2: WSP'}")
-    print(f"[*] Subtree Refine  : {args.refine_subtree} (Method: {args.refine_method}, Group Size: {args.sample_max_group})")
+    print(f"[*] Subtree Refine  : Enabled (Method: {args.refine_method}, Group Size: {args.sample_max_group})")
     print(f"[*] CPU Threads     : {args.threads}")
     print("-" * 80)
     sys.stdout.flush()
@@ -313,11 +397,20 @@ def main():
                 dipper_bin,
                 "-i", "r",
                 "-o", "t",
-                "-m", "0",
-                "-I", input_fasta,
-                "-O", raw_init_tree,
-                "-T", str(args.threads)
+                "-m", "0"
             ]
+            # Protein flag commented out for standard DIPPER
+            # if data_type == 'p':
+            #     cmd_init_dip.append("-p")
+            #     k_val = args.dipper_kmer if args.dipper_kmer is not None else 6
+            #     cmd_init_dip.extend(["-k", str(k_val)])
+            if args.dipper_kmer is not None:
+                cmd_init_dip.extend(["-k", str(args.dipper_kmer)])
+
+            if dipper_has_threads:
+                cmd_init_dip.extend(["-T", str(args.threads)])
+            cmd_init_dip.extend(["-I", input_fasta, "-O", raw_init_tree])
+
             t_dip0 = time.time()
             res_dip0 = subprocess.run(cmd_init_dip, capture_output=True, text=True)
             if res_dip0.returncode != 0:
@@ -358,8 +451,8 @@ def main():
                 "--score", str(args.score_type),
                 "--score-file", curr_score_file
             ]
-            if args.refine_subtree:
-                cmd_tw.extend(["--refine-subtree", "--refine-method", args.refine_method])
+            if args.refine_method != "upgma":
+                cmd_tw.extend(["--refine-method", args.refine_method])
 
             t_tw = time.time()
             res_tw = subprocess.run(cmd_tw, capture_output=True, text=True)
@@ -400,16 +493,25 @@ def main():
             if it < args.max_iters and not (it >= args.min_iters and patience_counter >= args.patience):
                 raw_next_tree = os.path.join(temp_dir, f"iter{it}_dipper_raw.tree")
                 clean_next_tree = os.path.join(temp_dir, f"iter{it}_clean.tree")
+                dipper_in_aln = curr_aln
+                if args.trim_gappy_cols > 0.0:
+                    trimmed_aln = os.path.join(temp_dir, f"iter{it}_trimmed.aln")
+                    dipper_in_aln = trim_gappy_columns(curr_aln, trimmed_aln, args.trim_gappy_cols)
+
                 cmd_dip = [
                     dipper_bin,
                     "-i", "m",
                     "-o", "t",
                     "-m", "1",
-                    "-d", "1",
-                    "-I", curr_aln,
-                    "-O", raw_next_tree,
-                    "-T", str(args.threads)
+                    "-d", "1"
                 ]
+                # Protein flag commented out for standard DIPPER
+                # if data_type == 'p':
+                #     cmd_dip.append("-p")
+                if dipper_has_threads:
+                    cmd_dip.extend(["-T", str(args.threads)])
+                cmd_dip.extend(["-I", dipper_in_aln, "-O", raw_next_tree])
+
                 t_dip = time.time()
                 res_dip = subprocess.run(cmd_dip, capture_output=True, text=True)
                 dip_time = time.time() - t_dip
