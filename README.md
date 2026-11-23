@@ -126,20 +126,22 @@ cd TWILIGHT
 TWILIGHT depends on the following common system libraries, which are typically pre-installed on most development environments:
 ```bash
 - wget
+- git
 - build-essential 
 - cmake 
-- libboost-all-dev 
+- zlib1g-dev
 ```
 It also requires `libtbb-dev`, which is not always pre-installed on all systems. For users who do not have sudo access and are missing **only** `libtbb-dev`, our script builds and installs TBB from source in the local user environment, with **no sudo access required**.
 
 For Ubuntu users with sudo access, if any of the required libraries are missing, you can install them with:
 ```bash
-sudo apt install -y wget build-essential libboost-all-dev cmake libtbb-dev
+sudo apt update
+sudo apt install -y wget git build-essential cmake libtbb-dev zlib1g-dev
 ```
 For Mac users, install dependencies using **Homebrew**:
 ```bash
 xcode-select --install # if not already installed
-brew install wget boost cmake tbb
+brew install wget git cmake tbb
 ```
 
 **Step 3:** Build TWILIGHT

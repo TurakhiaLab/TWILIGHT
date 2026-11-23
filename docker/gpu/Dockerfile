@@ -9,8 +9,8 @@ RUN apt-get update && \
 	    git \
         vim \
 	    build-essential \
-	    libboost-all-dev \
-		libtbb-dev \
+	    libtbb-dev \
+	    zlib1g-dev \
 	    cmake && \
 	apt-get clean
 
