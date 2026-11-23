@@ -4,15 +4,15 @@
 
 #include <zlib.h>
 #include <sys/stat.h>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <tbb/parallel_for.h>
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
-msa::Option::Option(po::variables_map& vm) {
+msa::Option::Option(const CliOptions& opt) {
 
     // Detect Alignment Mode
-    bool hasTree = vm.count("tree"), hasSeq = vm.count("sequences"), hasFile = vm.count("files"), hasAln = vm.count("alignment");
+    bool hasTree = !opt.treeFile.empty(), hasSeq = !opt.seqFile.empty(), hasFile = !opt.msaDir.empty(), hasAln = !opt.backboneAlnFile.empty();
     int8_t mask = (hasFile << 3) | (hasTree << 2) | (hasSeq << 1) | (hasAln << 0);
     switch (mask) {
         case 0b0110: this->alnMode = 0; break;
@@ -31,48 +31,48 @@ msa::Option::Option(po::variables_map& vm) {
             break;
     }
     // Read Input File Names
-    this->treeFile        = (vm.count("tree"))      ? vm["tree"].as<std::string>()      : "";
-    this->seqFile         = (vm.count("sequences")) ? vm["sequences"].as<std::string>() : "";
-    this->msaDir          = (vm.count("files"))     ? vm["files"].as<std::string>()     : "";
-    this->backboneAlnFile = (vm.count("alignment")) ? vm["alignment"].as<std::string>() : "";
+    this->treeFile        = opt.treeFile;
+    this->seqFile         = opt.seqFile;
+    this->msaDir          = opt.msaDir;
+    this->backboneAlnFile = opt.backboneAlnFile;
 
     // Read Options
     this->gpuNum = 0;
     this->gpuIdx = std::vector<int> (0);
     int maxCpuThreads = tbb::this_task_arena::max_concurrency();
-    this->cpuNum = (vm.count("cpu")) ? vm["cpu"].as<int>() : maxCpuThreads;
+    this->cpuNum = (opt.hasCpu) ? opt.cpuNum : maxCpuThreads;
     if (this->cpuNum <= 0 || cpuNum > maxCpuThreads) {
         std::cerr << "ERROR: Invalid number of CPU cores. Please request between 1 and " << maxCpuThreads << " (got " << this->cpuNum << ").\n";
         exit(1);
     }
 
-    this->maxSubtree = (vm.count("max-subtree")) ? vm["max-subtree"].as<int>() : INT32_MAX;
+    this->maxSubtree = (opt.hasMaxSubtree) ? opt.maxSubtree : INT32_MAX;
     if (this->maxSubtree <= 0) {
         std::cerr << "ERROR: Invalid value for --max-subtree. The value of --max-subtree should be a positive integer (got " << this->maxSubtree << ").\n";
         exit(1);
     }
-    this->gappyVertical = vm["remove-gappy"].as<float>();
+    this->gappyVertical = opt.removeGappy;
     if (this->gappyVertical > 1 || this->gappyVertical <= 0) {
         std::cerr << "ERROR: Invalid value for --remove-gappy. The value of --remove-gappy should be in (0,1]\n";
         exit(1);
     }
-    this->lenDev = vm.count("length-deviation") ? vm["length-deviation"].as<float>() : 0;
+    this->lenDev = opt.hasLenDev ? opt.lenDev : 0;
     if (this->lenDev < 0) {
         std::cerr << "ERROR: Invalid value for --length-deviation. The value of --length-deviation should be non-negative\n";
         exit(1);
     }
-    this->maxAmbig = vm["max-ambig"].as<float>();
+    this->maxAmbig = opt.maxAmbig;
     if (this->maxAmbig > 1 || this->maxAmbig <= 0) {
         std::cerr << "ERROR: Invalid value for --max-ambig. The value of --max-ambig should be in (0,1]\n";
         exit(1);
     }
-    this->maxLen = vm.count("max-len") ? vm["max-len"].as<int>() : INT32_MAX;
-    if (this->maxLen <= 0 && vm.count("max-len")) {
+    this->maxLen = opt.hasMaxLen ? opt.maxLen : INT32_MAX;
+    if (this->maxLen <= 0 && opt.hasMaxLen) {
         std::cerr << "ERROR: Invalid value for --max-len. The value of --max-len should be larger than 0 (got " << this->maxLen << ").\n";
         exit(1);
     }
-    this->minLen =  vm.count("min-len") ? vm["min-len"].as<int>() : 0;
-    if (this->minLen <= 0 && vm.count("min-len")) {
+    this->minLen =  opt.hasMinLen ? opt.minLen : 0;
+    if (this->minLen <= 0 && opt.hasMinLen) {
         std::cerr << "ERROR: Invalid value for --min-len. The value of --min-len should be larger than 0 (got " << this->minLen << ").\n";
         exit(1);
     }
@@ -81,28 +81,28 @@ msa::Option::Option(po::variables_map& vm) {
         exit(1);
     }
 
-    if ((vm.count("min-len") || vm.count("max-len")) && vm.count("length-deviation")) {
+    if ((opt.hasMinLen || opt.hasMaxLen) && opt.hasLenDev) {
         std::cerr << "ERROR: Invalid arguments. --length-deviation cannot be used together with --min-len or --max-len.\n";
         exit(1);
     }
     
-    this->reroot = !vm.count("rooted");
-    this->debug = vm.count("check");
-    this->cpuOnly = vm.count("cpu-only");
-    this->printDetail = vm.count("verbose");
-    this->deleteTemp = !vm.count("keep-temp");
-    this->alignGappy = !vm.count("no-align-gappy");
-    this->compressed = vm.count("compress");
-    this->noFilter = !vm.count("filter");
-    this->writeFiltered = vm.count("write-filtered");
+    this->reroot = !opt.rooted;
+    this->debug = opt.check;
+    this->cpuOnly = opt.cpuOnly;
+    this->printDetail = opt.verbose;
+    this->deleteTemp = !opt.keepTemp;
+    this->alignGappy = !opt.noAlignGappy;
+    this->compressed = opt.compress;
+    this->noFilter = !opt.filter;
+    this->writeFiltered = opt.writeFiltered;
 
     // Parse accuracy-level
     this->accuracyLevel = 1;
     this->accurate = false;
     this->accurateMethod = "pairwise";
 
-    if (vm.count("accuracy-level")) {
-        std::string lvlStr = vm["accuracy-level"].as<std::string>();
+    if (opt.hasAccuracyLevel) {
+        std::string lvlStr = opt.accuracyLevelStr;
         std::string lvlLower = lvlStr;
         std::transform(lvlLower.begin(), lvlLower.end(), lvlLower.begin(), ::tolower);
         if (lvlLower == "1" || lvlLower == "standard" || lvlLower == "fast" || lvlLower == "default") {
@@ -124,36 +124,36 @@ msa::Option::Option(po::variables_map& vm) {
         }
     }
 
-    this->consistencyWeight = (vm.count("consistency-weight")) ? vm["consistency-weight"].as<float>() : 5.0f;
+    this->consistencyWeight = opt.consistencyWeight;
 
     // Parse sample-mode
-    this->sampleMode = (vm.count("sample-mode")) ? vm["sample-mode"].as<int>() : 0;
+    this->sampleMode = opt.hasSampleMode ? opt.sampleMode : 0;
     this->accMode = this->sampleMode;
     if (this->sampleMode < 0 || this->sampleMode > 3) {
         std::cerr << "ERROR: Invalid value for --sample-mode. Must be 0 (auto), 1 (all-to-all), 2 (high sample rate), or 3 (low sample rate) (got " << this->sampleMode << ").\n";
         exit(1);
     }
 
-    this->hasUserAccMaxGroup = vm.count("sample-max-group");
-    this->hasUserAccSampleRate = vm.count("sample-rate");
-    this->hasUserAccSampleTop = vm.count("sample-top-centrality");
+    this->hasUserAccMaxGroup = opt.hasSampleMaxGroup;
+    this->hasUserAccSampleRate = opt.hasSampleRate;
+    this->hasUserAccSampleTop = opt.hasSampleTopCentrality;
 
     if (this->hasUserAccMaxGroup) {
-        this->userAccMaxGroup = vm["sample-max-group"].as<int>();
+        this->userAccMaxGroup = opt.sampleMaxGroup;
         if (this->userAccMaxGroup <= 1) {
             std::cerr << "ERROR: Invalid value for --sample-max-group. The value of --sample-max-group should be > 1 (got " << this->userAccMaxGroup << ").\n";
             exit(1);
         }
     }
     if (this->hasUserAccSampleRate) {
-        this->userAccSampleRate = vm["sample-rate"].as<float>();
+        this->userAccSampleRate = opt.sampleRate;
         if (this->userAccSampleRate <= 0.0f || this->userAccSampleRate >= 1.0f) {
             std::cerr << "ERROR: --sample-rate must be greater than 0 and less than 1 (got " << this->userAccSampleRate << ").\n";
             exit(1);
         }
     }
     if (this->hasUserAccSampleTop) {
-        this->userAccSampleTop = vm["sample-top-centrality"].as<float>();
+        this->userAccSampleTop = opt.sampleTopCentrality;
         if (this->userAccSampleTop <= 0.0f || this->userAccSampleTop > 1.0f) {
             std::cerr << "ERROR: --sample-top-centrality must be greater than 0 and less than or equal to 1 (got " << this->userAccSampleTop << ").\n";
             exit(1);
@@ -161,14 +161,14 @@ msa::Option::Option(po::variables_map& vm) {
     }
 
     // Parse refine-subtree options: default ON in accurate mode (-A 2, -A 3), OFF otherwise.
-    if (vm.count("no-refine-subtree")) {
+    if (opt.noRefineSubtree) {
         this->refineSubtree = false;
     } else if (this->accurate) {
         this->refineSubtree = true;
     } else {
         this->refineSubtree = false;
     }
-    this->refineMethod = (vm.count("refine-method")) ? vm["refine-method"].as<std::string>() : "upgma";
+    this->refineMethod = opt.refineMethod;
     std::transform(this->refineMethod.begin(), this->refineMethod.end(), this->refineMethod.begin(), ::tolower);
     if (this->refineMethod != "upgma" && this->refineMethod != "nj") {
         std::cerr << "ERROR: Invalid value for --refine-method: \"" << this->refineMethod 
@@ -176,12 +176,25 @@ msa::Option::Option(po::variables_map& vm) {
         exit(1);
     }
 
+    // Parse alignment iterative refinement options: default ON in accurate mode (-A 2, -A 3), OFF otherwise.
+    if (opt.noIterativeRefine) {
+        this->iterativeRefine = false;
+    } else if (this->accurate) {
+        this->iterativeRefine = true;
+    } else if (opt.iterativeRefine) {
+        this->iterativeRefine = true;
+    } else {
+        this->iterativeRefine = false;
+    }
+    this->refineIters = std::max(1, opt.refineIters);
+    this->refineBatchSize = (opt.refineBatchSize > 0) ? opt.refineBatchSize : 4;
+
     // Initialize with 0 sequences first (will be dynamically resolved per dataset / subtree)
     this->resolveAccurateParams(0);
 
     if (this->accurate) {
-        if (this->alnMode != DEFAULT_ALN && this->alnMode != ACCURATE_ALN && this->alnMode != PLACE_WO_TREE) {
-            std::cerr << "ERROR: Accuracy levels 2 and 3 (consistency mode) are currently supported for guide-tree alignment and sequence placement without tree.\n";
+        if (this->alnMode != DEFAULT_ALN && this->alnMode != ACCURATE_ALN) {
+            std::cerr << "ERROR: Accuracy levels 2 and 3 (consistency mode) are currently only supported for guide-tree alignment (--tree and --sequences).\n";
             exit(1);
         }
         if (this->alnMode == DEFAULT_ALN) {
@@ -190,13 +203,13 @@ msa::Option::Option(po::variables_map& vm) {
     }
 
     // Detect Data Type
-    if (vm.count("type")) {
-        if (vm["type"].as<std::string>() != "n" && vm["type"].as<std::string>() != "p") {
-            std::cerr << "ERROR: Unrecognized data type \"" << vm["type"].as<std::string>() << "\".\n";
+    if (!opt.typeStr.empty()) {
+        if (opt.typeStr != "n" && opt.typeStr != "p") {
+            std::cerr << "ERROR: Unrecognized data type \"" << opt.typeStr << "\".\n";
             fs::remove_all(tempDir);
             exit(1);
         }
-        else this->type = vm["type"].as<std::string>()[0];
+        else this->type = opt.typeStr[0];
     }
     else {
         std::string seqFile = "";
@@ -264,34 +277,34 @@ msa::Option::Option(po::variables_map& vm) {
     }
 
     // Check Output File
-    if (!vm.count("output")) {
+    if (opt.outFile.empty()) {
         std::cerr << "ERROR: Output file name is required.\n";
         exit(1);
     }
-    this->outFile = vm["output"].as<std::string>();
+    this->outFile = opt.outFile;
 
     // Parse score options
-    if (vm.count("score")) {
-        this->scoreMode = vm["score"].as<int>();
+    if (opt.hasScore) {
+        this->scoreMode = opt.score;
         if (this->scoreMode != 1 && this->scoreMode != 2) {
             std::cerr << "ERROR: Invalid value for --score: " << this->scoreMode 
                       << ". Valid options are 1 (Consistency objective score) or 2 (WSP).\n";
             exit(1);
         }
-    } else if (vm.count("score-file")) {
+    } else if (!opt.scoreFile.empty()) {
         this->scoreMode = 1; // Default to consistency score if score-file is given but not score
     } else {
         this->scoreMode = 0; // Disabled by default
     }
 
-    if (vm.count("score-file")) {
-        this->scoreFile = vm["score-file"].as<std::string>();
+    if (!opt.scoreFile.empty()) {
+        this->scoreFile = opt.scoreFile;
     } else if (this->scoreMode > 0) {
         this->scoreFile = this->outFile + ".score";
     } else {
         this->scoreFile = "";
     }
-    if (!vm.count("overwrite")) {
+    if (!opt.overwrite) {
         std::string outFileStr = (this->compressed) ? this->outFile + ".gz" : this->outFile;
         if (fs::exists(outFileStr)) {
             std::cerr << "ERROR: " << outFileStr << " already exists. Please use another file name or add --overwrite to overwrite the existing file.\n";
@@ -319,9 +332,9 @@ msa::Option::Option(po::variables_map& vm) {
     
 
     // Create Temporary Directory if Needed
-    if (this->maxSubtree < INT32_MAX || vm.count("files") || this->alnMode == 2) {
+    if (this->maxSubtree < INT32_MAX || !opt.msaDir.empty() || this->alnMode == 2) {
         std::string tempDir;
-        if (!vm.count("temp-dir")) {
+        if (opt.tempDir.empty()) {
             int idx = 1;
             std::string tempDir_org = "./twilight_temp";
             tempDir = tempDir_org;
@@ -337,10 +350,10 @@ msa::Option::Option(po::variables_map& vm) {
             }
         }
         else {
-            tempDir = vm["temp-dir"].as<std::string>();
+            tempDir = opt.tempDir;
             if (tempDir[tempDir.size()-1] == '/') tempDir = tempDir.substr(0, tempDir.size()-1);
             if (fs::exists(tempDir)) {
-                if (!vm.count("overwrite")) {
+                if (!opt.overwrite) {
                     std::cerr << "ERROR: " << tempDir << " already exists. In order to prevent your file from being overwritten, please delete this folder or use another folder name.\n";
                     exit(1);
                 }
@@ -362,6 +375,7 @@ msa::Option::Option(po::variables_map& vm) {
         if (this->hasUserAccSampleTop) std::cerr << ", sample-top-centrality=" << this->userAccSampleTop << " [user]";
         std::cerr << ", consistency weight=" << this->consistencyWeight << ")\n";
         std::cerr << "Layer 1 subtree refinement: " << (this->refineSubtree ? ("enabled (" + this->refineMethod + ")") : "disabled") << "\n";
+        std::cerr << "Layer 1 iterative refinement: " << (this->iterativeRefine ? ("enabled (max " + std::to_string(this->refineIters) + " iters, batch-size=" + std::to_string(this->refineBatchSize) + ")") : "disabled") << "\n";
     } else {
         std::cerr << "Accuracy level: 1 (traditional sum-of-pairs scoring)\n";
     }

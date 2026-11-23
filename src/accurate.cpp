@@ -10,6 +10,8 @@
 #include <vector>
 #include <string>
 #include <unordered_map>
+#include <thread>
+#include <atomic>
 #include <tbb/parallel_for.h>
 #include <tbb/blocked_range.h>
 #include <tbb/task_arena.h>
@@ -115,6 +117,11 @@ void msaOnGroup_accurate(
 
     // 3. Progressive alignment with consistency score
     progressiveAlignGroupWithConsistency(group, localHomTable, T, database, option, param, alignmentKernel, subrootProvenance);
+
+    // 3.5 Alignment Iterative Refinement
+    if (option->iterativeRefine && group.layer == 1 && T && T->root && T->root->numLeaves > 2) {
+        iterativeRefineGroupSubtree(group, T, localHomTable, database, option, param);
+    }
 
     // 4. In Layer 1, extract representative sequences using centrality scores
     if (group.layer == 1 && T && T->root) {
@@ -393,6 +400,54 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto alignGroupsMs = std::chrono::duration_cast<std::chrono::milliseconds>(alignGroupsEnd - alignGroupsStart).count();
             if (option->printDetail) {
                 std::cerr << "Progressive alignment on " << batchContexts.size() << " groups in " << alignGroupsMs << " ms\n";
+            }
+
+            // Phase 2.5: Alignment Iterative Refinement
+            // Process groups concurrently using worker teams; each group internally evaluates batches of branches
+            if (option->iterativeRefine) {
+                auto refineAlnStart = std::chrono::high_resolution_clock::now();
+                int totalCpu = option->cpuNum > 0 ? option->cpuNum : 1;
+                int batchSize = (option->refineBatchSize > 0) ? option->refineBatchSize : 4;
+                int teamSize = batchSize;
+                int numTeams = std::max(1, totalCpu / teamSize);
+                if (numTeams > static_cast<int>(batchContexts.size())) {
+                    numTeams = static_cast<int>(batchContexts.size());
+                }
+                if (option->refineBatchSize <= 0) {
+                    teamSize = std::max(1, totalCpu / numTeams);
+                }
+
+                if (numTeams <= 1) {
+                    for (auto& ctx : batchContexts) {
+                        if (ctx.subT && ctx.subT->root && ctx.subT->root->numLeaves > 2) {
+                            iterativeRefineGroupSubtree(*ctx.group, ctx.subT, ctx.localHomTable, database, option, param, teamSize);
+                        }
+                    }
+                } else {
+                    std::atomic<size_t> nextGroupIdx{0};
+                    std::vector<std::thread> workers;
+                    workers.reserve(numTeams);
+                    for (int t = 0; t < numTeams; ++t) {
+                        workers.emplace_back([&, teamSize]() {
+                            while (true) {
+                                size_t g = nextGroupIdx.fetch_add(1);
+                                if (g >= batchContexts.size()) break;
+                                auto& ctx = batchContexts[g];
+                                if (ctx.subT && ctx.subT->root && ctx.subT->root->numLeaves > 2) {
+                                    iterativeRefineGroupSubtree(*ctx.group, ctx.subT, ctx.localHomTable, database, option, param, teamSize);
+                                }
+                            }
+                        });
+                    }
+                    for (auto& w : workers) {
+                        w.join();
+                    }
+                }
+                auto refineAlnEnd = std::chrono::high_resolution_clock::now();
+                auto refineAlnMs = std::chrono::duration_cast<std::chrono::milliseconds>(refineAlnEnd - refineAlnStart).count();
+                if (option->printDetail) {
+                    std::cerr << "Iterative refinement on " << batchContexts.size() << " groups in " << refineAlnMs << " ms\n";
+                }
             }
 
             // Phase 3: Post-processing (representatives, subroot updates, and memory release)

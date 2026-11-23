@@ -4,145 +4,140 @@
 
 #include "../version.hpp"
 
+// CLI11 command line parser (https://github.com/CLIUtils/CLI11)
+// Licensed under the 3-Clause BSD License.
+// Copyright (c) 2017-2024 University of Cincinnati, developed by Henry Schreiner.
+#include "../CLI11.hpp"
+
 #include <tbb/global_control.h>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <chrono>
 #include <hip/hip_runtime.h>
-
-po::options_description mainDesc("TWILIGHT Command Line Arguments", 120);
-po::options_description visibleDesc("TWILIGHT Command Line Arguments", 120);
-
-void parseArguments(int argc, char** argv)
-{
-    
-    // Section: I/O
-    po::options_description inputDesc("Inputs\n [1] Build MSA From Unaligned Sequences\n [2] Merge Multiple MSAs\n [3] Add New Sequences to Existing MSA");
-    inputDesc.add_options()
-        ("tree,t", po::value<std::string>(), "Guide tree (Newick format): required for [1]; optional for [3].")
-        ("sequences,i", po::value<std::string>(), "Unaligned sequences file (FASTA format): required for [1] and [3].")
-        ("alignment,a", po::value<std::string>(), "Backbone alignments (FASTA format): required for [3].")
-        ("files,f", po::value<std::string>(), "Directory containing all MSA files. MSA files (FASTA format): required for [2].");
-   
-    po::options_description outputDesc("Output/File Options");
-    outputDesc.add_options()
-        ("output,o", po::value<std::string>(), "Output file name (required).")
-        ("temp-dir,d", po::value<std::string>(), "Directory for storing temporary files.")
-        ("keep-temp,k", "Keep the temporary directory.")
-        ("compress,c", "Write output files in compressed (.gz) format")
-        ("overwrite", "Force overwriting the output file.")
-        ("score", po::value<int>()->implicit_value(1), "Compute alignment score: 1: Consistency objective score (default), 2: WSP (Weighted Profile Sum-of-Pairs).")
-        ("score-file", po::value<std::string>(), "Output file path for score. Default: <output-file>.score.");
-
-    // Section: Hardware
-    po::options_description hardwareDesc("Hardware Usage");
-    hardwareDesc.add_options()
-        ("cpu,C", po::value<int>(), "Number of CPU cores. Default: all available cores.")
-        ("gpu,G", po::value<int>(), "Number of GPUs. Default: all available GPUs.")
-        ("gpu-index", po::value<std::string>(), "Specify the GPU to be used, separated by commas. Ex. 0,2,3")
-        ("cpu-only", "Run the program only on CPU.");
-
-    // Section: Alignment Parameters
-    po::options_description alignDesc("Alignment Options and Parameters");
-    alignDesc.add_options()
-        ("type", po::value<std::string>(), "Data type. n: nucleotide, p: protein. Will be automatically inferred if not provided.")
-        ("max-subtree,m", po::value<int>(), "Maximum number of leaves in a subtree.")
-        ("remove-gappy,r", po::value<float>()->default_value(0.95), "Threshold for removing gappy columns. Set to 1 to disable this feature.")
-        ("wildcard,w", "Treat unknown or ambiguous bases as wildcards and align them to usual letters.")
-        ("rooted", "Keep the original tree root (disable automatic re-rooting for parallelism)")
-        ("prune", "Prune the input guide tree based on the presence of unaligned sequences.")
-        ("write-prune", "Write the pruned tree to the output directory.");
-
-    po::options_description seqFilterDesc("Sequence Filtering Options");
-    seqFilterDesc.add_options()
-        // ("no-align-gappy", "Do not align gappy columns. This will create a longer MSA (larger file).")
-        // ("psgop", po::value<std::string>()->default_value("y"), "y: Enable, n: Disable position-specific gap open penalty.")
-        ("length-deviation", po::value<float>(), "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.")
-        ("max-ambig", po::value<float>()->default_value(0.1), "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")
-        ("max-len", po::value<int>(), "Sequences longer than max-len will be deferred or excluded.")
-        ("min-len", po::value<int>(), "Sequences shorter than min-len will be deferred or excluded.")
-        ("filter", "Exclude sequences with high ambiguity or length deviation.")
-        ("write-filtered", "Write the filtered sequences in FASTA format to the output directory.");
-
-    // Section: Scoring Parameters
-    po::options_description scoringDesc("Scoring Parameters");
-    scoringDesc.add_options()
-        ("match", po::value<float>()->default_value(18), "Match score.")
-        ("mismatch", po::value<float>()->default_value(-8), "Mismatch penalty for transversions.")
-        ("transition", po::value<float>()->default_value(-4), "Score for transitions.")
-        ("gap-open", po::value<float>(), "Gap-Open penalty in normalized units (relative to average match = 1.0).")
-        ("gap-extend", po::value<float>(), "Gap-Extend penalty in normalized units (relative to average match = 1.0).")
-        ("gap-ends", po::value<float>(), "Gap penalty at ends, default set to the same as the gap extension penalty.")
-        ("scale", po::value<float>(), "Matrix and gap normalization scale constant (default: 600.0 for protein, 20.0 for nucleotide).")
-        ("xdrop", po::value<float>()->default_value(600), "X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty.")
-        ("matrix,x", po::value<std::string>(), "Use a user-defined substitution matrix (only for nucleotide).")
-        ("blosum,b", po::value<int>()->default_value(62), "Substitution matrix to use for protein sequences: 43 (PFASUM43), 45, 62, 80, or 99 (MIQS).");
-
-    po::options_description accurateDesc("Accuracy & Sampling Options");
-    accurateDesc.add_options()
-        ("accuracy-level,A", po::value<std::string>(), "Accuracy level: 1: traditional sum-of-pairs scoring (default), 2: + pairwise consistency, 3: + transitive consistency.")
-        ("sample-mode,S", po::value<int>(), "Sampling preset mode for consistency: 0: auto (default), 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast).")
-        ("sample-rate", po::value<float>(), "Sample rate for hierarchical consistency representative selection (must be >0, <1).")
-        ("sample-top-centrality", po::value<float>(), "Fraction of representative quota to select by highest centrality before column coverage (must be >0, <=1).")
-        ("sample-max-group", po::value<int>(), "Maximum number of sequences in a consistency group. Controls all-to-all pairwise complexity.")
-        ("consistency-weight", po::value<float>()->default_value(5.0f), "Weight multiplier for consistency bonus in accurate mode (default: 5.0).")
-        ("no-refine-subtree", "Disable Layer 1 guide subtree refinement in accurate mode (enabled by default).")
-        ("refine-method", po::value<std::string>()->default_value("upgma"), "Subtree refinement algorithm: \"upgma\" (default) or \"nj\".");
-
-    po::options_description hiddenDesc("Hidden Options");
-    hiddenDesc.add_options()
-        ("refine-subtree", "Legacy option to enable Layer 1 guide subtree refinement (now enabled by default in accurate mode).");
-
-    po::options_description generalDesc("General");
-    generalDesc.add_options()
-        ("check", "Check the final alignment. Sequences with no legal alignment will be displayed.")
-        ("verbose,v", "Print out every detail process.")
-        ("help,h", "Print help messages.")
-        ("version,V", "Show program version.");
-
-    // Setup boost::program_options
-    visibleDesc.add(inputDesc).add(outputDesc).add(hardwareDesc).add(alignDesc).add(seqFilterDesc).add(scoringDesc).add(accurateDesc).add(generalDesc);
-    mainDesc.add(visibleDesc).add(hiddenDesc);
-}
 
 int main(int argc, char** argv) {
 
     auto mainStart = std::chrono::high_resolution_clock::now();
     
-    parseArguments(argc, argv);
-    po::variables_map vm;
-    try{
-        po::store(po::command_line_parser(argc, argv).options(mainDesc).run(), vm);
-        po::notify(vm);
-    }
-    catch(std::exception &e){
-        if(vm.count("help")) {
-            return 0;
-        }
-        else {
-            std::cerr << "Error: " << e.what() << std::endl;
-            std::cerr << "For more details, please use the --help option.\n";
-            return 1;
-        }
-    }
-    if(vm.count("help") || argc == 1) {
-        std::cerr << visibleDesc << std::endl;
-        return 0;
-    }
-    if(vm.count("version")) {
-        std::cerr << "TWILIGHT Version " << PROJECT_VERSION << std::endl;
+    CLI::App app{"TWILIGHT: Tree-guided Multiple Sequence Alignment", "twilight"};
+    app.set_help_all_flag("--help-all", "Expand all help");
+    app.set_version_flag("-V,--version", std::string("TWILIGHT Version ") + PROJECT_VERSION, "Show program version.");
+
+    msa::CliOptions opt;
+
+    // Section: I/O
+    auto* inputDesc = app.add_option_group("Inputs",
+        " [1] Build MSA From Unaligned Sequences\n [2] Merge Multiple MSAs\n [3] Add New Sequences to Existing MSA");
+    inputDesc->add_option("-t,--tree", opt.treeFile, "Guide tree (Newick format): required for [1]; optional for [3].");
+    inputDesc->add_option("-i,--sequences", opt.seqFile, "Unaligned sequences file (FASTA format): required for [1] and [3].");
+    inputDesc->add_option("-a,--alignment", opt.backboneAlnFile, "Backbone alignments (FASTA format): required for [3].");
+    inputDesc->add_option("-f,--files", opt.msaDir, "Directory containing all MSA files. MSA files (FASTA format): required for [2].");
+
+    auto* outputDesc = app.add_option_group("Output/File Options");
+    outputDesc->add_option("-o,--output", opt.outFile, "Output file name (required).");
+    outputDesc->add_option("-d,--temp-dir", opt.tempDir, "Directory for storing temporary files.");
+    outputDesc->add_flag("-k,--keep-temp", opt.keepTemp, "Keep the temporary directory.");
+    outputDesc->add_flag("-c,--compress", opt.compress, "Write output files in compressed (.gz) format");
+    outputDesc->add_flag("--overwrite", opt.overwrite, "Force overwriting the output file.");
+    auto* opt_score = outputDesc->add_option("--score", opt.score, "Compute alignment score: 1: Consistency objective score (default), 2: WSP (Weighted Profile Sum-of-Pairs).")->expected(0, 1)->default_val(1);
+    outputDesc->add_option("--score-file", opt.scoreFile, "Output file path for score. Default: <output-file>.score.");
+
+    // Section: Hardware
+    auto* hardwareDesc = app.add_option_group("Hardware Usage");
+    auto* opt_cpu = hardwareDesc->add_option("-C,--cpu", opt.cpuNum, "Number of CPU cores. Default: all available cores.");
+    auto* opt_gpu = hardwareDesc->add_option("-G,--gpu", opt.gpuNum, "Number of GPUs. Default: all available GPUs.");
+    hardwareDesc->add_option("--gpu-index", opt.gpuIndex, "Specify the GPU to be used, separated by commas. Ex. 0,2,3");
+    hardwareDesc->add_flag("--cpu-only", opt.cpuOnly, "Run the program only on CPU.");
+
+    // Section: Alignment Parameters
+    auto* alignDesc = app.add_option_group("Alignment Options and Parameters");
+    alignDesc->add_option("--type", opt.typeStr, "Data type. n: nucleotide, p: protein. Will be automatically inferred if not provided.");
+    auto* opt_max_subtree = alignDesc->add_option("-m,--max-subtree", opt.maxSubtree, "Maximum number of leaves in a subtree.");
+    alignDesc->add_option("-r,--remove-gappy", opt.removeGappy, "Threshold for removing gappy columns. Set to 1 to disable this feature.")->default_val(0.95f);
+    alignDesc->add_flag("-w,--wildcard", opt.wildcard, "Treat unknown or ambiguous bases as wildcards and align them to usual letters.");
+    alignDesc->add_flag("--rooted", opt.rooted, "Keep the original tree root (disable automatic re-rooting for parallelism)");
+    alignDesc->add_flag("--prune", opt.prune, "Prune the input guide tree based on the presence of unaligned sequences.");
+    alignDesc->add_flag("--write-prune", opt.writePrune, "Write the pruned tree to the output directory.");
+
+    auto* seqFilterDesc = app.add_option_group("Sequence Filtering Options");
+    auto* opt_len_dev = seqFilterDesc->add_option("--length-deviation", opt.lenDev, "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.");
+    seqFilterDesc->add_option("--max-ambig", opt.maxAmbig, "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")->default_val(0.1f);
+    auto* opt_max_len = seqFilterDesc->add_option("--max-len", opt.maxLen, "Sequences longer than max-len will be deferred or excluded.");
+    auto* opt_min_len = seqFilterDesc->add_option("--min-len", opt.minLen, "Sequences shorter than min-len will be deferred or excluded.");
+    seqFilterDesc->add_flag("--filter", opt.filter, "Exclude sequences with high ambiguity or length deviation.");
+    seqFilterDesc->add_flag("--write-filtered", opt.writeFiltered, "Write the filtered sequences in FASTA format to the output directory.");
+
+    // Section: Scoring Parameters
+    auto* scoringDesc = app.add_option_group("Scoring Parameters");
+    scoringDesc->add_option("--match", opt.match, "Match score.")->default_val(18.0f);
+    scoringDesc->add_option("--mismatch", opt.mismatch, "Mismatch penalty for transversions.")->default_val(-8.0f);
+    scoringDesc->add_option("--transition", opt.transition, "Score for transitions.")->default_val(-4.0f);
+    auto* opt_gap_open = scoringDesc->add_option("--gap-open", opt.gapOpen, "Gap-Open penalty in normalized units (relative to average match = 1.0).");
+    auto* opt_gap_extend = scoringDesc->add_option("--gap-extend", opt.gapExtend, "Gap-Extend penalty in normalized units (relative to average match = 1.0).");
+    auto* opt_gap_ends = scoringDesc->add_option("--gap-ends", opt.gapEnds, "Gap penalty at ends, default set to the same as the gap extension penalty.");
+    auto* opt_scale = scoringDesc->add_option("--scale", opt.scale, "Matrix and gap normalization scale constant (default: 600.0 for protein, 20.0 for nucleotide).");
+    scoringDesc->add_option("--xdrop", opt.xdrop, "X-drop value (scale). The actual X-drop will be multiplied by the gap-extend penalty.")->default_val(600.0f);
+    scoringDesc->add_option("-x,--matrix", opt.matrixFile, "Use a user-defined substitution matrix (only for nucleotide).");
+    scoringDesc->add_option("-b,--blosum", opt.blosum, "Substitution matrix to use for protein sequences: 43 (PFASUM43), 45, 62, 80, or 99 (MIQS).")->default_val(62);
+
+    auto* accurateDesc = app.add_option_group("Accuracy & Sampling Options");
+    auto* opt_acc_level = accurateDesc->add_option("-A,--accuracy-level", opt.accuracyLevelStr, "Accuracy level: 1: traditional sum-of-pairs scoring (default), 2: + pairwise consistency, 3: + transitive consistency.");
+    auto* opt_sample_mode = accurateDesc->add_option("-S,--sample-mode", opt.sampleMode, "Sampling preset mode for consistency: 0: auto (default), 1: all-to-all (slow), 2: high sample rate (med speed), 3: low sample rate (fast).");
+    auto* opt_sample_rate = accurateDesc->add_option("--sample-rate", opt.sampleRate, "Sample rate for hierarchical consistency representative selection (must be >0, <1).");
+    auto* opt_sample_top = accurateDesc->add_option("--sample-top-centrality", opt.sampleTopCentrality, "Fraction of representative quota to select by highest centrality before column coverage (must be >0, <=1).");
+    auto* opt_sample_max_group = accurateDesc->add_option("--sample-max-group", opt.sampleMaxGroup, "Maximum number of sequences in a consistency group. Controls all-to-all pairwise complexity.");
+    accurateDesc->add_option("--consistency-weight", opt.consistencyWeight, "Weight multiplier for consistency bonus in accurate mode (default: 5.0).")->default_val(5.0f);
+    accurateDesc->add_flag("--no-refine-subtree", opt.noRefineSubtree, "Disable Layer 1 guide subtree refinement in accurate mode (enabled by default).");
+    accurateDesc->add_option("--refine-method", opt.refineMethod, "Subtree refinement algorithm: \"upgma\" (default) or \"nj\".")->default_val("upgma");
+
+    // Hidden legacy option
+    app.add_flag("--refine-subtree", "Legacy option to enable Layer 1 guide subtree refinement");
+
+    auto* generalDesc = app.add_option_group("General");
+    generalDesc->add_flag("--check", opt.check, "Check the final alignment. Sequences with no legal alignment will be displayed.");
+    generalDesc->add_flag("-v,--verbose", opt.verbose, "Print out every detail process.");
+
+    if (argc == 1) {
+        std::cerr << app.help() << std::endl;
         return 0;
     }
 
-    msa::Option* option = new msa::Option(vm);
+    try {
+        app.parse(argc, argv);
+    } catch (const CLI::ParseError &e) {
+        return app.exit(e);
+    }
+
+    opt.hasScore = (opt_score->count() > 0);
+    opt.hasCpu = (opt_cpu->count() > 0);
+    opt.hasGpu = (opt_gpu->count() > 0);
+    opt.hasMaxSubtree = (opt_max_subtree->count() > 0);
+    opt.hasLenDev = (opt_len_dev->count() > 0);
+    opt.hasMaxLen = (opt_max_len->count() > 0);
+    opt.hasMinLen = (opt_min_len->count() > 0);
+    opt.hasGapOpen = (opt_gap_open->count() > 0);
+    opt.hasGapExtend = (opt_gap_extend->count() > 0);
+    opt.hasGapEnds = (opt_gap_ends->count() > 0);
+    opt.hasScale = (opt_scale->count() > 0);
+    opt.hasAccuracyLevel = (opt_acc_level->count() > 0);
+    opt.hasSampleMode = (opt_sample_mode->count() > 0);
+    opt.hasSampleRate = (opt_sample_rate->count() > 0);
+    opt.hasSampleTopCentrality = (opt_sample_top->count() > 0);
+    opt.hasSampleMaxGroup = (opt_sample_max_group->count() > 0);
+
+    msa::Option* option = new msa::Option(opt);
     msa::SequenceDB* database = new msa::SequenceDB();
     tbb::global_control init(tbb::global_control::max_allowed_parallelism, option->cpuNum);
-    option->getGpuInfo(vm);
-    msa::Params* param = new msa::Params(vm, option->type);
+    option->getGpuInfo(opt);
+    msa::Params* param = new msa::Params(opt, option->type);
 
     if (option->alnMode == msa::DEFAULT_ALN || option->alnMode == msa::ACCURATE_ALN) { // Twilight Progressive Alignment
         phylogeny::Tree* T = new phylogeny::Tree(option->treeFile);
-        if (vm.count("prune")) {
+        if (opt.prune) {
             std::unordered_set<std::string> seqNames;
+            msa::io::readSequenceNames(option->seqFile, seqNames);
+            pruneTree(T, seqNames);
+            if (opt.writePrune) msa::io::writePrunedTree(T, option);
+        }
             msa::io::readSequenceNames(option->seqFile, seqNames);
             pruneTree(T, seqNames);
             if (vm.count("write-prune")) msa::io::writePrunedTree(T, option);
@@ -264,7 +259,7 @@ int main(int argc, char** argv) {
         auto backboneEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds backboneTime = backboneEnd - outStart;
         std::cerr << "Updated and wrote backbone alignment in " << backboneTime.count() / 1000000 << " ms\n";
-        boost::filesystem::path seqPath(option->seqFile);
+        std::filesystem::path seqPath(option->seqFile);
         std::string placedSeqFile = option->tempDir + "/" + seqPath.stem().string() + ".final.aln";
         msa::io::writeAlignment(placedSeqFile, database, T->root->getAlnLen(database->currentTask), option->compressed);
         msa::io::writeFinalMSA(database, option, T->root->getAlnLen(database->currentTask), param);

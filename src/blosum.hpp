@@ -1,8 +1,6 @@
 #ifndef MATRIX_HPP
 #define MATRIX_HPP
 
-#include <boost/program_options.hpp> 
-namespace po = boost::program_options;
 
 int letterIdx(char type, char inChar);
 

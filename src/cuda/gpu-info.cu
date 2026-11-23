@@ -3,7 +3,7 @@
 #endif
 
 
-void msa::Option::getGpuInfo(po::variables_map &vm) {
+void msa::Option::getGpuInfo(const CliOptions &opt) {
 
     int maxGpuNum = 0;
     cudaError_t err = cudaGetDeviceCount(&maxGpuNum);
@@ -17,7 +17,7 @@ void msa::Option::getGpuInfo(po::variables_map &vm) {
         this->gpuNum = 0;
         return;
     }
-    int gpuNum = (vm.count("gpu")) ? vm["gpu"].as<int>() : maxGpuNum;
+    int gpuNum = (opt.hasGpu) ? opt.gpuNum : maxGpuNum;
     if (gpuNum < 0 || gpuNum > maxGpuNum)
     {
         std::cerr << "ERROR: Invalid number of GPUs. Please request between 0 and " << maxGpuNum << ".\n";;
@@ -31,8 +31,8 @@ void msa::Option::getGpuInfo(po::variables_map &vm) {
         gpuNum = this->cpuNum;
     }
     std::vector<int> gpuIdx;
-    if (vm.count("gpu-index")) {
-        std::string gpuIdxString = vm["gpu-index"].as<std::string>();
+    if (!opt.gpuIndex.empty()) {
+        std::string gpuIdxString = opt.gpuIndex;
         std::string id = "";
         for (int i = 0; i < gpuIdxString.size(); ++i) {
             if (gpuIdxString[i] == ',') {

@@ -5,12 +5,12 @@
 #include "score.hpp"
 #include "kseq.h"
 #include <zlib.h>
-#include <boost/filesystem.hpp>
+#include <filesystem>
 #include <tbb/parallel_for.h>
 #include <tbb/spin_rw_mutex.h>
 #include <chrono>
 
-namespace fs = boost::filesystem;
+namespace fs = std::filesystem;
 
 KSEQ_INIT2(, gzFile, gzread);
 
@@ -268,7 +268,7 @@ phylogeny::Tree* msa::io::readAlignments_and_buildTree(SequenceDB *database, Opt
     int subtreeIdx = 0;
     int totalFile = 0;
     // Read alignment file names
-    boost::system::error_code ec;
+    std::error_code ec;
     fs::path msaFolder(path);
     for (fs::recursive_directory_iterator it(msaFolder, ec), eit; it != eit; it.increment(ec)) {
         if (ec) {

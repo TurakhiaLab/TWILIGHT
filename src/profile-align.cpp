@@ -116,7 +116,10 @@ std::vector<int8_t> msa::alignProfile(
     const Params& param,
     const std::vector<std::vector<float>>* consistencyTable,
     float consistencyWeight,
-    int bandWidth)
+    int bandWidth,
+    float* outScore,
+    const float* flatConsistencyTable,
+    int flatConsCols)
 {
     size_t prof1_width = profile1.width;
     size_t prof2_width = profile2.width;
@@ -307,7 +310,12 @@ std::vector<int8_t> msa::alignProfile(
             }
 
             // Consistency bonus if available (cVal is per-pair average, so multiply by prof1_card * prof2_card to match FAMSA cardinality)
-            if (consistencyTable && i - 1 < consistencyTable->size() && j - 1 < (*consistencyTable)[i - 1].size()) {
+            if (flatConsistencyTable && flatConsCols > 0) {
+                float cVal = flatConsistencyTable[(i - 1) * flatConsCols + (j - 1)];
+                if (cVal > 0.0f) {
+                    t += cVal * consistencyWeight * prof1_card * prof2_card;
+                }
+            } else if (consistencyTable && i - 1 < consistencyTable->size() && j - 1 < (*consistencyTable)[i - 1].size()) {
                 float cVal = (*consistencyTable)[i - 1][j - 1];
                 if (cVal > 0.0f) {
                     t += cVal * consistencyWeight * prof1_card * prof2_card;
@@ -411,12 +419,18 @@ std::vector<int8_t> msa::alignProfile(
     path.reserve(prof1_width + prof2_width);
 
     int cur_dir = 0;
-    if (prev_row[prof2_width].D >= prev_row[prof2_width].H && prev_row[prof2_width].D >= prev_row[prof2_width].V)
+    float best_score = prev_row[prof2_width].D;
+    if (prev_row[prof2_width].D >= prev_row[prof2_width].H && prev_row[prof2_width].D >= prev_row[prof2_width].V) {
         cur_dir = 0;
-    else if (prev_row[prof2_width].H > prev_row[prof2_width].V)
+        best_score = prev_row[prof2_width].D;
+    } else if (prev_row[prof2_width].H > prev_row[prof2_width].V) {
         cur_dir = 1;
-    else
+        best_score = prev_row[prof2_width].H;
+    } else {
         cur_dir = 2;
+        best_score = prev_row[prof2_width].V;
+    }
+    if (outScore) *outScore = best_score;
 
     size_t i = prof1_width, j = prof2_width;
     while (i > 0 || j > 0) {

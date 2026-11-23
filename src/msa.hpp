@@ -20,11 +20,10 @@
 #include <memory>
 #include <functional>
 #include <cassert>
+#include <atomic>
+#include <cmath>
 
-#include <boost/program_options.hpp>
 #include <tbb/spin_rw_mutex.h>
-
-namespace po = boost::program_options;
 
 char checkOnly(char inChar);
 int letterIdx(char type, char inChar);
@@ -530,6 +529,91 @@ namespace msa
 
     
 
+    struct CliOptions
+    {
+        std::string treeFile = "";
+        std::string seqFile = "";
+        std::string backboneAlnFile = "";
+        std::string msaDir = "";
+        std::string outFile = "";
+        std::string tempDir = "";
+        bool keepTemp = false;
+        bool compress = false;
+        bool overwrite = false;
+        int score = 0;
+        bool hasScore = false;
+        std::string scoreFile = "";
+        int cpuNum = 0;
+        bool hasCpu = false;
+        int gpuNum = 0;
+        bool hasGpu = false;
+        std::string gpuIndex = "";
+        bool cpuOnly = false;
+        std::string typeStr = "";
+        int maxSubtree = INT32_MAX;
+        bool hasMaxSubtree = false;
+        float removeGappy = 0.95f;
+        bool wildcard = false;
+        bool rooted = false;
+        bool prune = false;
+        bool writePrune = false;
+        float lenDev = 0.0f;
+        bool hasLenDev = false;
+        float maxAmbig = 0.1f;
+        int maxLen = INT32_MAX;
+        bool hasMaxLen = false;
+        int minLen = 0;
+        bool hasMinLen = false;
+        bool filter = false;
+        bool writeFiltered = false;
+        bool noAlignGappy = false;
+
+        // Scoring
+        float match = 18.0f;
+        float mismatch = -8.0f;
+        float transition = -4.0f;
+        float gapOpen = 0.0f;
+        bool hasGapOpen = false;
+        float gapExtend = 0.0f;
+        bool hasGapExtend = false;
+        float gapEnds = 0.0f;
+        bool hasGapEnds = false;
+        float offset = 0.0f;
+        bool hasOffset = false;
+        float scale = 0.0f;
+        bool hasScale = false;
+        float xdrop = 600.0f;
+        std::string matrixFile = "";
+        int blosum = 62;
+        float localGapOpen = 0.0f;
+        bool hasLocalGapOpen = false;
+        float localGapExtend = 0.0f;
+        bool hasLocalGapExtend = false;
+
+        // Accurate
+        std::string accuracyLevelStr = "";
+        bool hasAccuracyLevel = false;
+        int sampleMode = 0;
+        bool hasSampleMode = false;
+        float sampleRate = 0.0f;
+        bool hasSampleRate = false;
+        float sampleTopCentrality = 0.0f;
+        bool hasSampleTopCentrality = false;
+        int sampleMaxGroup = 0;
+        bool hasSampleMaxGroup = false;
+        float consistencyWeight = 5.0f;
+        bool noRefineSubtree = false;
+        std::string refineMethod = "upgma";
+        bool iterativeRefine = false;
+        bool noIterativeRefine = false;
+        int refineIters = 1;
+        int refineBatchSize = 4;
+
+        // General
+        bool check = false;
+        bool verbose = false;
+    };
+
     struct Option
     {
         // Mode Options
@@ -577,6 +661,9 @@ namespace msa
         float userAccSampleTop;
         bool refineSubtree;
         std::string refineMethod; // "upgma" (default) or "nj"
+        bool iterativeRefine;
+        int refineIters;
+        int refineBatchSize;
         void resolveAccurateParams(int numSeqs);
         // Scoring Options
         int scoreMode; // 0: disabled, 1: consistency objective score, 2: WSP
@@ -596,9 +683,10 @@ namespace msa
         bool printDetail;
         bool deleteTemp;
         // Constructor
-        Option(po::variables_map &vm);
+        Option() = default;
+        Option(const CliOptions &opt);
         // Only used in GPU version
-        void getGpuInfo(po::variables_map &vm);
+        void getGpuInfo(const CliOptions &opt);
     };
 
     struct Params
@@ -617,7 +705,7 @@ namespace msa
         float **scoringMatrix;
         float **localScoringMatrix;
         int matrixSize;
-        Params(po::variables_map &vm, char type);
+        Params(const CliOptions &opt, char type);
         ~Params();
         void normalizeScoringMatrix(float targetScore = 60.0f, float offset = 0.0f);
         void normalizeMatrix(float **matrix, float targetScore = 60.0f, float offsetVal = 0.0f);

@@ -78,15 +78,15 @@ int letterIdx(char type, char c) {
     }   
 }
 
-msa::Params::Params(po::variables_map& vm, char type) {
-    bool userDefine = vm.count("matrix");
+msa::Params::Params(const CliOptions& opt, char type) {
+    bool userDefine = !opt.matrixFile.empty();
     float defaultGOP = (type == 'n') ? -2.5f : -1.80f;
     float defaultGEP = (type == 'n') ? -0.25f : -0.18f;
-    float userGOP = vm.count("gap-open") ? vm["gap-open"].as<float>() : defaultGOP;
-    float userGEP = vm.count("gap-extend") ? vm["gap-extend"].as<float>() : defaultGEP;
-    float userGBoundary = vm.count("gap-ends") ? vm["gap-ends"].as<float>() : userGEP;
-    float userOffset = vm.count("offset") ? vm["offset"].as<float>() : 0.0f;
-    float xdrop = round(vm["xdrop"].as<float>());
+    float userGOP = opt.hasGapOpen ? opt.gapOpen : defaultGOP;
+    float userGEP = opt.hasGapExtend ? opt.gapExtend : defaultGEP;
+    float userGBoundary = opt.hasGapEnds ? opt.gapEnds : userGEP;
+    float userOffset = opt.hasOffset ? opt.offset : 0.0f;
+    float xdrop = round(opt.xdrop);
     if (userGOP > 0 || userGEP > 0 || userGBoundary > 0)  {
         std::cerr << "ERROR: Gap penalties must be less than or equal to 0.\n";
         exit(1);
@@ -96,12 +96,12 @@ msa::Params::Params(po::variables_map& vm, char type) {
         exit(1);
     }
     float defaultScale = (type == 'n') ? 20.0f : 600.0f;
-    float targetScore = vm.count("scale") ? vm["scale"].as<float>() : defaultScale;
+    float targetScore = opt.hasScale ? opt.scale : defaultScale;
     // Hardcoded MAFFT-aligned local alignment defaults (laof=0.1; DNA uses 3x gap scaling like MAFFT constants.c)
     float defaultLocalGOP = (type == 'n') ? -6.00f : -2.00f;
     float defaultLocalGEP = (type == 'n') ? -0.30f : -0.10f;
-    float userLocalGOP = vm.count("local-gap-open") ? vm["local-gap-open"].as<float>() : defaultLocalGOP;
-    float userLocalGEP = vm.count("local-gap-extend") ? vm["local-gap-extend"].as<float>() : defaultLocalGEP;
+    float userLocalGOP = opt.hasLocalGapOpen ? opt.localGapOpen : defaultLocalGOP;
+    float userLocalGEP = opt.hasLocalGapExtend ? opt.localGapExtend : defaultLocalGEP;
     float userLocalOffset = 0.10f;
     if (userLocalGOP > 0 || userLocalGEP > 0) {
         std::cerr << "ERROR: Local gap penalties must be less than or equal to 0.\n";
@@ -124,15 +124,15 @@ msa::Params::Params(po::variables_map& vm, char type) {
     this->localScoringMatrix = new float* [this->matrixSize];
     for (int i = 0; i < this->matrixSize; ++i) this->localScoringMatrix[i] = new float[this->matrixSize];
         
-    int blosumType = vm["blosum"].as<int>();
+    int blosumType = opt.blosum;
     if (!userDefine) {
         if (type == 'n') {
             for (int i = 0; i < 5; ++i) {
                 for (int j = 0; j < 5; ++j) {
-                    if (i == 4 || j == 4)        this->scoringMatrix[i][j] = vm.count("wildcard") ? vm["match"].as<float>() : 0.0;
-                    else if (i == j)             this->scoringMatrix[i][j] = vm["match"].as<float>();
-                    else if (std::abs(i-j) == 2) this->scoringMatrix[i][j] = vm["transition"].as<float>();
-                    else                         this->scoringMatrix[i][j] = vm["mismatch"].as<float>();
+                    if (i == 4 || j == 4)        this->scoringMatrix[i][j] = opt.wildcard ? opt.match : 0.0;
+                    else if (i == j)             this->scoringMatrix[i][j] = opt.match;
+                    else if (std::abs(i-j) == 2) this->scoringMatrix[i][j] = opt.transition;
+                    else                         this->scoringMatrix[i][j] = opt.mismatch;
                 }
             }
         }
@@ -157,8 +157,8 @@ msa::Params::Params(po::variables_map& vm, char type) {
             }
             Nscore /= 20;
             for (int i = 0; i < 21; ++i) {
-                this->scoringMatrix[i][20] = vm.count("wildcard") ? 5 * Nscore : 0.0;
-                this->scoringMatrix[20][i] = vm.count("wildcard") ? 5 * Nscore : 0.0;
+                this->scoringMatrix[i][20] = opt.wildcard ? 5 * Nscore : 0.0;
+                this->scoringMatrix[20][i] = opt.wildcard ? 5 * Nscore : 0.0;
             }
             if (blosumType == 43) {
                 for (int i = 0; i < 20; ++i) for (int j = 0; j < 20; ++j) this->scoringMatrix[i][j] = 5 * PFASUM43[i][j];
@@ -179,7 +179,7 @@ msa::Params::Params(po::variables_map& vm, char type) {
         }
     }
     else {
-        std::string matrixFileName = vm["matrix"].as<std::string>();
+        std::string matrixFileName = opt.matrixFile;
         std::ifstream matrixFile(matrixFileName);
         if (!matrixFile) {
             fprintf(stderr, "ERROR: can't open %s\n", matrixFileName.c_str());
@@ -226,7 +226,7 @@ msa::Params::Params(po::variables_map& vm, char type) {
         if (charNum == this->matrixSize-1) {
             float Nscore = 0;
             for (int i = 0; i < charNum; ++i) Nscore += this->scoringMatrix[i][i];
-            Nscore = vm.count("wildcard") ? (Nscore / charNum) : 0.0;
+            Nscore = opt.wildcard ? (Nscore / charNum) : 0.0;
             for (int i = 0; i < this->matrixSize; ++i) {
                 this->scoringMatrix[i][this->matrixSize-1] = Nscore;
                 this->scoringMatrix[this->matrixSize-1][i] = Nscore;
@@ -271,7 +271,7 @@ msa::Params::Params(po::variables_map& vm, char type) {
 
     this->gapTerminal = 0.0f;
     
-    if (vm.count("verbose")) {
+    if (opt.verbose) {
         std::cerr << "======== Parameters ========\n";
         if (type == 'p') {
             if      (blosumType == 43) std::cerr << "PFASUM43\n";

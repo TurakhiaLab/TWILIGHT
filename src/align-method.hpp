@@ -51,7 +51,10 @@ namespace accurate {
         const Params& param,
         const std::vector<std::vector<float>>* consistencyTable = nullptr,
         float consistencyWeight = 0.0f,
-        int bandWidth = -1
+        int bandWidth = -1,
+        float* outScore = nullptr,
+        const float* flatConsistencyTable = nullptr,
+        int flatConsCols = 0
     );
 
     // Compatibility alias
@@ -61,9 +64,12 @@ namespace accurate {
         const Params& param,
         const std::vector<std::vector<float>>* consistencyTable = nullptr,
         float consistencyWeight = 0.0f,
-        int bandWidth = -1)
+        int bandWidth = -1,
+        float* outScore = nullptr,
+        const float* flatConsistencyTable = nullptr,
+        int flatConsCols = 0)
     {
-        return alignProfile(profile1, profile2, param, consistencyTable, consistencyWeight, bandWidth);
+        return alignProfile(profile1, profile2, param, consistencyTable, consistencyWeight, bandWidth, outScore, flatConsistencyTable, flatConsCols);
     }
 
 } // namespace msa
