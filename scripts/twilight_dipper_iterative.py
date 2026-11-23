@@ -4,13 +4,10 @@
 TWILIGHT + DIPPER Iterative Alignment Refinement Pipeline
 ================================================================================
 
-DISCLAIMER:
-  This iterative refinement pipeline is specifically designed for NUCLEOTIDE
-  sequences (DNA / RNA). DIPPER currently does NOT support protein sequences.
-
 Description:
   Alternates progressive multiple sequence alignment (TWILIGHT accurate mode)
   with ultra-fast guide tree reconstruction from alignment profiles (DIPPER).
+  Supports both NUCLEOTIDE (DNA/RNA) and PROTEIN (Amino Acids) datasets.
 
   In each iteration:
     1. TWILIGHT aligns sequences guided by the current tree (-A 2 or -A 3)
@@ -22,10 +19,14 @@ Description:
        alignment, and the next iteration begins.
 
 Usage Examples:
-  # Basic run with auto guide tree generation:
+  # Basic run with automatic sequence type detection:
   python3 scripts/twilight_dipper_iterative.py -i input.fasta -o output.aln
 
-  # Custom iterations, patience, and CPU threads:
+  # Explicitly specify protein dataset:
+  python3 scripts/twilight_dipper_iterative.py -i protein.fasta -o protein.aln \\
+      --data-type p --max-iters 10 --threads 16
+
+  # Custom iterations, patience, and CPU threads on nucleotides:
   python3 scripts/twilight_dipper_iterative.py -i input.fasta -o output.aln \\
       --max-iters 10 --min-iters 3 --patience 2 --threads 16
 
@@ -38,6 +39,10 @@ Parameters:
   -o, --output           Output aligned MSA file in FASTA format (Required).
   -t, --tree             Initial guide tree (Newick format, optional). If not
                          provided, DIPPER generates one from input sequences.
+  --data-type            Sequence data type: 'auto' (default), 'n' (nucleotide), or 'p' (protein).
+  --blosum               BLOSUM matrix for protein sequences in TWILIGHT (Default: 62).
+  --protein-alphabet     Alphabet for DIPPER unaligned protein tree: 'reduced' (default),
+                         'murphy8', or 'full'.
   --max-iters            Maximum number of iterations (Default: 10).
   --min-iters            Minimum iterations before early stopping (Default: 3).
   --patience             Patience: stop after N iterations without score
@@ -68,15 +73,15 @@ import tempfile
 import re
 import time
 
+
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="TWILIGHT + DIPPER Iterative Alignment Refinement Pipeline (for Nucleotides)",
+        description="TWILIGHT + DIPPER Iterative Alignment Refinement Pipeline (Supports Nucleotide & Protein)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Disclaimer:
-  This iterative script is designed for NUCLEOTIDE sequences (DNA/RNA)
-  because standard DIPPER currently does not support protein sequence guide trees.
-  (Protein hooks are kept commented out for future DIPPER protein releases).
+Capabilities:
+  Supports both NUCLEOTIDE and PROTEIN sequence datasets.
+  DIPPER supports ultrafast guide tree construction for both sequence types.
 """
     )
 
@@ -103,19 +108,32 @@ Disclaimer:
 
     # TWILIGHT Alignment Options
     tw_group = parser.add_argument_group("TWILIGHT Alignment Options")
-    # Protein support is commented out until DIPPER upstream officially supports protein trees:
-    # tw_group.add_argument("--data-type", default="auto", choices=["auto", "n", "p"],
-    #                       help="Sequence data type: 'auto' (detect from FASTA, default), 'n' (nucleotide), or 'p' (protein).")
+    tw_group.add_argument("--data-type", default="auto", choices=["auto", "n", "p"],
+                          help="Sequence data type: 'auto' (detect from FASTA, default), 'n' (nucleotide), or 'p' (protein).")
+    tw_group.add_argument("--blosum", default=62, type=int, choices=[43, 45, 62, 80, 99],
+                          help="Substitution matrix to use for protein sequences in TWILIGHT: 43, 45, 62, 80, 99 (Default: 62).")
+    tw_group.add_argument("--protein-alphabet", default="reduced", choices=["reduced", "murphy8", "full"],
+                          help="Alphabet encoding for DIPPER unaligned protein guide tree: 'reduced' (4-group Dayhoff, default), 'murphy8' (8-state Murphy), or 'full' (20 AA).")
     tw_group.add_argument("--dipper-kmer", default=None, type=int,
-                          help="K-mer size for DIPPER initial tree (Default: 15 for nucleotide).")
+                          help="K-mer size for DIPPER initial tree (Default: 15 for nucleotide, 15 for reduced protein, 7 for full protein).")
+    tw_group.add_argument("--dipper-dist", default=None, type=int, choices=[1, 2],
+                          help="Distance metric for DIPPER profile guide tree reconstruction (-d): default 1 (uncorrected) for nucleotide; default 2 (Kimura) or 1 (uncorrected) for protein.")
     tw_group.add_argument("-A", "--acc-mode", default=2, type=int, choices=[2, 3],
                           help="TWILIGHT accuracy level: 2 (+ pairwise consistency, default) or 3 (+ transitive consistency).")
     tw_group.add_argument("--score-type", default=1, type=int, choices=[1, 2],
                           help="Convergence scoring objective: 1: Consistency Score (Default, recommended), 2: WSP.")
     tw_group.add_argument("--sample-max-group", default=100, type=int,
                           help="Maximum group size for consistency partitioning in TWILIGHT (Default: 100).")
+    tw_group.add_argument("--no-refine-subtree", action="store_true", default=False,
+                          help="Disable Layer 1 guide subtree refinement in TWILIGHT (enabled by default).")
     tw_group.add_argument("--refine-method", default="upgma", choices=["upgma", "nj"],
                           help="Algorithm for Layer 1 subtree refinement: 'upgma' (Default, recommended) or 'nj'.")
+    tw_group.add_argument("--no-iterative-refine", action="store_true", default=False,
+                          help="Disable Layer 1 subtree iterative alignment refinement in TWILIGHT (enabled by default).")
+    tw_group.add_argument("--refine-iters", default=1, type=int,
+                          help="Maximum iterations per group for iterative refinement in TWILIGHT (Default: 1).")
+    tw_group.add_argument("-B", "--refine-batch-size", default=4, type=int,
+                          help="Batch size for iterative alignment branch refinement in TWILIGHT (Default: 4).")
     tw_group.add_argument("--trim-gappy-cols", default=0.0, type=float,
                           help="Trim columns with gap proportion >= threshold from MSA before passing to DIPPER (e.g. 0.99 for >=99%% gaps). Default: 0.0 (disabled).")
 
@@ -137,6 +155,27 @@ Disclaimer:
                             help="Enable verbose output during execution.")
 
     return parser.parse_args()
+
+
+def detect_sequence_type(fasta_path):
+    """
+    Detect whether FASTA contains nucleotide ('n') or protein ('p') sequences
+    by scanning non-header characters for amino-acid specific residues.
+    """
+    unique_aa = set("EFILPQVZefilpqvz")
+    with open(fasta_path, 'r') as f:
+        lines_checked = 0
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('>'):
+                continue
+            for ch in line:
+                if ch in unique_aa:
+                    return 'p'
+            lines_checked += 1
+            if lines_checked >= 50:
+                break
+    return 'n'
 
 
 def resolve_executables(twilight_arg, dipper_arg):
@@ -295,28 +334,6 @@ def trim_gappy_columns(aln_in, aln_out, max_gap_ratio=0.99):
         return aln_in
 
 
-# def detect_sequence_type(fasta_path):
-#     """
-#     Detect whether FASTA contains nucleotide ('n') or protein ('p') sequences
-#     by scanning the non-header characters for amino-acid specific residues.
-#     (Commented out until upstream DIPPER supports protein guide trees)
-#     """
-#     unique_aa = set("EFILPQVZefilpqvz")
-#     with open(fasta_path, 'r') as f:
-#         lines_checked = 0
-#         for line in f:
-#             line = line.strip()
-#             if not line or line.startswith('>'):
-#                 continue
-#             for ch in line:
-#                 if ch in unique_aa:
-#                     return 'p'
-#             lines_checked += 1
-#             if lines_checked >= 50:
-#                 break
-#     return 'n'
-
-
 def check_dipper_threads_support(dipper_bin):
     """Check if the provided DIPPER binary supports the -T (threads) argument."""
     try:
@@ -326,13 +343,13 @@ def check_dipper_threads_support(dipper_bin):
         return False
 
 
-def print_banner():
-    """Print pipeline banner and disclaimer."""
+def print_banner(data_type):
+    """Print pipeline banner and configuration."""
     print("=" * 80)
     print("  TWILIGHT + DIPPER Iterative Alignment Refinement Pipeline")
     print("=" * 80)
-    print("  [DISCLAIMER] Designed specifically for NUCLEOTIDE sequences (DNA/RNA).")
-    print("               DIPPER guide tree reconstruction currently does not support protein.")
+    type_str = "PROTEIN (Amino Acids)" if data_type == 'p' else "NUCLEOTIDE (DNA/RNA)"
+    print(f"  [*] Sequence Data Type : {type_str}")
     print("=" * 80)
     sys.stdout.flush()
 
@@ -346,7 +363,13 @@ def main():
         sys.stderr.write(f"ERROR: Input sequence file '{input_fasta}' does not exist or is empty.\n")
         sys.exit(1)
 
-    print_banner()
+    # Determine sequence data type (n = nucleotide, p = protein)
+    if args.data_type == "auto":
+        data_type = detect_sequence_type(input_fasta)
+    else:
+        data_type = args.data_type
+
+    print_banner(data_type)
 
     output_aln = os.path.abspath(args.output)
     output_dir = os.path.dirname(output_aln)
@@ -363,7 +386,13 @@ def main():
     print(f"[*] Output MSA      : {output_aln}")
     print(f"[*] Max Iterations  : {args.max_iters} (Min: {args.min_iters}, Patience: {args.patience})")
     print(f"[*] Score Mode      : {'1: Consistency Objective Score' if args.score_type == 1 else '2: WSP'}")
-    print(f"[*] Subtree Refine  : Enabled (Method: {args.refine_method}, Group Size: {args.sample_max_group})")
+    sub_ref_str = "Disabled" if args.no_refine_subtree else f"Enabled ({args.refine_method}, Max Group: {args.sample_max_group})"
+    it_ref_str = "Disabled" if args.no_iterative_refine else f"Enabled (Iters: {args.refine_iters}, Batch: {args.refine_batch_size})"
+    print(f"[*] Subtree Refine  : {sub_ref_str}")
+    print(f"[*] Iterative Refine: {it_ref_str}")
+    if data_type == 'p':
+        print(f"[*] Protein Scoring : BLOSUM{args.blosum}")
+        print(f"[*] Protein Alphabet: {args.protein_alphabet}")
     print(f"[*] CPU Threads     : {args.threads}")
     print("-" * 80)
     sys.stdout.flush()
@@ -399,13 +428,24 @@ def main():
                 "-o", "t",
                 "-m", "0"
             ]
-            # Protein flag commented out for standard DIPPER
-            # if data_type == 'p':
-            #     cmd_init_dip.append("-p")
-            #     k_val = args.dipper_kmer if args.dipper_kmer is not None else 6
-            #     cmd_init_dip.extend(["-k", str(k_val)])
-            if args.dipper_kmer is not None:
-                cmd_init_dip.extend(["-k", str(args.dipper_kmer)])
+
+            # Sequence-type specific parameters for initial DIPPER tree
+            if data_type == 'p':
+                cmd_init_dip.append("-p")
+                if args.protein_alphabet == "murphy8":
+                    cmd_init_dip.append("--protein-murphy8")
+                elif args.protein_alphabet == "full":
+                    cmd_init_dip.append("--protein-full")
+                else:
+                    cmd_init_dip.append("--protein-reduced")
+
+                if args.dipper_kmer is not None:
+                    cmd_init_dip.extend(["-k", str(args.dipper_kmer)])
+                elif args.protein_alphabet == "full":
+                    cmd_init_dip.extend(["-k", "7"])
+            else:
+                if args.dipper_kmer is not None:
+                    cmd_init_dip.extend(["-k", str(args.dipper_kmer)])
 
             if dipper_has_threads:
                 cmd_init_dip.extend(["-T", str(args.threads)])
@@ -445,14 +485,29 @@ def main():
                 "-i", input_fasta,
                 "-o", curr_aln,
                 "-A", str(args.acc_mode),
+                "--type", data_type,
                 "--sample-max-group", str(args.sample_max_group),
                 "--cpu", str(args.threads),
                 "--overwrite",
                 "--score", str(args.score_type),
                 "--score-file", curr_score_file
             ]
-            if args.refine_method != "upgma":
+
+            if data_type == 'p' and args.blosum != 62:
+                cmd_tw.extend(["--blosum", str(args.blosum)])
+
+            if args.no_refine_subtree:
+                cmd_tw.append("--no-refine-subtree")
+            elif args.refine_method != "upgma":
                 cmd_tw.extend(["--refine-method", args.refine_method])
+
+            if args.no_iterative_refine:
+                cmd_tw.append("--no-iterative-refine")
+            else:
+                if args.refine_iters != 1:
+                    cmd_tw.extend(["--refine-iters", str(args.refine_iters)])
+                if args.refine_batch_size != 4:
+                    cmd_tw.extend(["-B", str(args.refine_batch_size)])
 
             t_tw = time.time()
             res_tw = subprocess.run(cmd_tw, capture_output=True, text=True)
@@ -498,16 +553,22 @@ def main():
                     trimmed_aln = os.path.join(temp_dir, f"iter{it}_trimmed.aln")
                     dipper_in_aln = trim_gappy_columns(curr_aln, trimmed_aln, args.trim_gappy_cols)
 
+                # Distance metric: for protein, default is 2 (Kimura) or user-specified; for nucleotide, default is 1 (uncorrected)
+                if args.dipper_dist is not None:
+                    dist_val = args.dipper_dist
+                else:
+                    dist_val = 2 if data_type == 'p' else 1
+
                 cmd_dip = [
                     dipper_bin,
                     "-i", "m",
                     "-o", "t",
                     "-m", "1",
-                    "-d", "1"
+                    "-d", str(dist_val)
                 ]
-                # Protein flag commented out for standard DIPPER
-                # if data_type == 'p':
-                #     cmd_dip.append("-p")
+                if data_type == 'p':
+                    cmd_dip.append("-p")
+
                 if dipper_has_threads:
                     cmd_dip.extend(["-T", str(args.threads)])
                 cmd_dip.extend(["-I", dipper_in_aln, "-O", raw_next_tree])
@@ -556,4 +617,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
