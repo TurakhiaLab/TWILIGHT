@@ -30,9 +30,9 @@ std::string gzip_compress(const std::string &input) {
         deflateEnd(&zs);
         return {};
     }
-    output.resize(zs.total_out);
     deflateEnd(&zs);
-    return output;
+    // Return a string with exact size and capacity to avoid retaining oversized buffers
+    return std::string(output.data(), zs.total_out);
 }
 
 
@@ -525,21 +525,29 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen, co
 void msa::io::writeAlignment(std::string fileName, SequenceDB* database, int alnLen, bool compressed) {
     if (compressed) {
         fileName += ".gz";
-        std::vector<std::string> compressed_chunks(database->sequences.size(), "");
-        tbb::parallel_for(size_t(0), database->sequences.size(), [&](size_t s) {
-            auto seq = database->sequences[s];
-            if (!seq->lowQuality) {
-                std::string fasta_chunk = ">" + seq->name + "\n" + std::string(&seq->alnStorage[seq->storage][0], alnLen) + "\n";
-                compressed_chunks[s] = gzip_compress(fasta_chunk);
-            }
-        });
         std::ofstream outFile(fileName, std::ios::binary);
         if (!outFile) {
             fprintf(stderr, "ERROR: Failed to open file: %s\n", fileName.c_str());
             exit(1);
         }
-        for (auto &c : compressed_chunks) {
-            if (c != "") outFile.write(c.data(), c.size());
+        // Batch chunking: compress sequences in parallel batches to keep threads busy while bounding memory usage
+        const size_t totalSeqs = database->sequences.size();
+        const size_t batchSize = 1000;
+        for (size_t bStart = 0; bStart < totalSeqs; bStart += batchSize) {
+            size_t bEnd = std::min(bStart + batchSize, totalSeqs);
+            size_t curBatchSize = bEnd - bStart;
+            std::vector<std::string> compressed_chunks(curBatchSize);
+            tbb::parallel_for(size_t(0), curBatchSize, [&](size_t idx) {
+                size_t s = bStart + idx;
+                auto seq = database->sequences[s];
+                if (seq && !seq->lowQuality) {
+                    std::string fasta_chunk = ">" + seq->name + "\n" + std::string(&seq->alnStorage[seq->storage][0], alnLen) + "\n";
+                    compressed_chunks[idx] = gzip_compress(fasta_chunk);
+                }
+            });
+            for (const auto &c : compressed_chunks) {
+                if (!c.empty()) outFile.write(c.data(), c.size());
+            }
         }
         outFile.close();
     }
@@ -565,12 +573,6 @@ void msa::io::writeAlignment(std::string fileName, SequenceDB* database, int aln
 void msa::io::writeAlignment(std::string fileName, stringPairVec& seqs, bool compressed, bool append) {
     if (compressed) {
         fileName += ".gz";
-        std::vector<std::string> compressed_chunks(seqs.size());
-        tbb::parallel_for(size_t(0), seqs.size(), [&](size_t i) {
-            std::string fasta_chunk = ">" + seqs[i].first + "\n" + seqs[i].second + "\n";
-            compressed_chunks[i] = gzip_compress(fasta_chunk);
-            std::string().swap(seqs[i].second);
-        });
         std::ofstream outFile;
         if (append) outFile.open(fileName, std::ios::binary | std::ios::app);
         else        outFile.open(fileName, std::ios::binary);
@@ -578,8 +580,22 @@ void msa::io::writeAlignment(std::string fileName, stringPairVec& seqs, bool com
             fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
             exit(1);
         }
-        for (auto &c : compressed_chunks) {
-            outFile.write(c.data(), c.size());
+        // Batch chunking: compress sequences in parallel batches to keep threads busy while bounding memory usage
+        const size_t totalSeqs = seqs.size();
+        const size_t batchSize = 1000;
+        for (size_t bStart = 0; bStart < totalSeqs; bStart += batchSize) {
+            size_t bEnd = std::min(bStart + batchSize, totalSeqs);
+            size_t curBatchSize = bEnd - bStart;
+            std::vector<std::string> compressed_chunks(curBatchSize);
+            tbb::parallel_for(size_t(0), curBatchSize, [&](size_t idx) {
+                size_t i = bStart + idx;
+                std::string fasta_chunk = ">" + seqs[i].first + "\n" + seqs[i].second + "\n";
+                compressed_chunks[idx] = gzip_compress(fasta_chunk);
+                std::string().swap(seqs[i].second);
+            });
+            for (const auto &c : compressed_chunks) {
+                if (!c.empty()) outFile.write(c.data(), c.size());
+            }
         }
         outFile.close();
     }
