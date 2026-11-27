@@ -12,7 +12,7 @@ void msa::Option::getGpuInfo(const CliOptions &opt) {
     }
 
     if (this->accurate) {
-        fprintf(stderr, "Maximum available GPUs: %d. Using 0 GPUs (Current accurate mode only has CPU version; no GPUs will be used).\n", maxGpuNum);
+        msg::info("Maximum available GPUs: %d. Using 0 GPUs (Current accurate mode only has CPU version; no GPUs will be used).\n", maxGpuNum);
         this->cpuOnly = true;
         this->gpuNum = 0;
         return;
@@ -20,14 +20,14 @@ void msa::Option::getGpuInfo(const CliOptions &opt) {
     int gpuNum = (opt.hasGpu) ? opt.gpuNum : maxGpuNum;
     if (gpuNum < 0 || gpuNum > maxGpuNum)
     {
-        std::cerr << "ERROR: Invalid number of GPUs. Please request between 0 and " << maxGpuNum << ".\n";;
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::INVALID_ARG,
+            "Invalid number of GPUs. Please request between 0 and " + std::to_string(maxGpuNum) + ".");
     }
     
     if (this->cpuOnly) gpuNum = 0;
     else if (gpuNum > this->cpuNum) {
-        if (this->cpuNum == 1) std::cerr << "WARNING: Requesting more GPUs than requested CPU threads, and will only execute on " << this->cpuNum << " GPU.\n";
-        else std::cerr << "WARNING: Requesting more GPUs than requested CPU threads, and will only execute on " << this->cpuNum << " GPUs.\n";
+        if (this->cpuNum == 1) msg::warn("Requesting more GPUs than requested CPU threads, and will only execute on %d GPU.\n", this->cpuNum);
+        else msg::warn("Requesting more GPUs than requested CPU threads, and will only execute on %d GPUs.\n", this->cpuNum);
         gpuNum = this->cpuNum;
     }
     std::vector<int> gpuIdx;
@@ -53,19 +53,19 @@ void msa::Option::getGpuInfo(const CliOptions &opt) {
     }
 
     if (gpuIdx.size() != gpuNum) {
-        std::cerr << "ERROR: the number of requested GPUs does not match the number of specified gpu indexes.\n";
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::INVALID_ARG,
+            "The number of requested GPUs does not match the number of specified gpu indexes.");
     }
     for (auto id : gpuIdx) {
         if (id >= maxGpuNum)
         {
-            std::cerr << "ERROR: specified gpu index >= the number of GPUs\n";
-            exit(1);
+            throw msa::TwilightError(msa::ErrorCode::INVALID_ARG,
+                "Specified gpu index >= the number of GPUs.");
         }
     }
-    fprintf(stderr, "Maximum available GPUs: %d. Using %d GPUs.\n", maxGpuNum, gpuNum);
+    msg::info("Maximum available GPUs: %d. Using %d GPUs.\n", maxGpuNum, gpuNum);
     if (gpuNum == 0) {
-        std::cerr << "Requested 0 GPU or no GPU resources detected; switching to CPU version.\n";
+        msg::info("Requested 0 GPU or no GPU resources detected; switching to CPU version.\n");
         this->cpuOnly = true;
     }
 
@@ -78,8 +78,8 @@ void msa::Option::getGpuInfo(const CliOptions &opt) {
         size_t free_bytes, total_bytes;
         cudaError_t status = cudaMemGetInfo(&free_bytes, &total_bytes);
         if (status != cudaSuccess) {
-            std::cerr << "Error: " << cudaGetErrorString(status) << std::endl;
-            exit(1);
+            throw msa::TwilightError(msa::ErrorCode::INTERNAL,
+                std::string("CUDA error: ") + cudaGetErrorString(status));
         }
         gpuTotalMem.push_back(total_bytes/MB);
         gpuMem.push_back(free_bytes/MB);
@@ -92,9 +92,9 @@ void msa::Option::getGpuInfo(const CliOptions &opt) {
     if (this->gpuNum == 0) return;
 
     
-    std::cerr << "========= GPU Info =========\n";
+    msg::info("========= GPU Info =========\n");
     for (int i = 0; i < this->gpuIdx.size(); ++i) {
-        std::cerr << "GPU " << this->gpuIdx[i] << ", Available Memory: "<< (this->gpuMem[i]) << " / " << (gpuTotalMem[i]) << " MB.\n";
+        msg::info("GPU %d, Available Memory: %zu / %zu MB.\n", this->gpuIdx[i], this->gpuMem[i], gpuTotalMem[i]);
     }
     return;
 }

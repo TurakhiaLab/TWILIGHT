@@ -1,5 +1,5 @@
-#ifndef PHYLO_HPP
-#include "phylogeny.hpp"
+#ifndef MSA_HPP
+#include "msa.hpp"
 #endif
 
 #include <fstream>
@@ -142,8 +142,7 @@ void phylogeny::Tree::parseNewick(std::string& newickString) {
     m_meanDepth /= leaves.size();
 
     if (level != 0) {
-        fprintf(stderr, "ERROR: incorrect Newick format!\n");
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::TREE_PARSE, "Incorrect Newick format!");
     }
 
     m_numLeaves = leaves.size();
@@ -175,7 +174,7 @@ void phylogeny::Tree::parseNewick(std::string& newickString) {
             parentStack.push(newNode);
         }
         if (allNodes.find(leaf) != allNodes.end()) {
-            printf("WARNING: duplicate leaf names found in the tree! Leaf name: %s. All duplicate leaves will be removed during processing.\n", leaf.c_str());
+            msg::warn("Duplicate leaf names found in the tree! Leaf name: %s. All duplicate leaves will be removed during processing.\n", leaf.c_str());
             leaf += "_dup_" + std::to_string(allNodes.size());
         }
         
@@ -195,7 +194,7 @@ void phylogeny::Tree::parseNewick(std::string& newickString) {
     }
 
     if (treeRoot == nullptr) {
-        fprintf(stderr, "WARNING: Tree found empty!\n");
+        throw msa::TwilightError(msa::ErrorCode::TREE_PARSE, "Tree is empty!");
     }
 
     treeRoot->branchLength = 0;
@@ -226,16 +225,35 @@ phylogeny::Tree::Tree (std::string treeFileName)
 {
     auto treeBuiltStart = std::chrono::high_resolution_clock::now();
     std::ifstream inputStream(treeFileName);
-    if (!inputStream) { fprintf(stderr, "Error: Failed to open file: %s\n", treeFileName.c_str()); exit(1); }
+    if (!inputStream) {
+        throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Failed to open tree file: " + treeFileName);
+    }
     std::string newick; 
     // inputStream >> std::noskipws >> newick;
     std::getline(inputStream, newick);
     this->parseNewick(newick);
     auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
-    std::cerr << "Newick string read in: " <<  treeBuiltTime.count() / 1000000 << " ms\n";
+    msg::info("Newick string read in: %lld ms\n", static_cast<long long>(treeBuiltTime.count() / 1000000));
 }
   
+phylogeny::Tree* phylogeny::Tree::fromNewickString(const std::string& newickString)
+{
+    auto treeBuiltStart = std::chrono::high_resolution_clock::now();
+    Tree* T = new Tree();
+    try {
+        std::string copy = newickString;
+        T->parseNewick(copy);
+    } catch (...) {
+        delete T;
+        throw;
+    }
+    auto treeBuiltEnd = std::chrono::high_resolution_clock::now();
+    std::chrono::nanoseconds treeBuiltTime = treeBuiltEnd - treeBuiltStart;
+    msg::info("Newick string parsed in: %lld ms\n", static_cast<long long>(treeBuiltTime.count() / 1000000));
+    return T;
+}
+
 phylogeny::Tree::Tree(Node* node, bool reroot, bool verbose) {
     Node* root = new Node(node->identifier, node->branchLength);
     int grp = node->grpID;
@@ -315,7 +333,7 @@ void phylogeny::Tree::calLeafNum() {
 };
 
 void phylogeny::Tree::calSeqWeight() {
-    if (s_noSeqWeighting) {
+    if (this->noSeqWeighting) {
         for (auto node: this->allNodes) {
             if (!node.second->is_leaf()) continue;
             this->allNodes[node.second->identifier]->weight = 1.0f;
@@ -345,31 +363,33 @@ void phylogeny::Tree::calSeqWeight() {
 };
 
 void phylogeny::Tree::showTree() {
+    if (!MessageManager::getInstance().shouldLog(LogLevel::INFO)) return;
+    auto s = msg::stream(LogLevel::INFO);
     std::function<void(Node*)> showTreeImpl = [&](Node* node) {
-        std::cerr << std::left << std::setw(12) << node->identifier     // Identifier
-                  << std::right << std::setw(10) << std::fixed << std::setprecision(4) << node->branchLength  // Branch length
-                  << std::setw(10) << (node->parent ? node->parent->identifier : "ROOT")  // Parent or ROOT
-                  << std::setw(8)  << node->level
-                  << std::setw(8)  << node->grpID
-                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnNum
-                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnLen
-                  << std::setw(10) << std::fixed << std::setprecision(3) << node->alnWeight
-                  << std::setw(10) << std::fixed << std::setprecision(3) << node->weight
-                  << '\n';
+        s << std::left << std::setw(12) << node->identifier     // Identifier
+          << std::right << std::setw(10) << std::fixed << std::setprecision(4) << node->branchLength  // Branch length
+          << std::setw(10) << (node->parent ? node->parent->identifier : "ROOT")  // Parent or ROOT
+          << std::setw(8)  << node->level
+          << std::setw(8)  << node->grpID
+          << std::setw(10) << std::fixed << std::setprecision(3) << node->alnNum
+          << std::setw(10) << std::fixed << std::setprecision(3) << node->alnLen
+          << std::setw(10) << std::fixed << std::setprecision(3) << node->alnWeight
+          << std::setw(10) << std::fixed << std::setprecision(3) << node->weight
+          << '\n';
         for (auto& c : node->children) {
             showTreeImpl(c);
         }
     };
-    std::cerr << std::left << std::setw(12) << "Identifier"
-              << std::right << std::setw(10) << "Length"
-              << std::setw(12) << "Parent"
-              << std::setw(12)  << "Level"
-              << std::setw(12)  << "Group"
-              << std::setw(12)  << "alnNum"
-              << std::setw(12)  << "alnLen"
-              << std::setw(12)  << "alnWeight"
-              << std::setw(12) << "Weight" << '\n';
-    std::cerr << std::string(50, '-') << '\n';
+    s << std::left << std::setw(12) << "Identifier"
+      << std::right << std::setw(10) << "Length"
+      << std::setw(12) << "Parent"
+      << std::setw(12)  << "Level"
+      << std::setw(12)  << "Group"
+      << std::setw(12)  << "alnNum"
+      << std::setw(12)  << "alnLen"
+      << std::setw(12)  << "alnWeight"
+      << std::setw(12) << "Weight" << '\n'
+      << std::string(50, '-') << '\n';
     if (this->root) showTreeImpl(this->root);
 }
 
@@ -509,15 +529,16 @@ phylogeny::Tree* phylogeny::Tree::prune(std::unordered_set<std::string>& seqs) {
     pT->calLeafNum();
     pT->calSeqWeight();
 
-    std::cerr << "Number of Leaves: " << this->m_numLeaves << " (before pruning) -> " << pT->m_numLeaves << " (after pruning)\n";
+    msg::info("Number of Leaves: %zu (before pruning) -> %zu (after pruning)\n", this->m_numLeaves, pT->m_numLeaves);
     if (pT->m_numLeaves == 0) {
-        std::cerr << "ERROR: No sequences from the input sequence file are found in the tree file.\n";
-        exit(1);
+        delete pT;
+        throw msa::TwilightError(msa::ErrorCode::EMPTY_INPUT,
+            "No sequences from the input sequence file are found in the tree file.");
     }
-    if (pT->m_numLeaves != seqs.size()) std::cerr << "WARNING: " << (seqs.size() - pT->m_numLeaves) << " sequences are missing from the tree and will be ignored.\n";
+    if (pT->m_numLeaves != seqs.size()) msg::warn("%zu sequences are missing from the tree and will be ignored.\n", (seqs.size() - pT->m_numLeaves));
     auto treePruneEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds treePruneTime = treePruneEnd - treePruneStart;
-    std::cerr << "Tree pruned in: " <<  treePruneTime.count() / 1000000 << " ms\n";
+    msg::info("Tree pruned in: %lld ms\n", static_cast<long long>(treePruneTime.count() / 1000000));
     return pT;
 }
 
@@ -722,10 +743,10 @@ void phylogeny::Tree::reroot(bool placement, bool verbose)
     this->calSeqWeight();
     for (auto n: this->allNodes) afterReroot = (n.second->level > afterReroot) ? n.second->level : afterReroot;
     if (verbose) {
-        std::cerr << "======== Tree Depth ========\n";
-        std::cerr << "Original: " << beforeConvert << '\n';
-        std::cerr << "Binary: " << beforeReroot << '\n';
-        std::cerr << "Reroot: " << afterReroot << '\n';
+        msg::info("======== Tree Depth ========\n");
+        msg::info("Original: %zu\n", beforeConvert);
+        msg::info("Binary: %zu\n", beforeReroot);
+        msg::info("Reroot: %zu\n", afterReroot);
     }
 }
 

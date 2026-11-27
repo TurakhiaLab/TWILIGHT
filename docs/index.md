@@ -261,7 +261,7 @@ The Dockerfile installed all the dependencies and tools for TWILIGHT default/ite
 | `-S`, `--sample-mode`            | Sampling preset mode for consistency: `0`: auto, `1`: all-to-all (slow), `2`: high sample rate (med speed), `3`: low sample rate (fast) (default: 0). |
 | `--sample-rate`                  | Sample rate for hierarchical consistency representative selection (must be >0, <1). |
 | `--sample-top-centrality`        | Fraction of representative quota to select by highest centrality before column coverage (must be >0, <=1). |
-| `--sample-max-group`             | Maximum number of sequences in a consistency group. |
+| `--sample-max-group`             | Maximum number of sequences in a consistency group (default: 200 for Mode 2/3). |
 | `--consistency-weight`           | Weight multiplier for consistency bonus in accurate mode (default: 5.0). |
 | **General** |
 | `--check`                        | Check the final alignment. Sequences with no legal alignment will be displayed. |

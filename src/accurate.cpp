@@ -45,7 +45,7 @@ void msaOnSubtree_accurate(Tree *&T, SequenceDB *database, Option *option, Param
         auto singleGroupEnd = std::chrono::high_resolution_clock::now();
         auto singleGroupMs = std::chrono::duration_cast<std::chrono::milliseconds>(singleGroupEnd - singleGroupStart).count();
         if (option->printDetail) {
-            std::cerr << "Progressive alignment on 1 groups in " << singleGroupMs << " ms\n";
+            msg::debug("Progressive alignment on 1 groups in %lld ms\n", static_cast<long long>(singleGroupMs));
         }
         if (subtree >= 0 && !group.representatives.empty()) {
             database->subtreeRepresentatives[T->root->identifier] = group.representatives;
@@ -168,9 +168,9 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                           SequenceDB* database, Option* option, Params& param, alnFunction alignmentKernel,
                           bool writeOutput) {
     if (option->printDetail) {
-        std::cerr << "\n================================================================================\n";
-        std::cerr << "[Accurate Mode] Executing Hierarchical Alignment Plan (Total Layers: " << plan.totalLayers << ")\n";
-        std::cerr << "================================================================================\n";
+        msg::debug("\n================================================================================\n");
+        msg::debug("[Accurate Mode] Executing Hierarchical Alignment Plan (Total Layers: %d)\n", plan.totalLayers);
+        msg::debug("================================================================================\n");
     }
 
     if (plan.layers.empty()) return;
@@ -182,9 +182,9 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
     int proceeded = 0;
 
     if (option->printDetail) {
-        std::cerr << "--------------------------------------------------------------------------------\n";
-        std::cerr << "[Accurate Mode] Starting Layer 1 (" << layer1.size() << " base group(s))\n";
-        std::cerr << "--------------------------------------------------------------------------------\n";
+        msg::debug("--------------------------------------------------------------------------------\n");
+        msg::debug("[Accurate Mode] Starting Layer 1 (%zu base group(s))\n", layer1.size());
+        msg::debug("--------------------------------------------------------------------------------\n");
     }
 
     bool inMemoryMode = !database->sequences.empty() || (option->maxSubtree == INT32_MAX);
@@ -250,8 +250,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             if (!subRootNode) continue;
 
             if (P && P->partitionsRoot.size() > 1) {
-                std::cerr << "Start processing subalignment No. " << subtree << ". (" 
-                          << proceeded << '/' << layer1.size() << ")\n";
+                msg::info("Start processing subalignment No. %d. (%d/%zu)\n", subtree, proceeded, layer1.size());
             }
 
             // Disable verbose tree depth printing for accurate mode per-group subtrees
@@ -275,7 +274,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                 auto storeEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds storeTime = storeEnd - storeStart;
                 if (option->printDetail) {
-                    std::cerr << "Stored the subalignments in " << storeTime.count() / 1000000 << " ms.\n";
+                    msg::debug("Stored the subalignments in %lld ms.\n", static_cast<long long>(storeTime.count() / 1000000));
                 }
             } else {
                 auto outStart = std::chrono::high_resolution_clock::now();
@@ -283,7 +282,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-                std::cerr << "Wrote alignment to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+                msg::info("Wrote alignment to %s in %lld ms\n", outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
             }
 
             delete subT;
@@ -291,9 +290,9 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto subtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
             if (P && P->partitionsRoot.size() > 1) {
-                std::cerr << "Finished subalignment No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
+                msg::info("Finished subalignment No.%d in %lld s\n", subtree, static_cast<long long>(subtreeTime.count() / 1000000000));
             } else {
-                std::cerr << "Finished the alignment in " << subtreeTime.count() / 1000000000 << " s\n";
+                msg::info("Finished the alignment in %lld s\n", static_cast<long long>(subtreeTime.count() / 1000000000));
             }
         }
     } else {
@@ -309,8 +308,8 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             size_t bCount = bEnd - bStart;
 
             if (batches.size() > 1) {
-                std::cerr << "\n[Accurate Mode] Processing Layer 1 Batch " << (b + 1) << "/" << batches.size() 
-                          << " (Groups " << bStart << ".." << (bEnd - 1) << ", Total " << bCount << " groups)...\n";
+                msg::info("\n[Accurate Mode] Processing Layer 1 Batch %zu/%zu (Groups %zu..%zu, Total %zu groups)...\n",
+                          (b + 1), batches.size(), bStart, (bEnd - 1), bCount);
             }
 
             // 1. Prepare contexts for groups in this batch
@@ -360,7 +359,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto phase1End = std::chrono::high_resolution_clock::now();
             auto phase1Ms = std::chrono::duration_cast<std::chrono::milliseconds>(phase1End - phase1Start).count();
             if (option->printDetail) {
-                std::cerr << "Consistency library built on " << batchContexts.size() << " groups in " << phase1Ms << " ms\n";
+                msg::debug("Consistency library built on %zu groups in %lld ms\n", batchContexts.size(), static_cast<long long>(phase1Ms));
             }
 
             // Phase 1.5: Optional Layer 1 Subtree Refinement using pairwise distances from localHomTable
@@ -379,7 +378,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                 auto refineEnd = std::chrono::high_resolution_clock::now();
                 auto refineMs = std::chrono::duration_cast<std::chrono::milliseconds>(refineEnd - refineStart).count();
                 if (option->printDetail) {
-                    std::cerr << "Layer 1 subtree refinement on " << batchContexts.size() << " groups in " << refineMs << " ms\n";
+                    msg::debug("Layer 1 subtree refinement on %zu groups in %lld ms\n", batchContexts.size(), static_cast<long long>(refineMs));
                 }
             }
 
@@ -399,7 +398,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto alignGroupsEnd = std::chrono::high_resolution_clock::now();
             auto alignGroupsMs = std::chrono::duration_cast<std::chrono::milliseconds>(alignGroupsEnd - alignGroupsStart).count();
             if (option->printDetail) {
-                std::cerr << "Progressive alignment on " << batchContexts.size() << " groups in " << alignGroupsMs << " ms\n";
+                msg::debug("Progressive alignment on %zu groups in %lld ms\n", batchContexts.size(), static_cast<long long>(alignGroupsMs));
             }
 
             // Phase 2.5: Alignment Iterative Refinement
@@ -446,7 +445,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                 auto refineAlnEnd = std::chrono::high_resolution_clock::now();
                 auto refineAlnMs = std::chrono::duration_cast<std::chrono::milliseconds>(refineAlnEnd - refineAlnStart).count();
                 if (option->printDetail) {
-                    std::cerr << "Iterative refinement on " << batchContexts.size() << " groups in " << refineAlnMs << " ms\n";
+                    msg::debug("Iterative refinement on %zu groups in %lld ms\n", batchContexts.size(), static_cast<long long>(refineAlnMs));
                 }
             }
 
@@ -519,9 +518,9 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             // Print sampling logs strictly in groupID order
             if (option->printDetail) {
                 for (const auto& log : samplingLogs) {
-                    if (!log.empty()) std::cerr << log;
+                    if (!log.empty()) msg::debug("%s", log.c_str());
                 }
-                std::cerr << "Sampling on " << batchContexts.size() << " groups in " << samplingMs << " ms\n";
+                msg::debug("Sampling on %zu groups in %lld ms\n", batchContexts.size(), static_cast<long long>(samplingMs));
             }
 
             for (auto& ctx : batchContexts) {
@@ -579,7 +578,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
                     auto outEnd = std::chrono::high_resolution_clock::now();
                     std::chrono::nanoseconds outTime = outEnd - outStart;
                     std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-                    std::cerr << "Wrote alignment to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+                    msg::info("Wrote alignment to %s in %lld ms\n", outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
                 }
 
                 // Immediately release consistency table memory to bound RAM usage
@@ -591,15 +590,13 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto batchEnd = std::chrono::high_resolution_clock::now();
             std::chrono::milliseconds batchElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(batchEnd - batchStart);
             if (batches.size() > 1) {
-                std::cerr << "Layer 1 Batch " << (b + 1) << "/" << batches.size() 
-                          << ": Finished " << bCount << " groups in " 
-                          << std::fixed << std::setprecision(2) << (batchElapsed.count() / 1000.0f) << " s\n";
+                msg::info("Layer 1 Batch %zu/%zu: Finished %zu groups in %.2f s\n",
+                          (b + 1), batches.size(), bCount, (batchElapsed.count() / 1000.0f));
             }
         }
         auto layer1End = std::chrono::high_resolution_clock::now();
         std::chrono::milliseconds layer1Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(layer1End - layer1Start);
-        std::cerr << "Layer 1: Finished " << layer1.size() << " groups in " 
-                  << std::fixed << std::setprecision(2) << (layer1Elapsed.count() / 1000.0f) << " s\n";
+        msg::info("Layer 1: Finished %zu groups in %.2f s\n", layer1.size(), (layer1Elapsed.count() / 1000.0f));
     }
 
     if (!P || P->partitionsRoot.size() <= 1 || plan.layers.size() <= 1) {
@@ -616,9 +613,9 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
         const auto& prevLayer = plan.layers[l - 1];
 
         if (option->printDetail) {
-            std::cerr << "\n--------------------------------------------------------------------------------\n";
-            std::cerr << "[Accurate Mode] Starting Layer " << (l + 1) << " (" << currentLayer.size() << " merge group(s))\n";
-            std::cerr << "--------------------------------------------------------------------------------\n";
+            msg::debug("\n--------------------------------------------------------------------------------\n");
+            msg::debug("[Accurate Mode] Starting Layer %zu (%zu merge group(s))\n", (l + 1), currentLayer.size());
+            msg::debug("--------------------------------------------------------------------------------\n");
         }
 
         auto layerStart = std::chrono::high_resolution_clock::now();
@@ -664,8 +661,8 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             size_t bCount = bEnd - bStart;
 
             if (batches.size() > 1) {
-                std::cerr << "\n[Accurate Mode] Processing Layer " << (l + 1) << " Batch " << (b + 1) << "/" << batches.size() 
-                          << " (Groups " << bStart << ".." << (bEnd - 1) << ", Total " << bCount << " groups)...\n";
+                msg::info("\n[Accurate Mode] Processing Layer %zu Batch %zu/%zu (Groups %zu..%zu, Total %zu groups)...\n",
+                          (l + 1), (b + 1), batches.size(), bStart, (bEnd - 1), bCount);
             }
 
             std::vector<LayerGroupContext> batchContexts;
@@ -741,7 +738,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto phase1End = std::chrono::high_resolution_clock::now();
             auto phase1Ms = std::chrono::duration_cast<std::chrono::milliseconds>(phase1End - phase1Start).count();
             if (option->printDetail) {
-                std::cerr << "Consistency library built on " << nonTrivialCount << " groups in " << phase1Ms << " ms\n";
+                msg::debug("Consistency library built on %d groups in %lld ms\n", nonTrivialCount, static_cast<long long>(phase1Ms));
             }
 
             // Phase 2: Group-level parallel progressive alignment
@@ -761,7 +758,7 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto phase2End = std::chrono::high_resolution_clock::now();
             auto phase2Ms = std::chrono::duration_cast<std::chrono::milliseconds>(phase2End - phase2Start).count();
             if (option->printDetail) {
-                std::cerr << "Progressive alignment on " << nonTrivialCount << " groups in " << phase2Ms << " ms\n";
+                msg::debug("Progressive alignment on %d groups in %lld ms\n", nonTrivialCount, static_cast<long long>(phase2Ms));
             }
 
             // Copy merged alignment attributes back to clade root in subRoot_T and clean up group_T
@@ -783,9 +780,8 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto batchEnd = std::chrono::high_resolution_clock::now();
             std::chrono::milliseconds batchElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(batchEnd - batchStart);
             if (batches.size() > 1) {
-                std::cerr << "Layer " << (l + 1) << " Batch " << (b + 1) << "/" << batches.size() 
-                          << ": Finished " << bCount << " groups in " 
-                          << std::fixed << std::setprecision(2) << (batchElapsed.count() / 1000.0f) << " s\n";
+                msg::info("Layer %zu Batch %zu/%zu: Finished %zu groups in %.2f s\n",
+                          (l + 1), (b + 1), batches.size(), bCount, (batchElapsed.count() / 1000.0f));
             }
         }
 
@@ -810,14 +806,14 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto samplingEnd = std::chrono::high_resolution_clock::now();
             auto samplingMs = std::chrono::duration_cast<std::chrono::milliseconds>(samplingEnd - samplingStart).count();
             if (option->printDetail && sampledCount > 0) {
-                std::cerr << "Sampling on " << sampledCount << " groups in " << samplingMs << " ms\n";
+                msg::debug("Sampling on %d groups in %lld ms\n", sampledCount, static_cast<long long>(samplingMs));
             }
         }
 
         auto layerEnd = std::chrono::high_resolution_clock::now();
         std::chrono::milliseconds layerElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(layerEnd - layerStart);
-        std::cerr << "Layer " << (l + 1) << ": Finished " << currentLayer.size() << " groups in " 
-                  << std::fixed << std::setprecision(2) << (layerElapsed.count() / 1000.0f) << " s\n";
+        msg::info("Layer %zu: Finished %zu groups in %.2f s\n",
+                  (l + 1), currentLayer.size(), (layerElapsed.count() / 1000.0f));
     }
 
     // Determine final alignment length from top-layer root
@@ -861,8 +857,8 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-            std::cerr << "Wrote final alignment (total " << database->sequences.size() 
-                      << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+            msg::info("Wrote final alignment (total %zu sequences) to %s in %lld ms\n",
+                      database->sequences.size(), outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
         } else {
             database->currentTask = 2;
             int totalSeqs = 0;
@@ -872,8 +868,8 @@ void executeHierarchyPlan(HierarchyPlan& plan, Tree* T, PartitionInfo* P, Tree* 
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-            std::cerr << "Wrote " << subRoot_T->allNodes.size() << " subalignments (total " << totalSeqs 
-                      << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+            msg::info("Wrote %zu subalignments (total %d sequences) to %s in %lld ms\n",
+                      subRoot_T->allNodes.size(), totalSeqs, outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
         }
     }
 }
@@ -938,8 +934,8 @@ void mergeSubtreesAccurate(
         group.repSeqIndices.push_back(rep.globalSeqID);
     }
 
-    std::cerr << "\n>>> Starting Accurate Subtree Merge on " << tipNames.size()
-              << " Subtrees (Total Reps: " << group.repCount << ") <<<\n";
+    msg::info("\n>>> Starting Accurate Subtree Merge on %zu Subtrees (Total Reps: %zu) <<<\n",
+              tipNames.size(), group.repCount);
 
     // 2. All-to-all alignment for consistency among representatives
     auto localHomTable = alignGroupPairwiseAllToAll(group, subRoot_T, database, option, param);
@@ -951,7 +947,7 @@ void mergeSubtreesAccurate(
     std::unordered_map<std::string, ColumnProvenance> subrootProvenance;
     progressiveAlignGroupWithConsistency(group, localHomTable, subRoot_T, database, option, param, nullptr, &subrootProvenance);
 
-    std::cerr << ">>> Finished Accurate Subtree Merge <<<\n";
+    msg::info(">>> Finished Accurate Subtree Merge <<<\n");
 }
 
 // -----------------------------------------------------------------------------
@@ -961,10 +957,10 @@ void placeWithoutTree_Accurate(Tree* T, SequenceDB* database, Option* option, Pa
     auto placeStart = std::chrono::high_resolution_clock::now();
 
     // 1. Extract hybrid representatives from backbone alignment
-    int targetReps = (option->accMaxGroup > 1) ? option->accMaxGroup : 100;
+    int targetReps = (option->accMaxGroup > 1) ? option->accMaxGroup : 200;
     std::vector<BackboneRep> backboneReps = extractBackboneRepresentatives(option->backboneAlnFile, targetReps, option);
     if (backboneReps.empty()) {
-        std::cerr << "WARNING: No backbone representatives selected. Falling back to standard placement.\n";
+        msg::warn("No backbone representatives selected. Falling back to standard placement.\n");
         msa::progressive::msaOnSubtree(T, database, option, param, msa::progressive::cpu::alignmentKernel_CPU);
         return;
     }
@@ -1117,8 +1113,8 @@ void placeWithoutTree_Accurate(Tree* T, SequenceDB* database, Option* option, Pa
 
     auto placeEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds placeElapsed = placeEnd - placeStart;
-    std::cerr << "Placed " << placedNum << " sequences with consistency bonus in " 
-              << placeElapsed.count() / 1000000000 << " s\n";
+    msg::info("Placed %d sequences with consistency bonus in %lld s\n",
+              placedNum, static_cast<long long>(placeElapsed.count() / 1000000000));
 }
 
 } // namespace accurate

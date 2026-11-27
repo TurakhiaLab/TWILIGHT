@@ -88,12 +88,12 @@ msa::Params::Params(const CliOptions& opt, char type) {
     float userOffset = opt.hasOffset ? opt.offset : 0.0f;
     float xdrop = round(opt.xdrop);
     if (userGOP > 0 || userGEP > 0 || userGBoundary > 0)  {
-        std::cerr << "ERROR: Gap penalties must be less than or equal to 0.\n";
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::INVALID_ARG,
+            "Gap penalties must be less than or equal to 0.");
     }
     if (xdrop <= 0)  {
-        std::cerr << "ERROR: XDrop value should be larger than 0.\n";
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::INVALID_ARG,
+            "XDrop value should be larger than 0.");
     }
     float defaultScale = (type == 'n') ? 20.0f : 600.0f;
     float targetScore = opt.hasScale ? opt.scale : defaultScale;
@@ -104,8 +104,8 @@ msa::Params::Params(const CliOptions& opt, char type) {
     float userLocalGEP = opt.hasLocalGapExtend ? opt.localGapExtend : defaultLocalGEP;
     float userLocalOffset = 0.10f;
     if (userLocalGOP > 0 || userLocalGEP > 0) {
-        std::cerr << "ERROR: Local gap penalties must be less than or equal to 0.\n";
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::INVALID_ARG,
+            "Local gap penalties must be less than or equal to 0.");
     }
     this->offset = userOffset * targetScore;
     this->gapOpen = userGOP * targetScore;
@@ -138,9 +138,7 @@ msa::Params::Params(const CliOptions& opt, char type) {
         }
         else if (type == 'p') {
             if (blosumType != 43 && blosumType != 45 && blosumType != 62 && blosumType != 80 && blosumType != 99) {
-                std::cerr << "WARNING: Invalid substitution matrix \"" << blosumType
-                          << "\". Please choose from 43 (PFASUM43), 45, 62, 80, or 99 (MIQS).\n";
-                std::cerr << "Using default: BLOSUM62.\n";
+                msg::warn("Invalid substitution matrix \"%d\". Please choose from 43 (PFASUM43), 45, 62, 80, or 99 (MIQS). Using default: BLOSUM62.\n", blosumType);
                 blosumType = 62;
             }
             float Nscore = 0.0;
@@ -182,8 +180,8 @@ msa::Params::Params(const CliOptions& opt, char type) {
         std::string matrixFileName = opt.matrixFile;
         std::ifstream matrixFile(matrixFileName);
         if (!matrixFile) {
-            fprintf(stderr, "ERROR: can't open %s\n", matrixFileName.c_str());
-            exit(1);
+            throw msa::TwilightError(msa::ErrorCode::IO_ERROR,
+                "Can't open matrix file: " + matrixFileName);
         }
         std::string word;
         std::vector<int> charVec;
@@ -206,9 +204,9 @@ msa::Params::Params(const CliOptions& opt, char type) {
                 char letter = toupper(word[0]);
                 int ambig = (type == 'n') ? 4 : 20;
                 if (letterIdx(type, letter) == ambig && charNum == this->matrixSize-1) {
-                    std::string seqType = (type == 'n') ? " for nucleotide sequences.\n" : " for protein sequences.\n";
-                    std::cerr << "Unrecognized letter \"" << letter << "\"" << seqType;
-                    exit(1);
+                    std::string seqType = (type == 'n') ? " for nucleotide sequences." : " for protein sequences.";
+                    throw msa::TwilightError(msa::ErrorCode::INVALID_ARG,
+                        std::string("Unrecognized letter \"") + letter + "\"" + seqType);
                 }
                 charVec.push_back(letterIdx(type, letter));
                 readCount++;
@@ -271,43 +269,43 @@ msa::Params::Params(const CliOptions& opt, char type) {
 
     this->gapTerminal = 0.0f;
     
-    if (opt.verbose) {
-        std::cerr << "======== Parameters ========\n";
+    if (opt.verbose && MessageManager::getInstance().shouldLog(LogLevel::DEBUG)) {
+        auto s = msg::stream(LogLevel::DEBUG);
+        s << "======== Parameters ========\n";
         if (type == 'p') {
-            if      (blosumType == 43) std::cerr << "PFASUM43\n";
-            else if (blosumType == 45) std::cerr << "BLOSUM45\n";
-            else if (blosumType == 62) std::cerr << "BLOSUM62\n";
-            else if (blosumType == 80) std::cerr << "BLOSUM80\n";
-            else if (blosumType == 99) std::cerr << "MIQS\n";
+            if      (blosumType == 43) s << "PFASUM43\n";
+            else if (blosumType == 45) s << "BLOSUM45\n";
+            else if (blosumType == 62) s << "BLOSUM62\n";
+            else if (blosumType == 80) s << "BLOSUM80\n";
+            else if (blosumType == 99) s << "MIQS\n";
         }
-        std::cerr << std::setw(5) << " ";
+        s << std::setw(5) << " ";
         for (size_t i = 0; i < this->matrixSize-1; ++i) {
             auto letter = letterMap.begin();
             std::advance(letter, i);
             letter++;
-            std::cerr << std::setw(5) << letter->first;
+            s << std::setw(5) << letter->first;
         }
-        std::cerr << std::setw(5) << ((type == 'n') ? 'N' : 'X');
-        std::cerr << "\n";
+        s << std::setw(5) << ((type == 'n') ? 'N' : 'X') << "\n";
         for (size_t i = 0; i < this->matrixSize; ++i) {
             auto letter = letterMap.begin();
             std::advance(letter, i);
             letter++;
-            if (i < this->matrixSize-1) std::cerr << std::setw(5) << letter->first;
-            else std::cerr << std::setw(5) << ((type == 'n') ? 'N' : 'X');
+            if (i < this->matrixSize-1) s << std::setw(5) << letter->first;
+            else s << std::setw(5) << ((type == 'n') ? 'N' : 'X');
             for (size_t j = 0; j < this->matrixSize; ++j) {
-                std::cerr << std::setw(5) << static_cast<int>(this->scoringMatrix[i][j]);
+                s << std::setw(5) << static_cast<int>(this->scoringMatrix[i][j]);
             }
-            std::cerr << "\n";
+            s << "\n";
         }
-        std::cerr << "Gap-Open:       " << this->gapOpen << " (normalized: " << userGOP << ")\n"
-                  << "Gap-Extend:     " << this->gapExtend << " (normalized: " << userGEP << ")\n"
-                  << "Gap-Terminal:   " << this->gapTerminal << "\n"
-                  << "Offset:         " << this->offset << " (normalized: " << userOffset << ")\n"
-                  << "Local-Gap-Open: " << this->localGapOpen << " (normalized: " << userLocalGOP << ")\n"
-                  << "Local-Gap-Ext:  " << this->localGapExtend << " (normalized: " << userLocalGEP << ")\n"
-                  << "Local-Offset:   " << this->localOffset << " (normalized: " << userLocalOffset << ")\n"
-                  << "Xdrop:          " << this->xdrop << '\n';
+        s << "Gap-Open:       " << this->gapOpen << " (normalized: " << userGOP << ")\n"
+          << "Gap-Extend:     " << this->gapExtend << " (normalized: " << userGEP << ")\n"
+          << "Gap-Terminal:   " << this->gapTerminal << "\n"
+          << "Offset:         " << this->offset << " (normalized: " << userOffset << ")\n"
+          << "Local-Gap-Open: " << this->localGapOpen << " (normalized: " << userLocalGOP << ")\n"
+          << "Local-Gap-Ext:  " << this->localGapExtend << " (normalized: " << userLocalGEP << ")\n"
+          << "Local-Offset:   " << this->localOffset << " (normalized: " << userLocalOffset << ")\n"
+          << "Xdrop:          " << this->xdrop << '\n';
     }
 }
 

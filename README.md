@@ -51,6 +51,7 @@
   - [Snakemake Workflow](#snakemake)
     - [Iterative mode](#iterative)
     - [Add new sequences (tree unavailable)](#add-2)
+- [C API (Library Usage)](#c-api)
 - [Contributions](#contribution)
 - [Citing TWILIGHT](#cite)
 
@@ -245,7 +246,7 @@ TWILIGHT offers different sampling presets via `--sample-mode` to balance runtim
 Fine-grained sampling arguments:
 - `--sample-rate`: Sampling fraction for representatives (e.g. `0.5`, `0.1`).
 - `--sample-top-centrality`: Fraction of representative quota selected by highest centrality before greedy column-coverage expansion (default `1.0` for Mode 2, `0.3` for Mode 3).
-- `--sample-max-group`: Maximum number of sequences in a consistency group.
+- `--sample-max-group`: Maximum number of sequences in a consistency group (default: 200 for Mode 2/3).
 
 > **Note:** Accurate consistency mode currently executes on CPU only.
 
@@ -362,6 +363,10 @@ snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln 
 ```bash
 snakemake --cores 8 --config TYPE=n SEQ=../dataset/RNASim_sub.fa OUT=RNASim.aln ALN=../dataset/RNASim_backbone.aln FINALTREE=fasttree
 ```
+## <a name="c-api"></a> C API (Library Usage)
+
+TWILIGHT provides a C-compatible library API (`include/twilight.h`, `lib/libtwilight.a`) for in-memory tree-guided progressive alignment (`--accuracy-level` `1`, `2`, `3`). See [api/README.md](api/README.md) for build instructions, API reference, and runnable examples.
+
 ##  <a name="contribution"></a> Contributions
 We welcome contributions from the community to enhance the capabilities of **TWILIGHT**. If you encounter any issues or have suggestions for improvement, please open an issue on [TWILIGHT GitHub page](https://github.com/TurakhiaLab/TWILIGHT). For general inquiries and support, reach out to our team.
 

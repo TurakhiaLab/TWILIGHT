@@ -254,7 +254,7 @@ std::vector<Representative> extractRepresentatives(
         if (logMsg) {
             *logMsg = oss.str();
         } else {
-            std::cerr << oss.str();
+            msg::debug("%s", oss.str().c_str());
         }
     }
 
@@ -310,8 +310,7 @@ std::vector<BackboneRep> extractBackboneRepresentatives(
 {
     gzFile f_rd = gzopen(backboneFile.c_str(), "r");
     if (!f_rd) {
-        std::cerr << "ERROR: Cannot open backbone file: " << backboneFile << "\n";
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Cannot open backbone file: " + backboneFile);
     }
     kseq_t* kseq_rd = kseq_init(f_rd);
 
@@ -430,11 +429,9 @@ std::vector<BackboneRep> extractBackboneRepresentatives(
     int totalCovered = 0;
     for (bool b : coveredCols) if (b) ++totalCovered;
 
-    std::cerr << "  [Accurate Placement] Selected " << reps.size() << "/" << totalSeqs 
-              << " backbone representatives (" << topQuota << " longest, " 
-              << (reps.size() - topQuota) << " max coverage): Column Coverage = " 
-              << totalCovered << "/" << msaLen << " (" 
-              << std::fixed << std::setprecision(1) << (100.0 * totalCovered / msaLen) << "%)\n";
+    msg::info("  [Accurate Placement] Selected %zu/%d backbone representatives (%d longest, %zu max coverage): Column Coverage = %d/%d (%.1f%%)\n",
+              reps.size(), totalSeqs, topQuota, (reps.size() - topQuota),
+              totalCovered, msaLen, (100.0 * totalCovered / msaLen));
 
     return reps;
 }

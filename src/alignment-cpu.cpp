@@ -114,17 +114,17 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                     break;
                 }
                 if (errorType == 2) {
-                    if (option->printDetail) std::cout << "Updated anti-diagonal limit on No. " << nIdx << '\n';
+                    if (option->printDetail) msg::debug("Updated anti-diagonal limit on No. %d\n", nIdx);
                     talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->fLen * 1.2) << 1, std::min(lens.first, lens.second)));
                 }
                 else if (errorType == 3) {
-                    std::cout << "There might be some bugs in the code!\n";
-                    exit(1);
+                    delete talco_params;
+                    throw msa::TwilightError(msa::ErrorCode::INTERNAL, "Internal alignment error (TALCO errorType == 3).");
                 }
                 else if (errorType == 1) {
                     talco_params->updateXDrop(static_cast<int32_t>(talco_params->xdrop * 2));
                     talco_params->updateFLen(std::min(static_cast<int32_t>(talco_params->xdrop * 4) << 1, std::min(lens.first, lens.second)));
-                    if (option->printDetail) std::cout << "Updated x-drop value on No. " << nIdx << "\tNew Xdrop: " << talco_params->xdrop << '\n';
+                    if (option->printDetail) msg::debug("Updated x-drop value on No. %d\tNew Xdrop: %d\n", nIdx, talco_params->xdrop);
 
                 }
             }
@@ -161,8 +161,8 @@ void msa::progressive::cpu::parallelAlignmentCPU(Tree *tree, NodePairVec &nodes,
                 if (a == 2) {alnRef += 1;}
             }
             float refWeight = nodes[nIdx].first->alnWeight, qryWeight = nodes[nIdx].second->alnWeight;
-            if (alnRef != refLen) std::cout << "R: Post " << nodes[nIdx].first->identifier << "(" << alnRef << "/" << nodes[nIdx].first->getAlnLen(database->currentTask) << ")\n";
-            if (alnQry != qryLen) std::cout << "Q: Post " << nodes[nIdx].second->identifier << "(" << alnQry << "/" << nodes[nIdx].second->getAlnLen(database->currentTask) << ")\n";
+            if (alnRef != refLen) msg::warn("R: Post %s(%d/%d)\n", nodes[nIdx].first->identifier.c_str(), alnRef, nodes[nIdx].first->getAlnLen(database->currentTask));
+            if (alnQry != qryLen) msg::warn("Q: Post %s(%d/%d)\n", nodes[nIdx].second->identifier.c_str(), alnQry, nodes[nIdx].second->getAlnLen(database->currentTask));
             std::map<int,std::string> startAln, endAln;
             
             if (option->alnMode != PLACE_WO_TREE) {

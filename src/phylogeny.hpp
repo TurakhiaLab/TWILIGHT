@@ -78,7 +78,7 @@ namespace phylogeny {
         std::string newInternalNodeId() { return "node_" + std::to_string(++m_currInternalNode);}
         Node* root;
         std::unordered_map<std::string, Node*> allNodes;
-        static inline bool s_noSeqWeighting = false;
+        bool noSeqWeighting = false;
 
         void calLeafNum();
         void calSeqWeight();
@@ -91,8 +91,10 @@ namespace phylogeny {
         Tree* prune(std::unordered_set<std::string>& seqs);
         // Empty tree, used for align alignments
         Tree() {root = nullptr;}
-        // Used for whole Tree
+        // Used for whole Tree from file
         Tree(std::string newickFileName);
+        // Used for whole Tree from in-memory Newick string
+        static Tree* fromNewickString(const std::string& newickString);
         // Used for subtree
         Tree(Node* node, bool reroot, bool verbose=true);
         // Used for placement without tree

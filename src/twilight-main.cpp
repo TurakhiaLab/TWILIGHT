@@ -9,7 +9,7 @@
 // Copyright (c) 2017-2024 University of Cincinnati, developed by Henry Schreiner.
 #include "CLI11.hpp"
 
-#include <tbb/global_control.h>
+#include <tbb/task_arena.h>
 #include <filesystem>
 #include <chrono>
 
@@ -56,7 +56,7 @@ int main(int argc, char** argv) {
 
     auto* seqFilterDesc = app.add_option_group("Sequence Filtering Options");
     auto* opt_len_dev = seqFilterDesc->add_option("--length-deviation", opt.lenDev, "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.");
-    seqFilterDesc->add_option("--max-ambig", opt.maxAmbig, "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")->default_val(0.1f);
+    auto* opt_max_ambig = seqFilterDesc->add_option("--max-ambig", opt.maxAmbig, "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")->default_val(0.1f);
     auto* opt_max_len = seqFilterDesc->add_option("--max-len", opt.maxLen, "Sequences longer than max-len will be deferred or excluded.");
     auto* opt_min_len = seqFilterDesc->add_option("--min-len", opt.minLen, "Sequences shorter than min-len will be deferred or excluded.");
     seqFilterDesc->add_flag("--filter", opt.filter, "Exclude sequences with high ambiguity or length deviation.");
@@ -95,6 +95,7 @@ int main(int argc, char** argv) {
     auto* generalDesc = app.add_option_group("General");
     generalDesc->add_flag("--check", opt.check, "Check the final alignment. Sequences with no legal alignment will be displayed.");
     generalDesc->add_flag("-v,--verbose", opt.verbose, "Print out every detail process.");
+    generalDesc->add_flag("-q,--quiet", opt.quiet, "Suppress informational and debug messages (errors will still be printed).");
 
     if (argc == 1) {
         std::cerr << app.help() << std::endl;
@@ -107,10 +108,13 @@ int main(int argc, char** argv) {
         return app.exit(e);
     }
 
+    msg::init(opt.verbose, opt.quiet);
+
     opt.hasScore = (opt_score->count() > 0);
     opt.hasCpu = (opt_cpu->count() > 0);
     opt.hasMaxSubtree = (opt_max_subtree->count() > 0);
     opt.hasLenDev = (opt_len_dev->count() > 0);
+    opt.hasMaxAmbig = (opt_max_ambig->count() > 0);
     opt.hasMaxLen = (opt_max_len->count() > 0);
     opt.hasMinLen = (opt_min_len->count() > 0);
     opt.hasGapOpen = (opt_gap_open->count() > 0);
@@ -123,11 +127,13 @@ int main(int argc, char** argv) {
     opt.hasSampleTopCentrality = (opt_sample_top->count() > 0);
     opt.hasSampleMaxGroup = (opt_sample_max_group->count() > 0);
 
+    try {
     msa::Option* option = new msa::Option(opt);
     msa::SequenceDB* database = new msa::SequenceDB();
-    tbb::global_control init(tbb::global_control::max_allowed_parallelism, option->cpuNum);
+    tbb::task_arena arena(option->cpuNum);
     msa::Params* param = new msa::Params(opt, option->type);
 
+    arena.execute([&]() {
     if (option->alnMode == msa::DEFAULT_ALN || option->alnMode == msa::ACCURATE_ALN) { // Twilight Progressive Alignment
         phylogeny::Tree* T = new phylogeny::Tree(option->treeFile);
         if (opt.prune) {
@@ -142,7 +148,7 @@ int main(int argc, char** argv) {
         P->partitionTree(T->root);
         phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions_new(T->root, P);
         if (P->partitionsRoot.size() > 1) {
-            std::cerr << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
+            msg::info("Decomposed the tree into %zu subtrees.\n", P->partitionsRoot.size());
             msa::io::writeSubtrees(T, P, option);
         }
         // Start alignment on subtrees
@@ -152,7 +158,7 @@ int main(int argc, char** argv) {
             auto subtreeStart = std::chrono::high_resolution_clock::now();
             ++proceeded;
             int subtree = (P->partitionsRoot.size() > 1) ? T->allNodes[subRoot.first]->grpID : -1;
-            if (P->partitionsRoot.size() > 1) std::cerr << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
+            if (P->partitionsRoot.size() > 1) msg::info("Start processing subalignment No. %d. (%d/%zu)\n", subtree, proceeded, P->partitionsRoot.size());
             // Read sequences for each subtree
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, option->reroot);
             msa::io::readSequences(option->seqFile, database, option, subT, subtree);
@@ -178,7 +184,7 @@ int main(int argc, char** argv) {
                 database->cleanSubtreeDB();
                 auto storeEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds storeTime = storeEnd - storeStart;
-                std::cerr << "Stored the subalignments in " << storeTime.count() / 1000000 << " ms.\n";
+                msg::info("Stored the subalignments in %lld ms.\n", static_cast<long long>(storeTime.count() / 1000000));
             }
             else {
                 // Output final alignment
@@ -187,18 +193,18 @@ int main(int argc, char** argv) {
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-                std::cerr << "Wrote alignment to " << outFileName << " in " <<  outTime.count() / 1000000 << " ms\n";
+                msg::info("Wrote alignment to %s in %lld ms\n", outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
             }
             delete subT;
             auto subtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
-            if (P->partitionsRoot.size() > 1) std::cerr << "Finished subalignment No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
-            else                              std::cerr << "Finished the alignment in " << subtreeTime.count() / 1000000000 << " s\n";
+            if (P->partitionsRoot.size() > 1) msg::info("Finished subalignment No.%d in %lld s\n", subtree, static_cast<long long>(subtreeTime.count() / 1000000000));
+            else                              msg::info("Finished the alignment in %lld s\n", static_cast<long long>(subtreeTime.count() / 1000000000));
         }
         if (P->partitionsRoot.size() > 1) {
             auto alnSubtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnSubtreeTime = alnSubtreeEnd - alnSubtreeStart;
-            std::cerr << "Finished all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
+            msg::info("Finished all subalignments in %lld s.\n", static_cast<long long>(alnSubtreeTime.count() / 1000000000));
             // Merge subalignment
             database->currentTask = 2;
             if (!option->accurate) {
@@ -213,7 +219,8 @@ int main(int argc, char** argv) {
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-            std::cerr << "Wrote " << subRoot_T->allNodes.size() << " subalignments (total " << totalSeqs << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+            msg::info("Wrote %zu subalignments (total %d sequences) to %s in %lld ms\n",
+                      subRoot_T->allNodes.size(), totalSeqs, outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
         }
         delete T;
         delete subRoot_T;
@@ -231,7 +238,8 @@ int main(int argc, char** argv) {
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-        std::cerr << "Wrote " << T->allNodes.size() << " Alignments (total " << totalSeqs << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+        msg::info("Wrote %zu Alignments (total %d sequences) to %s in %lld ms\n",
+                  T->allNodes.size(), totalSeqs, outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
         delete T;
     }
     else if (option->alnMode == msa::PLACE_WO_TREE) {
@@ -252,7 +260,7 @@ int main(int argc, char** argv) {
         msa::io::update_and_writeAlignment(database, option, option->backboneAlnFile, -1);
         auto backboneEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds backboneTime = backboneEnd - outStart;
-        std::cerr << "Updated and wrote backbone alignment in " << backboneTime.count() / 1000000 << " ms\n";
+        msg::info("Updated and wrote backbone alignment in %lld ms\n", static_cast<long long>(backboneTime.count() / 1000000));
         std::filesystem::path seqPath(option->seqFile);
         std::string placedSeqFile = option->tempDir + "/" + seqPath.stem().string() + ".final.aln";
         msa::io::writeAlignment(placedSeqFile, database, T->root->getAlnLen(database->currentTask), option->compressed);
@@ -260,7 +268,8 @@ int main(int argc, char** argv) {
         auto outEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds outTime = outEnd - outStart;
         std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-        std::cerr << "Wrote placed sequences and backbone alignment (total " << T->root->alnNum << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+        msg::info("Wrote placed sequences and backbone alignment (total %d sequences) to %s in %lld ms\n",
+                  T->root->alnNum, outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
         delete T;
     }
     else if (option->alnMode == msa::PLACE_W_TREE) {
@@ -269,7 +278,7 @@ int main(int argc, char** argv) {
         P->partitionTree(T->root);
         phylogeny::Tree* subRoot_T = phylogeny::constructTreeFromPartitions(T->root, P);
         if (P->partitionsRoot.size() > 1) {
-            std::cerr << "Decomposed the tree into " << P->partitionsRoot.size() << " subtrees.\n";
+            msg::info("Decomposed the tree into %zu subtrees.\n", P->partitionsRoot.size());
             msa::io::writeSubtrees(T, P, option);
         }
         // Start alignment on subtrees
@@ -279,7 +288,7 @@ int main(int argc, char** argv) {
             auto subtreeStart = std::chrono::high_resolution_clock::now();
             ++proceeded;
             int subtree = T->allNodes[subRoot.first]->grpID;
-            if (P->partitionsRoot.size() > 1) std::cerr << "Start processing subalignment No. " << subtree << ". (" << proceeded << '/' << P->partitionsRoot.size() << ")\n";
+            if (P->partitionsRoot.size() > 1) msg::info("Start processing subalignment No. %d. (%d/%zu)\n", subtree, proceeded, P->partitionsRoot.size());
             // Read backbone alignment and sequences for each subtree
             phylogeny::Tree* subT = new phylogeny::Tree(subRoot.second.first, false);
             msa::io::readSequences(option->backboneAlnFile, database, option, subT);
@@ -301,7 +310,7 @@ int main(int argc, char** argv) {
                 database->cleanSubtreeDB();
                 auto storeEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds storeTime = storeEnd - storeStart;
-                std::cerr << "Stored the subalignments in " << storeTime.count() / 1000000 << " ms.\n";
+                msg::info("Stored the subalignments in %lld ms.\n", static_cast<long long>(storeTime.count() / 1000000));
             }
             else {
                 // Output final alignment
@@ -310,18 +319,18 @@ int main(int argc, char** argv) {
                 auto outEnd = std::chrono::high_resolution_clock::now();
                 std::chrono::nanoseconds outTime = outEnd - outStart;
                 std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-                std::cerr << "Wrote alignment to " << outFileName << " in " <<  outTime.count() / 1000000 << " ms\n";
+                msg::info("Wrote alignment to %s in %lld ms\n", outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
             }
             delete subT;
             auto subtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
-            if (P->partitionsRoot.size() > 1) std::cerr << "Finished subalignment No." << subtree << " in " << subtreeTime.count() / 1000000000 << " s\n";
-            else                              std::cerr << "Finished the alignment in " << subtreeTime.count() / 1000000000 << " s\n";
+            if (P->partitionsRoot.size() > 1) msg::info("Finished subalignment No.%d in %lld s\n", subtree, static_cast<long long>(subtreeTime.count() / 1000000000));
+            else                              msg::info("Finished the alignment in %lld s\n", static_cast<long long>(subtreeTime.count() / 1000000000));
         }
         if (P->partitionsRoot.size() > 1) {
             auto alnSubtreeEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds alnSubtreeTime = alnSubtreeEnd - alnSubtreeStart;
-            std::cerr << "Finished all subalignments in " << alnSubtreeTime.count() / 1000000000 << " s.\n";
+            msg::info("Finished all subalignments in %lld s.\n", static_cast<long long>(alnSubtreeTime.count() / 1000000000));
             // Merge subalignment
             database->currentTask = 2;
             subRoot_T->showTree();
@@ -333,19 +342,31 @@ int main(int argc, char** argv) {
             auto outEnd = std::chrono::high_resolution_clock::now();
             std::chrono::nanoseconds outTime = outEnd - outStart;
             std::string outFileName = (option->compressed) ? (option->outFile + ".gz") : option->outFile;
-            std::cerr << "Wrote " << subRoot_T->allNodes.size() << " subalignments (total " << totalSeqs << " sequences) to " << outFileName << " in " << outTime.count() / 1000000 << " ms\n";
+            msg::info("Wrote %zu subalignments (total %d sequences) to %s in %lld ms\n",
+                      subRoot_T->allNodes.size(), totalSeqs, outFileName.c_str(), static_cast<long long>(outTime.count() / 1000000));
         }
         delete T;
         delete subRoot_T;
         delete P;
     }
+    });
 
     delete option;
     delete database;
     delete param;
+    } catch (const msa::TwilightError& e) {
+        msg::error("%s\n", e.what());
+        msg::waitEmpty();
+        return 1;
+    } catch (const std::exception& e) {
+        msg::error("%s\n", e.what());
+        msg::waitEmpty();
+        return 1;
+    }
     
     auto mainEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds mainTime = mainEnd - mainStart;
-    std::cerr << "Total Execution in " << std::fixed << std::setprecision(6) << static_cast<float>(mainTime.count()) / 1000000000.0 << " s\n";
+    msg::info("Total Execution in %.6f s\n", static_cast<double>(mainTime.count()) / 1000000000.0);
+    msg::waitEmpty();
     return 0;
 }

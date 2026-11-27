@@ -2,8 +2,10 @@
 #define MSA_HPP
 
 #include "phylogeny.hpp"
+#include "message_manager.hpp"
 
 #include <iostream>
+#include <stdexcept>
 #include <fstream>
 #include <iomanip>
 #include <cstdio>
@@ -30,6 +32,26 @@ int letterIdx(char type, char inChar);
 
 namespace msa
 {
+    enum class ErrorCode : int {
+        OK           =  0,
+        INVALID_ARG  = -1,
+        EMPTY_INPUT  = -2,
+        TREE_PARSE   = -3,
+        IO_ERROR     = -4,
+        OOM          = -5,
+        UNSUPPORTED  = -6,
+        INTERNAL     = -7
+    };
+
+    class TwilightError : public std::runtime_error {
+    public:
+        TwilightError(ErrorCode code, const std::string& message)
+            : std::runtime_error(message), code_(code) {}
+        ErrorCode code() const noexcept { return code_; }
+    private:
+        ErrorCode code_;
+    };
+
     // Forward declaration
     struct Params;  
     struct Option; 
@@ -560,6 +582,7 @@ namespace msa
         float lenDev = 0.0f;
         bool hasLenDev = false;
         float maxAmbig = 0.1f;
+        bool hasMaxAmbig = false;
         int maxLen = INT32_MAX;
         bool hasMaxLen = false;
         int minLen = 0;
@@ -612,6 +635,8 @@ namespace msa
         // General
         bool check = false;
         bool verbose = false;
+        bool quiet = false;
+        bool inMemory = false;
     };
 
     struct Option
@@ -681,6 +706,7 @@ namespace msa
         std::string outType;
         // Runtime Options
         bool printDetail;
+        bool quiet;
         bool deleteTemp;
         // Constructor
         Option() = default;
@@ -732,7 +758,9 @@ namespace msa
             void changeStorage();
             void memCheck(int len);
             void allocate_and_store(const std::string &seq);
+            void allocate_and_store(const char *seq, size_t seqLen);
             SequenceInfo(int id_, const std::string &name_, std::string &seq, int subtreeIdx_, float _weight, bool debug, int alnMode);
+            SequenceInfo(int id_, const char *name_, size_t nameLen, const char *seq_, size_t seqLen, int subtreeIdx_, float _weight, bool debug, int alnMode);
             ~SequenceInfo();
         };
         tbb::spin_rw_mutex mapMutex;
@@ -746,6 +774,7 @@ namespace msa
         // -------
 
         void addSequence(int id, const std::string &name, std::string &seq, int subtreeIdx, float weight, bool debug, int alnMode);
+        void addSequenceFromBuffer(int id, const char *name, size_t nameLen, const char *seq, size_t seqLen, int subtreeIdx, float weight, bool debug, int alnMode);
         void debug();
         void storeSubtreeProfile(Tree* subT, char type, int subtreeIdx);
         Tree* getPlacementTree(Tree* T);
@@ -758,7 +787,7 @@ namespace msa
         std::unordered_map<std::string, std::vector<accurate::Representative>> subtreeRepresentatives;
         
         SequenceDB() {};
-        ~SequenceDB() {};
+        ~SequenceDB() { cleanSubtreeDB(); };
     };
 
     namespace io

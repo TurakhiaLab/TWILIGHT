@@ -314,7 +314,7 @@ void writeScoreToFile(
 
     std::ofstream out(scoreFilePath);
     if (!out.is_open()) {
-        std::cerr << "WARNING: Could not open score file for writing: " << scoreFilePath << "\n";
+        msg::warn("Could not open score file for writing: %s\n", scoreFilePath.c_str());
         return;
     }
 
@@ -352,9 +352,8 @@ void evaluateAndOutputScore(
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::milliseconds ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-    std::cerr << "Alignment Score (" << (result.mode == 1 ? "Consistency" : "WSP") 
-              << "): " << std::fixed << std::setprecision(6) << result.score 
-              << " (written to " << option->scoreFile << " in " << ms.count() << " ms)\n";
+    msg::info("Alignment Score (%s): %.6f (written to %s in %lld ms)\n",
+              (result.mode == 1 ? "Consistency" : "WSP"), result.score, option->scoreFile.c_str(), static_cast<long long>(ms.count()));
 }
 
 } // namespace score

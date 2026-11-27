@@ -1321,11 +1321,12 @@ void iterativeRefineGroupSubtree(
         percentImp = (cumulativeImprovement / std::abs(initialSubtreeScore)) * 100.0;
     }
 
-    if (option->printDetail || cumulativeImprovement > 0.0f) {
-        std::cerr << "[Iterative Refine Group " << group.groupID << "] Seqs=" << allLeaves.size() 
-                  << " | Time=" << refineMs << " ms"
-                  << " | Updates=" << totalUpdatesApplied
-                  << " | Score Improvement=+" << std::fixed << std::setprecision(2) << percentImp << "%\n";
+    if (cumulativeImprovement > 0.0f) {
+        msg::info("[Iterative Refine Group %d] Seqs=%zu | Time=%lld ms | Updates=%d | Score Improvement=+%.2f%%\n",
+                  group.groupID, allLeaves.size(), static_cast<long long>(refineMs), totalUpdatesApplied, percentImp);
+    } else if (option->printDetail) {
+        msg::debug("[Iterative Refine Group %d] Seqs=%zu | Time=%lld ms | Updates=%d | Score Improvement=+%.2f%%\n",
+                   group.groupID, allLeaves.size(), static_cast<long long>(refineMs), totalUpdatesApplied, percentImp);
     }
 }
 

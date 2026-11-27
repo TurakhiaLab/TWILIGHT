@@ -26,7 +26,7 @@ std::string gzip_compress(const std::string &input) {
     zs.avail_out = output.size();
     int ret = deflate(&zs, Z_FINISH);
     if (ret != Z_STREAM_END) {
-        std::cerr << "Compression error: " << ret << "\n";
+        msg::error("Compression error: %d\n", ret);
         deflateEnd(&zs);
         return {};
     }
@@ -40,8 +40,7 @@ void msa::io::readSequenceNames(std::string seqFile, std::unordered_set<std::str
 {
     gzFile f_rd = gzopen(seqFile.c_str(), "r");
     if (!f_rd) {
-        fprintf(stderr, "ERROR: Failed to open file: %s\n", seqFile.c_str());
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Failed to open file: " + seqFile);
     }
     kseq_t* kseq_rd = kseq_init(f_rd);
     while (kseq_read(kseq_rd) >= 0) {
@@ -59,8 +58,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     bool placed = (option->alnMode == 3 && seqFileName == option->seqFile);
     gzFile f_rd = gzopen(seqFileName.c_str(), "r");
     if (!f_rd) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", seqFileName.c_str());
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Can't open file: " + seqFileName);
     }
     kseq_t* kseq_rd = kseq_init(f_rd);
     
@@ -79,7 +77,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
         else if (tree->allNodes.find(seqName_noblank) != tree->allNodes.end()) seqName = seqName_noblank;
         if (seqName != "") {
             if (database->name_map.find(seqName) != database->name_map.end()) {
-                printf("WARNING: duplicate leaf names found in the sequence file! Leaf name: %s. Only the first occurrence will be kept.\n", seqName.c_str());
+                msg::warn("Duplicate leaf names found in the sequence file! Leaf name: %s. Only the first occurrence will be kept.\n", seqName.c_str());
             }
             else {
                 int subtreeIdx = tree->allNodes[seqName]->grpID;
@@ -87,7 +85,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
                 // seqs[seqName] = std::make_pair(seq, subtreeIdx);
                 if (seqLen > maxLen) maxLen = seqLen;
                 if (seqLen < minLen) minLen = seqLen;
-                if (seqLen == 0) std::cerr << "Null sequences, " << seqName << '\n';
+                if (seqLen == 0) msg::warn("Null sequence: %s\n", seqName.c_str());
                 totalLen += seqLen;
                 database->addSequence(seqNum, seqName, seq, subtreeIdx, tree->allNodes[seqName]->weight, option->debug, option->alnMode);
                 if (option->alnMode == PLACE_WO_TREE) database->subtreeAln[database->name_map[seqName]->id] = alnPath (seqLen, 0);
@@ -102,17 +100,17 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
 
     // Prune Tree if necessary
     if (tree->m_numLeaves != seqNum && (option->alnMode == DEFAULT_ALN || option->alnMode == ACCURATE_ALN)) {
-        printf("Warning: Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum); 
+        msg::warn("Mismatch between the number of leaves and the number of sequences, (%lu != %d)\n", tree->m_numLeaves, seqNum);
         int kk = 0;
         for (auto node: tree->allNodes) {
             if (node.second->is_leaf()) {
                 if (database->name_map.find(node.second->identifier) == database->name_map.end()) {
-                    std::cerr << "Missing " << node.second->identifier << '\n';
+                    msg::info("Missing %s\n", node.second->identifier.c_str());
                     ++kk;
                 }
             }
         }
-        std::cerr << "Prune the tree according to the existing sequences.\n";
+        msg::info("Prune the tree according to the existing sequences.\n");
         std::unordered_set<std::string> seqNames;
         for (auto it = database->name_map.begin(); it != database->name_map.end(); ++it) seqNames.insert(it->first);
         phylogeny::pruneTree(tree, seqNames);
@@ -121,8 +119,7 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
     // Identify low quality sequences
 
     if (seqNum == seqNum_init) {
-        std::cerr << "Error: no sequences were read from the input.\n";
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::EMPTY_INPUT, "No sequences were read from the input.");
     }
 
     std::sort(seqsLens.begin(), seqsLens.end());
@@ -192,32 +189,28 @@ void msa::io::readSequences(std::string fileName, SequenceDB* database, Option* 
             } else {
                 modeDesc = "3 (low sample rate)";
             }
-            std::cerr << "[Accurate Mode] Resolved parameters for " << numRead << " sequences: sample-mode=" << modeDesc
-                      << ", sample-max-group=" << option->accMaxGroup
-                      << ", sample-rate=" << option->accSampleRate
-                      << ", sample-top-centrality=" << option->accSampleTop << "\n";
+            msg::debug("[Accurate Mode] Resolved parameters for %d sequences: sample-mode=%s, sample-max-group=%d, sample-rate=%g, sample-top-centrality=%g\n",
+                       numRead, modeDesc.c_str(), option->accMaxGroup, option->accSampleRate, option->accSampleTop);
         }
     }
     if (option->alnMode != 3 || placed) {
-        std::cerr << "===== Sequence Summary =====\n";
-        std::cerr << "Number : " << numRead << '\n';
-        std::cerr << "Max. Length: " << maxLen << '\n';
-        std::cerr << "Min. Length: " << minLen << '\n';
-        std::cerr << "Avg. Length: " << avgLen << '\n';
-        std::cerr << "Med. Length: " << medLen << '\n';
-        if (option->noFilter) 
-        std::cerr << "Deferred sequences: " << numLowQ << '\n';
-        else 
-        std::cerr << "Excluded sequences: " << numLowQ << '\n';
-        std::cerr << "Sequences read in " <<  seqReadTime.count() / 1000000 << " ms\n";
-        // std::cerr << "============================\n";
+        msg::info("===== Sequence Summary =====\n");
+        msg::info("Number : %d\n", numRead);
+        msg::info("Max. Length: %d\n", maxLen);
+        msg::info("Min. Length: %d\n", minLen);
+        msg::info("Avg. Length: %u\n", avgLen);
+        msg::info("Med. Length: %u\n", medLen);
+        if (option->noFilter)
+            msg::info("Deferred sequences: %d\n", numLowQ.load());
+        else
+            msg::info("Excluded sequences: %d\n", numLowQ.load());
+        msg::info("Sequences read in %lld ms\n", static_cast<long long>(seqReadTime.count() / 1000000));
     }
     else {
-        std::cerr << "==== Backbone Alignment ====\n";
-        std::cerr << "Number : " << numRead << '\n';
-        std::cerr << "Length:  " << avgLen << '\n';
-        std::cerr << "Backbone alignment read in " <<  seqReadTime.count() / 1000000 << " ms\n";
-        // std::cerr << "============================\n";
+        msg::info("==== Backbone Alignment ====\n");
+        msg::info("Number : %d\n", numRead);
+        msg::info("Length:  %u\n", avgLen);
+        msg::info("Backbone alignment read in %lld ms\n", static_cast<long long>(seqReadTime.count() / 1000000));
     }
 }
 
@@ -225,8 +218,7 @@ void msa::io::readAlignment(std::string msaFileName, SequenceDB* database, Optio
     int profileSize = option->type == 'n' ? 6 : 22;
     gzFile f_rd = gzopen(msaFileName.c_str(), "r");
     if (!f_rd) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", msaFileName.c_str());
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Can't open file: " + msaFileName);
     }
     kseq_t* kseq_rd = kseq_init(f_rd);
     int seqNum = 0, msaLen = 0;
@@ -241,7 +233,7 @@ void msa::io::readAlignment(std::string msaFileName, SequenceDB* database, Optio
         }
         else {
             if (seqLen != msaLen) {
-                fprintf(stderr, "WARNING: length of \"%s\" (%d) does not match in %s (%d)\n", (kseq_rd->name.s), seqLen, msaFileName.c_str(), msaLen);
+                msg::warn("Length of \"%s\" (%d) does not match in %s (%d)\n", (kseq_rd->name.s), seqLen, msaFileName.c_str(), msaLen);
                 calFreq = false;
             }
         }
@@ -281,7 +273,7 @@ phylogeny::Tree* msa::io::readAlignments_and_buildTree(SequenceDB *database, Opt
         }
     }
     // Read alignments and calculate profiles
-    std::cerr << "====== Alignment Info ======\n";
+    msg::info("====== Alignment Info ======\n");
     std::sort(files.begin(), files.end());
     std::vector<Node*> nodes;
     int profileSize = option->type == 'n' ? 6 : 22;
@@ -295,9 +287,9 @@ phylogeny::Tree* msa::io::readAlignments_and_buildTree(SequenceDB *database, Opt
         nodes.push_back(node);
         database->subAlnFiles.push_back({msaFileName, subtreeIdx});
         ++subtreeIdx;
-        std::cerr << "[" << (subtreeIdx) << "/" << files.size() << "] "
-                  << fs::path(msaFileName).filename().string()
-                  << " (Count: " << node->alnNum << ", Length: " << node->alnLen << ")\n";
+        msg::info("[%d/%zu] %s (Count: %d, Length: %d)\n",
+                  subtreeIdx, files.size(), fs::path(msaFileName).filename().string().c_str(),
+                  node->alnNum, node->alnLen);
     }
     // Sort alignments by sequence count
     std::sort(nodes.begin(), nodes.end(), [](Node* a, Node* b) {
@@ -317,8 +309,7 @@ phylogeny::Tree* msa::io::readAlignments_and_buildTree(SequenceDB *database, Opt
     std::chrono::nanoseconds alnReadTime = alnReadEnd - alnReadStart;
     
         
-    std::cerr << "Read " << T->allNodes.size() << " MSA files in " << alnReadTime.count() / 1e6 << " ms.\n";
-    // std::cerr << "============================\n";
+    msg::info("Read %zu MSA files in %g ms.\n", T->allNodes.size(), alnReadTime.count() / 1e6);
     return T;
 }
 
@@ -330,7 +321,8 @@ void msa::io::readBackboneAlignment(Tree* T, SequenceDB *database, Option *optio
     T->root->seqsIncluded.push_back(subtreeIdx);
     auto alnReadEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds alnReadTime = alnReadEnd - alnReadStart;
-    std::cerr << "Backbone alignment read in " << alnReadTime.count() / 1000000 << " ms. (Count: " << T->root->alnNum << ", Length: " << T->root->msaFreq.size() << ")\n";
+    msg::info("Backbone alignment read in %lld ms. (Count: %d, Length: %zu)\n",
+              static_cast<long long>(alnReadTime.count() / 1000000), T->root->alnNum, T->root->msaFreq.size());
     return;
 }
 
@@ -341,8 +333,7 @@ void msa::io::writePrunedTree(Tree* T, msa::Option* option) {
     std::string out_str = T->getNewickString() + "\n";
 	std::ofstream outFile(prunedTreeFileName);
     if (!outFile) {
-        fprintf(stderr, "ERROR: cant open file: %s\n", prunedTreeFileName.c_str());
-        exit(1);
+        throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Can't open file: " + prunedTreeFileName);
     }
 	outFile << out_str;
 	outFile.close();
@@ -359,11 +350,12 @@ void msa::io::writeSubtrees(Tree* tree, PartitionInfo* partition, Option* option
         std::string out_str = subT->getNewickString() + "\n";
         std::ofstream outFile(subtreeTreeFile);
         if (!outFile) {
-            fprintf(stderr, "ERROR: Failed to open file: %s\n", subtreeTreeFile.c_str());
-            exit(1);
+            delete subT;
+            throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Failed to open file: " + subtreeTreeFile);
         }
 	    outFile << out_str;
 	    outFile.close();
+        delete subT;
     }
     return;
 }
@@ -372,7 +364,7 @@ void msa::io::writeSubAlignments(SequenceDB* database, Option* option, int subtr
     std::string fileName = option->tempDir + "/subtree-" + std::to_string(subtreeIdx) + ".subalignment.aln";
     database->subAlnFiles.push_back({fileName, subtreeIdx}); // Store file name and subtreeIdx
     std::vector<std::pair<std::string, std::string>> seqs;
-    std::cerr << "Subalignment Length: " << alnLen << '\n';
+    msg::info("Subalignment Length: %d\n", alnLen);
     writeAlignment(fileName, database, alnLen, option->compressed);
     return;
 }
@@ -388,7 +380,9 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
     std::string filename = p.stem().string();
     std::string finalAlnFileName = option->tempDir + "/" + filename + ".final.aln";
     gzFile f_rd = gzopen(fileName.c_str(), "r");
-    if (!f_rd) { fprintf(stderr, "ERROR: Failed to open file: %s\n", fileName.c_str()); exit(1);}
+    if (!f_rd) {
+        throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Failed to open file: " + fileName);
+    }
     kseq_t* kseq_rd = kseq_init(f_rd);
     while (kseq_read(kseq_rd) >= 0) {
         std::string seqName = kseq_rd->name.s;
@@ -416,7 +410,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
                     }
                 }
                 if (seqs_after[n].second.size() != database->subtreeAln[subtreeIdx].size()) {
-                    std::cerr << "ERROR: " << seqName << " length not match. alnSeq (" << seqs_after[n].second.size() << ") != msaAln (" << database->subtreeAln[subtreeIdx].size() << '\n'; 
+                    msg::error("%s length not match. alnSeq (%zu) != msaAln (%zu)\n", seqName.c_str(), seqs_after[n].second.size(), database->subtreeAln[subtreeIdx].size());
                 }
             }
             });
@@ -447,7 +441,7 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
                 }
             }
             if (seqs_after[n].second.size() != database->subtreeAln[subtreeIdx].size()) {
-                std::cerr << "ERROR: " << seqs_after[n].first << " length not match. alnSeq (" << seqs_after[n].second.size() << ") != msaAln (" << database->subtreeAln[subtreeIdx].size() << '\n'; 
+                msg::error("%s length not match. alnSeq (%zu) != msaAln (%zu)\n", seqs_after[n].first.c_str(), seqs_after[n].second.size(), database->subtreeAln[subtreeIdx].size());
             }
         }
         });
@@ -457,17 +451,17 @@ int msa::io::update_and_writeAlignment(SequenceDB* database, Option* option, std
         seqs_after.clear();
         seqs_before.clear();
     }
-    if (option->alnMode == PLACE_WO_TREE) std::cerr << "Final Alignment Length: " << database->subtreeAln[subtreeIdx].size() << '\n';    
+    if (option->alnMode == PLACE_WO_TREE) msg::info("Final Alignment Length: %zu\n", database->subtreeAln[subtreeIdx].size());
     database->subtreeAln[subtreeIdx].clear();
     if (nochange) {
         std::string command = "cp " + fileName + " " + finalAlnFileName;
         int delResult = system(command.c_str());
-        if (delResult != 0) std::cerr << "ERROR: Unable to copy " << fileName << " to " << finalAlnFileName << ".\n";
+        if (delResult != 0) msg::error("Unable to copy %s to %s.\n", fileName.c_str(), finalAlnFileName.c_str());
     }
     if (option->deleteTemp && (option->alnMode == 0 || option->alnMode == ACCURATE_ALN)) {
         std::string command = "rm " + fileName;
         int delResult = system(command.c_str());
-        if (delResult != 0) std::cerr << "ERROR: Unable to delete " << fileName << ".\n";
+        if (delResult != 0) msg::error("Unable to delete %s.\n", fileName.c_str());
     }
     return totalSeqs;
 }
@@ -481,7 +475,8 @@ void msa::io::update_and_writeAlignments(SequenceDB* database, Option* option, i
         ++proceeded;
         auto subtreeEnd = std::chrono::high_resolution_clock::now();
         std::chrono::nanoseconds subtreeTime = subtreeEnd - subtreeStart;
-        std::cerr << "Finish writing alignment of subtree No. " << subAln.second << ". (" << proceeded << '/' << database->subAlnFiles.size() << ") in " << subtreeTime.count() / 1000000 << " ms.\n";
+        msg::info("Finish writing alignment of subtree No. %d. (%d/%zu) in %lld ms.\n",
+                  subAln.second, proceeded, database->subAlnFiles.size(), static_cast<long long>(subtreeTime.count() / 1000000));
     }
     return;
 }
@@ -493,8 +488,7 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen, co
         std::string command = "cat " + option->tempDir + "/*.final.aln* > " + fileName;
         int catResult = system(command.c_str());
         if (catResult != 0) {
-            if (option->deleteTemp) std::cerr << "ERROR: Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\". Temporary files will not be deleted.\n";
-            else                    std::cerr << "ERROR: Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\".\n";
+            msg::error("Unable to concatenate subtree alignments. Please check the available space on your device and merge files with \"cat <temp-dir>/*.final.aln <output-file>\". Temporary files will not be deleted.\n");
         }
         if (option->scoreMode > 0) {
             msa::score::evaluateAndOutputScore(database, option, param, alnLen);
@@ -502,13 +496,13 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen, co
         if (catResult == 0 && option->deleteTemp) {
             command = "rm -rf " + option->tempDir;
             int delResult = system(command.c_str());
-            if (delResult != 0) std::cerr << "ERROR: Unable to delete temporary files.\n";
+            if (delResult != 0) msg::error("Unable to delete temporary files.\n");
         }
         return;
     }
     if (option->alnMode != 2) {
         std::vector<std::pair<std::string,std::string>> seqs;
-        std::cerr << "Final Alignment Length: " << alnLen << '\n';
+        msg::info("Final Alignment Length: %d\n", alnLen);
         writeAlignment(fileName, database, alnLen, option->compressed);
         if (option->scoreMode > 0) {
             msa::score::evaluateAndOutputScore(database, option, param, alnLen);
@@ -516,7 +510,7 @@ void msa::io::writeFinalMSA(SequenceDB* database, Option* option, int alnLen, co
         if (option->deleteTemp && option->tempDir != "") {
             std::string command = "rm -rf " + option->tempDir;
             int delResult = system(command.c_str());
-            if (delResult != 0) std::cerr << "ERROR: Unable to delete temporary files.\n";
+            if (delResult != 0) msg::error("Unable to delete temporary files.\n");
         }
     }
     return;
@@ -527,8 +521,7 @@ void msa::io::writeAlignment(std::string fileName, SequenceDB* database, int aln
         fileName += ".gz";
         std::ofstream outFile(fileName, std::ios::binary);
         if (!outFile) {
-            fprintf(stderr, "ERROR: Failed to open file: %s\n", fileName.c_str());
-            exit(1);
+            throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Failed to open file: " + fileName);
         }
         // Batch chunking: compress sequences in parallel batches to keep threads busy while bounding memory usage
         const size_t totalSeqs = database->sequences.size();
@@ -554,8 +547,7 @@ void msa::io::writeAlignment(std::string fileName, SequenceDB* database, int aln
     else {
         std::ofstream outFile(fileName);
         if (!outFile) {
-            fprintf(stderr, "ERROR: Failed to open file: %s\n", fileName.c_str());
-            exit(1);
+            throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Failed to open file: " + fileName);
         }
         for (int s = 0; s < database->sequences.size(); ++s) {
             auto seq = database->sequences[s];
@@ -577,8 +569,7 @@ void msa::io::writeAlignment(std::string fileName, stringPairVec& seqs, bool com
         if (append) outFile.open(fileName, std::ios::binary | std::ios::app);
         else        outFile.open(fileName, std::ios::binary);
         if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-            exit(1);
+            throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Can't open file: " + fileName);
         }
         // Batch chunking: compress sequences in parallel batches to keep threads busy while bounding memory usage
         const size_t totalSeqs = seqs.size();
@@ -604,8 +595,7 @@ void msa::io::writeAlignment(std::string fileName, stringPairVec& seqs, bool com
         if (append) outFile.open(fileName, std::ios::app);
         else        outFile.open(fileName);
         if (!outFile) {
-            fprintf(stderr, "ERROR: cant open file: %s\n", fileName.c_str());
-            exit(1);
+            throw msa::TwilightError(msa::ErrorCode::IO_ERROR, "Can't open file: " + fileName);
         }
         for (auto it = seqs.begin(); it != seqs.end(); ++it) {
             outFile << ('>' + it->first + '\n');

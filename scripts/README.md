@@ -81,7 +81,7 @@ python3 scripts/twilight_dipper_iterative.py \
 | **`--keep-temp`** | `False` | Keep intermediate iteration files (`iter*.aln`, `iter*.tree`, `iter*.score`) for debugging and inspection. |
 | **`--temp-dir`** | `None` | Custom directory for temporary iteration files (default: system temp directory). |
 | **`--score-type`** | `1` | Scoring function for convergence: `1` (Consistency Objective Score) or `2` (WSP). |
-| **`--sample-max-group`**| `100` | Maximum group size for consistency partitioning in TWILIGHT. |
+| **`--sample-max-group`**| `200` | Maximum group size for consistency partitioning in TWILIGHT. |
 | **`--refine-method`** | `upgma`| Algorithm for Layer 1 subtree refinement: `upgma` (default) or `nj`. (Subtree refinement is automatically enabled in accurate mode). |
 | **`--twilight-bin`** | `None` | Custom path to the `twilight` executable (default: auto-detected as `../bin/twilight`). |
 | **`--dipper-bin`** | `None` | Custom path to the `dipper` or `dipper_cpu` executable (default: auto-detected). |

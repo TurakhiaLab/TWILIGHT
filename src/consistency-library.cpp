@@ -277,10 +277,8 @@ std::vector<float> buildGroupTCSLibrary(
     long long totalTimeMs = localHomTable->pairwiseTimeMs + localHomTable->libTimeMs;
 
     if (option->printDetail) {
-        std::cerr << "[Consistency Group " << group.groupID << "] Seqs=" << N 
-                  << " | Time=" << totalTimeMs << " ms"
-                  << " | Mean Positional Importance=" << std::fixed << std::setprecision(2) << avgTCS 
-                  << "\n";
+        msg::debug("[Consistency Group %d] Seqs=%d | Time=%lld ms | Mean Positional Importance=%.2f\n",
+                   group.groupID, N, totalTimeMs, avgTCS);
     }
 
     return centralityScores;
@@ -441,10 +439,8 @@ std::vector<float> buildGroupConsistencyLibrary(const HierarchyGroup& group, std
     long long totalTimeMs = localHomTable->pairwiseTimeMs + localHomTable->libTimeMs;
 
     if (option->printDetail) {
-        std::cerr << "[Consistency Group " << group.groupID << "] Seqs=" << N 
-                  << " | Time=" << totalTimeMs << " ms"
-                  << " | Mean Positional Importance=" << std::fixed << std::setprecision(2) << avgImp 
-                  << "\n";
+        msg::debug("[Consistency Group %d] Seqs=%d | Time=%lld ms | Mean Positional Importance=%.2f\n",
+                   group.groupID, N, totalTimeMs, avgImp);
     }
 
     // 6. Compute sequence centrality scores: mean(positionImportance[i]) * min(1.0, len_i / medianLen)

@@ -54,7 +54,7 @@ Parameters:
   --score-type           Scoring method for convergence:
                            1: Consistency Objective Score (Default, recommended)
                            2: WSP (Weighted Profile Sum-of-Pairs)
-  --sample-max-group     Max sequences per consistency group in TWILIGHT (Default: 100).
+  --sample-max-group     Max sequences per consistency group in TWILIGHT (Default: 200).
   --refine-method        Subtree refinement algorithm: 'upgma' (Default) or 'nj'.
   --twilight-bin         Path to TWILIGHT executable (Default: <repo>/bin/twilight).
   --dipper-bin           Path to DIPPER executable (Default: dipper_cpu).
@@ -122,8 +122,8 @@ Capabilities:
                           help="TWILIGHT accuracy level: 2 (+ pairwise consistency, default) or 3 (+ transitive consistency).")
     tw_group.add_argument("--score-type", default=1, type=int, choices=[1, 2],
                           help="Convergence scoring objective: 1: Consistency Score (Default, recommended), 2: WSP.")
-    tw_group.add_argument("--sample-max-group", default=100, type=int,
-                          help="Maximum group size for consistency partitioning in TWILIGHT (Default: 100).")
+    tw_group.add_argument("--sample-max-group", default=200, type=int,
+                          help="Maximum group size for consistency partitioning in TWILIGHT (Default: 200).")
     tw_group.add_argument("--no-refine-subtree", action="store_true", default=False,
                           help="Disable Layer 1 guide subtree refinement in TWILIGHT (enabled by default).")
     tw_group.add_argument("--refine-method", default="upgma", choices=["upgma", "nj"],

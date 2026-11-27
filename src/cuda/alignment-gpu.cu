@@ -37,16 +37,16 @@ void msa::progressive::gpu::GPU_pointers::allocateMemory(Option *option, int len
         this->hostFreq[i]  = (float*)malloc(        profileSize * 2 * len * pairPerMemBlock * sizeof(float));
         cudaMalloc((void **)&(this->deviceFreq[i]), profileSize * 2 * len * pairPerMemBlock * sizeof(float));
         error = cudaGetErrorString(cudaGetLastError());
-        if (error != "no error") fprintf(stderr, "CUDA Error: Failed to allocate memory Freq [%s] on GPU %d\n", error.c_str(), this->gpu_index);
+        if (error != "no error") msg::error("CUDA Error: Failed to allocate memory Freq [%s] on GPU %d\n", error.c_str(), this->gpu_index);
         this->hostGapOp[i] = (float*)malloc(                      2 * len * pairPerMemBlock * sizeof(float));
         cudaMalloc((void **)&(this->deviceGapOp[i]),              2 * len * pairPerMemBlock * sizeof(float));
         error = cudaGetErrorString(cudaGetLastError());
-        if (error != "no error") fprintf(stderr, "CUDA Error: Failed to allocate memory GapOp [%s] on GPU %d\n", error.c_str(), this->gpu_index);
+        if (error != "no error") msg::error("CUDA Error: Failed to allocate memory GapOp [%s] on GPU %d\n", error.c_str(), this->gpu_index);
     
         this->hostGapEx[i] = (float*)malloc(                      2 * len * pairPerMemBlock * sizeof(float));
         cudaMalloc((void **)&(this->deviceGapEx[i]),              2 * len * pairPerMemBlock * sizeof(float));
         error = cudaGetErrorString(cudaGetLastError());
-        if (error != "no error") fprintf(stderr, "CUDA Error: Failed to allocate memory GapEx [%s] on GPU %d\n", error.c_str(), this->gpu_index);
+        if (error != "no error") msg::error("CUDA Error: Failed to allocate memory GapEx [%s] on GPU %d\n", error.c_str(), this->gpu_index);
     
         this->hostAln[i]   = (int8_t*)malloc(                     2 * len * pairPerMemBlock * sizeof(int8_t));
         cudaMalloc((void **)&(this->deviceAln[i]),                2 * len * pairPerMemBlock * sizeof(int8_t));
@@ -62,7 +62,7 @@ void msa::progressive::gpu::GPU_pointers::allocateMemory(Option *option, int len
     cudaMalloc((void **)&(this->deviceSeqInfo), 4 * sizeof(int32_t));
     cudaMalloc((void **)&(this->deviceParam), paramSize * sizeof(float));
     error = cudaGetErrorString(cudaGetLastError());
-    if (error != "no error") fprintf(stderr, "CUDA Error: Failed to allocate memory [%s] on GPU %d\n", error.c_str(), this->gpu_index);
+    if (error != "no error") msg::error("CUDA Error: Failed to allocate memory [%s] on GPU %d\n", error.c_str(), this->gpu_index);
     return;
 }
 
@@ -118,7 +118,7 @@ void msa::progressive::gpu::GPU_pointers::freeMemory()
     cudaFree(this->deviceGapExPointers);
     cudaFree(this->deviceAlnPointers);
     std::string freeErr = cudaGetErrorString(cudaGetLastError());
-    if (freeErr != "no error") fprintf(stderr, "CUDA Error: Failed to free memory [%s] on GPU %d\n", freeErr.c_str(), this->gpu_index);
+    if (freeErr != "no error") msg::error("CUDA Error: Failed to free memory [%s] on GPU %d\n", freeErr.c_str(), this->gpu_index);
     for (int i = 0; i < this->memBlock; ++i) {
         free(this->hostFreq[i]);
         free(this->hostGapOp[i]);
@@ -161,7 +161,7 @@ void msa::progressive::gpu::GPU_pointers::memcpyHost2Device(Option *option, int 
     cudaMemcpy(this->deviceSeqInfo,  this->hostSeqInfo,            4 *                  sizeof(int32_t), cudaMemcpyHostToDevice);
     cudaMemcpy(this->deviceParam,    this->hostParam,                       paramSize * sizeof(float),   cudaMemcpyHostToDevice);
     std::string error = cudaGetErrorString(cudaGetLastError());
-    if (error != "no error") fprintf(stderr, "CUDA Error: Failed to copy memory [%s] to GPU %d\n", error.c_str(), this->gpu_index);
+    if (error != "no error") msg::error("CUDA Error: Failed to copy memory [%s] to GPU %d\n", error.c_str(), this->gpu_index);
     return;
 }
 
@@ -175,7 +175,7 @@ void msa::progressive::gpu::GPU_pointers::memcpyDevice2Host(Option *option, int 
     }
     cudaMemcpy(this->hostAlnLen, this->deviceAlnLen,           alnPairs * sizeof(int32_t), cudaMemcpyDeviceToHost);
     std::string error = cudaGetErrorString(cudaGetLastError());
-    if (error != "no error") fprintf(stderr, "CUDA Error: Failed to copy memory [%s] from GPU %d\n", error.c_str(), this->gpu_index);
+    if (error != "no error") msg::error("CUDA Error: Failed to copy memory [%s] from GPU %d\n", error.c_str(), this->gpu_index);
     return;
 }
 
@@ -297,7 +297,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
             // std::chrono::nanoseconds cTime = copyEnd - copyStart;
             // int ct = copyTime.fetch_add(cTime.count());
             std::string berr = cudaGetErrorString(cudaGetLastError());
-            if (berr != "no error") printf("ERROR: Before kernel %s!\n", berr.c_str());
+            if (berr != "no error") msg::error("Before kernel %s!\n", berr.c_str());
             auto kernelStart = std::chrono::high_resolution_clock::now();
             if (memBlock > 1) {
                 device_function::parallelProfileAlignment<<<numBlocks, blockSize>>>(
@@ -327,7 +327,7 @@ void msa::progressive::gpu::parallelAlignmentGPU(Tree *tree, NodePairVec &nodes,
             }
             cudaDeviceSynchronize();
             std::string aerr = cudaGetErrorString(cudaGetLastError());
-            if (aerr != "no error") printf("ERROR: After kernel %s!\n", aerr.c_str());
+            if (aerr != "no error") msg::error("After kernel %s!\n", aerr.c_str());
             auto kernelEnd = std::chrono::high_resolution_clock::now();
             // std::chrono::nanoseconds kTime = kernelEnd - kernelStart;
             // int kt = kernelTime.fetch_add(kTime.count());

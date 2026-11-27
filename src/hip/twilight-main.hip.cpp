@@ -60,7 +60,7 @@ int main(int argc, char** argv) {
 
     auto* seqFilterDesc = app.add_option_group("Sequence Filtering Options");
     auto* opt_len_dev = seqFilterDesc->add_option("--length-deviation", opt.lenDev, "Sequences whose lengths deviate from the median by more than the specified fraction will be deferred or excluded.");
-    seqFilterDesc->add_option("--max-ambig", opt.maxAmbig, "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")->default_val(0.1f);
+    auto* opt_max_ambig = seqFilterDesc->add_option("--max-ambig", opt.maxAmbig, "Sequences with an ambiguous character proportion exceeding the specified threshold will be deferred or excluded.")->default_val(0.1f);
     auto* opt_max_len = seqFilterDesc->add_option("--max-len", opt.maxLen, "Sequences longer than max-len will be deferred or excluded.");
     auto* opt_min_len = seqFilterDesc->add_option("--min-len", opt.minLen, "Sequences shorter than min-len will be deferred or excluded.");
     seqFilterDesc->add_flag("--filter", opt.filter, "Exclude sequences with high ambiguity or length deviation.");
@@ -112,6 +112,7 @@ int main(int argc, char** argv) {
     opt.hasGpu = (opt_gpu->count() > 0);
     opt.hasMaxSubtree = (opt_max_subtree->count() > 0);
     opt.hasLenDev = (opt_len_dev->count() > 0);
+    opt.hasMaxAmbig = (opt_max_ambig->count() > 0);
     opt.hasMaxLen = (opt_max_len->count() > 0);
     opt.hasMinLen = (opt_min_len->count() > 0);
     opt.hasGapOpen = (opt_gap_open->count() > 0);

@@ -26,6 +26,9 @@
 #include "TALCO-XDrop.hpp"
 #endif
 
+#include "message_manager.hpp"
+#include <stdexcept>
+
 #if defined(TALCO_SIMD)
 #include <immintrin.h>
 #endif
@@ -154,7 +157,7 @@ void Talco_xdrop::Traceback(
     int8_t  dir = 0;
     while (ftr >= 0) {
         if (addr < 0) {
-            fprintf(stderr, "ERROR: tb addr < 0!\n");
+            msg::error("tb addr < 0!\n");
             // exit(1);
         }
         tb_value = tb[addr];
@@ -312,7 +315,7 @@ void Talco_xdrop::Tile (
 
         if ((reference_length < 0) || (query_length < 0)) {
             // std::cout << reference_length << " " << query_length << std::endl;
-            fprintf(stderr, "ERROR: Reference/Query index exceeded limit!\n");
+            msg::error("Reference/Query index exceeded limit!\n");
             errorType = 3;
             aln.clear();
             freeMem(S, I, D, CS, CI, CD);
@@ -358,8 +361,8 @@ void Talco_xdrop::Tile (
                 int32_t Lprime = std::max(0, static_cast<int32_t>(k)-static_cast<int32_t>(reference_length) + 1); 
                 int32_t j = std::min(static_cast<int32_t>(k), static_cast<int32_t>(reference_length - 1)) - (i-Lprime); 
                 if (j < 0) {
-                    fprintf(stderr, "ERROR: j less than 0.\n");
-                    exit(1);
+                    freeMem(S, I, D, CS, CI, CD);
+                    throw std::runtime_error("TALCO internal error: j less than 0.");
                 }
                 scoreType match = -inf, insOp = -inf, delOp = -inf, insExt = -inf, delExt = -inf;
                 int32_t offset = i-L[k%3];
@@ -657,9 +660,9 @@ void Talco_xdrop::Tile (
         reference_length = reference.size() - reference_idx; 
         query_length = query.size() - query_idx;
         if ((reference_length < 0) || (query_length < 0)) {
-            fprintf(stderr, "ERROR: Reference/Query index exceeded limit!\n");
-            std::cerr << reference_length << ',' << reference_idx << ',' << conv_ref_idx << '\n';
-            std::cerr << query_length << ',' << query_idx << ',' << conv_query_idx << '\n';
+            msg::error("Reference/Query index exceeded limit! ref=(%d,%d,%d) qry=(%d,%d,%d)\n",
+                       reference_length, reference_idx, conv_ref_idx,
+                       query_length, query_idx, conv_query_idx);
             
             errorType = 3;
             aln.clear();

@@ -650,7 +650,7 @@ void msa::alignment_helper::addGappyColumnsBack(alnPath &aln_before, alnPath &al
                 ++rIdx;
                 break;
             default:
-                std::cerr << "ERROR: Undefined TB Path: " << aln_before[alnIdx] << '\n';
+                msg::error("Undefined TB Path: %d\n", static_cast<int>(aln_before[alnIdx]));
                 break;
             }
         }
@@ -866,9 +866,9 @@ void msa::alignment_helper::fallback2cpu(std::vector<int>& fallbackPairs,  NodeP
         }
     }
     if (option->printDetail) {
-        if (fallbackPairs.size() == 1 && totalSeqs == 1) std::cout << "Deferring/excluding 1 pair (1 sequence).\n";
-        else if (fallbackPairs.size() == 1 && totalSeqs > 1) printf("Deferring/excluding 1 pair (%d sequences).\n", totalSeqs); 
-        else printf("Deferring/excluding %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
+        if (fallbackPairs.size() == 1 && totalSeqs == 1) msg::info("Deferring/excluding 1 pair (1 sequence).\n");
+        else if (fallbackPairs.size() == 1 && totalSeqs > 1) msg::info("Deferring/excluding 1 pair (%d sequences).\n", totalSeqs);
+        else msg::info("Deferring/excluding %lu pair (%d sequences).\n", fallbackPairs.size(), totalSeqs); 
     }
     return;
 }
@@ -897,7 +897,7 @@ void msa::alignment_helper::mergeInsertions(SequenceDB *database, Node* root) {
             }
             if (start != -1) insertions[s][start] = len;
             if (refIdx != refLen) {
-                std::cerr << "ERROR: Length not match.\t" <<database->subtreeAln[s].size() << ","<< refLen << '-' << refIdx << '\n';
+                msg::error("Length not match.\t%zu,%d-%d\n", database->subtreeAln[s].size(), refLen, refIdx);
             }
         }
     }
@@ -944,7 +944,7 @@ void msa::alignment_helper::mergeInsertions(SequenceDB *database, Node* root) {
                     ++alnIdx;
                 }
                 else {
-                    std::cerr << "ERROR: " << k << ": " << database->subtreeAln[sIdx][alnIdx] << '\n';
+                    msg::error("%d: %d\n", k, static_cast<int>(database->subtreeAln[sIdx][alnIdx]));
                 }
             }
             else { // refAln[k] == 3
@@ -1072,12 +1072,15 @@ void msa::alignment_helper::alignEnds (NodePair &nodes, SequenceDB *database, ch
             auto seq = startingSeqs[i].second;
             // std::reverse(seq.begin(), seq.end());
             auto sIdx = startingSeqs[i].first;
-            std::cout << "Consen: " << seqConsensus << '\n';
-            std::cout << "Added : " << seq << '\n';
+            msg::debug("Consen: %s\n", seqConsensus.c_str());
+            msg::debug("Added : %s\n", seq.c_str());
             alnPath tempAln = smith_waterman_tb(seqConsensus, seq);
             // std::reverse(tempAln.begin(), tempAln.end());
-            for (auto a: tempAln) std::cout << (a & 0xFFFF);
-            std::cout << '\n';
+            if (MessageManager::getInstance().shouldLog(LogLevel::DEBUG)) {
+                auto s = msg::stream(LogLevel::DEBUG);
+                for (auto a: tempAln) s << (a & 0xFFFF);
+                s << '\n';
+            }
             // Update aln path and consensus
             std::string seqTemp = "";
             seqTemp.reserve(tempAln.size());
@@ -1123,7 +1126,7 @@ void msa::alignment_helper::alignEnds (NodePair &nodes, SequenceDB *database, ch
             }
         }
         for (auto a: startAln) {
-            std::cout << a.first << '\t' << a.second << '\n';
+            msg::debug("%d\t%s\n", a.first, a.second.c_str());
         }
     }
     
@@ -1148,11 +1151,14 @@ void msa::alignment_helper::alignEnds (NodePair &nodes, SequenceDB *database, ch
             }
             auto seq = endingSeqs[i].second;
             auto sIdx = endingSeqs[i].first;
-            std::cout << "Consen: " << seqConsensus << '\n';
-            std::cout << "Added : " << seq << '\n';
+            msg::debug("Consen: %s\n", seqConsensus.c_str());
+            msg::debug("Added : %s\n", seq.c_str());
             alnPath tempAln = smith_waterman_tb(seqConsensus, seq);
-            for (auto a: tempAln) std::cout << (a & 0xFFFF);
-            std::cout << '\n';
+            if (MessageManager::getInstance().shouldLog(LogLevel::DEBUG)) {
+                auto s = msg::stream(LogLevel::DEBUG);
+                for (auto a: tempAln) s << (a & 0xFFFF);
+                s << '\n';
+            }
             // Update aln path and consensus
             std::string seqTemp = "";
             seqTemp.reserve(tempAln.size());
@@ -1197,7 +1203,7 @@ void msa::alignment_helper::alignEnds (NodePair &nodes, SequenceDB *database, ch
             }
         }
         for (auto a: endAln) {
-            std::cout << a.first << '\t' << a.second << '\n';
+            msg::debug("%d\t%s\n", a.first, a.second.c_str());
         }
     }
     

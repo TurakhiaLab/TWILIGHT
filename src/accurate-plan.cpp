@@ -252,48 +252,50 @@ HierarchyPlan computeHierarchyPlan(Tree* T, PartitionInfo* P, Tree* subRoot_T, O
 }
 
 void HierarchyPlan::printSummary(bool verbose) const {
-    std::cerr << "\n================================================================================\n";
-    std::cerr << "[Accurate Mode] Hierarchical Consistency Plan \n";
-    std::cerr << "================================================================================\n";
-    std::cerr << "Total Sequences         : " << totalSequences << "\n";
-    std::cerr << "Max Reps Per Group      : " << maxGroupReps << "\n";
-    std::cerr << "Sample Rate             : " << sampleRate << " (" << std::fixed << std::setprecision(1) << (sampleRate * 100.0f) << "%)\n";
-    std::cerr << "Total Hierarchy Layers  : " << totalLayers << "\n";
-    std::cerr << "--------------------------------------------------------------------------------\n";
+    if (!MessageManager::getInstance().shouldLog(LogLevel::DEBUG)) return;
+    auto s = msg::stream(LogLevel::DEBUG);
+    s << "\n================================================================================\n";
+    s << "[Accurate Mode] Hierarchical Consistency Plan \n";
+    s << "================================================================================\n";
+    s << "Total Sequences         : " << totalSequences << "\n";
+    s << "Max Reps Per Group      : " << maxGroupReps << "\n";
+    s << "Sample Rate             : " << sampleRate << " (" << std::fixed << std::setprecision(1) << (sampleRate * 100.0f) << "%)\n";
+    s << "Total Hierarchy Layers  : " << totalLayers << "\n";
+    s << "--------------------------------------------------------------------------------\n";
 
     for (size_t l = 0; l < layers.size(); ++l) {
         int layerNum = (int)l + 1;
         const auto& layer = layers[l];
-        std::cerr << "Layer " << layerNum << ": " << layer.size() << " consistency group" 
-                  << (layer.size() > 1 ? "s" : "") << " (";
+        s << "Layer " << layerNum << ": " << layer.size() << " consistency group" 
+          << (layer.size() > 1 ? "s" : "") << " (";
         
         if (layerNum == 1) {
-            std::cerr << "Base subtrees, intra-subtree dense alignment <= " << maxGroupReps << " seqs/group)\n";
+            s << "Base subtrees, intra-subtree dense alignment <= " << maxGroupReps << " seqs/group)\n";
         } else if (l == layers.size() - 1) {
-            std::cerr << "Final Root Merge Level, " << layer[0].repCount << " reps total)\n";
+            s << "Final Root Merge Level, " << layer[0].repCount << " reps total)\n";
         } else {
-            std::cerr << "Inter-Subtree Merge Level " << (layerNum - 1) << ", <= " << maxGroupReps << " reps/group)\n";
+            s << "Inter-Subtree Merge Level " << (layerNum - 1) << ", <= " << maxGroupReps << " reps/group)\n";
         }
 
         if (verbose || layer.size() <= 10) {
             for (const auto& g : layer) {
-                std::cerr << "  Group " << std::setw(2) << g.groupID << ": covers " 
-                          << std::setw(3) << g.subtreeIDs.size() << " subtree(s) [";
+                s << "  Group " << std::setw(2) << g.groupID << ": covers " 
+                  << std::setw(3) << g.subtreeIDs.size() << " subtree(s) [";
                 if (g.subtreeIDs.size() <= 4) {
-                    for (size_t s = 0; s < g.subtreeIDs.size(); ++s) {
-                        std::cerr << (s > 0 ? ", " : "") << g.subtreeIDs[s];
+                    for (size_t si = 0; si < g.subtreeIDs.size(); ++si) {
+                        s << (si > 0 ? ", " : "") << g.subtreeIDs[si];
                     }
                 } else {
-                    std::cerr << g.subtreeIDs.front() << " .. " << g.subtreeIDs.back();
+                    s << g.subtreeIDs.front() << " .. " << g.subtreeIDs.back();
                 }
-                std::cerr << "], total " << g.totalSequences << " seqs, " 
-                          << g.repCount << " reps (next level: " << g.nextRepCount << " reps)\n";
+                s << "], total " << g.totalSequences << " seqs, " 
+                  << g.repCount << " reps (next level: " << g.nextRepCount << " reps)\n";
             }
         } else {
-            std::cerr << "  [Detailed breakdown of " << layer.size() << " groups omitted, use --verbose to show all]\n";
+            s << "  [Detailed breakdown of " << layer.size() << " groups omitted, use --verbose to show all]\n";
         }
     }
-    std::cerr << "================================================================================\n\n";
+    s << "================================================================================\n\n";
 }
 
 } // namespace accurate

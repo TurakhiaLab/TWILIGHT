@@ -3,6 +3,7 @@
 #endif
 
 #include <chrono>
+#include <cstring>
 #include <tbb/parallel_for.h>
 
 msa::SequenceDB::SequenceInfo::SequenceInfo(int id_, const std::string &name_, std::string &seq, int subtreeIdx_, float weight_, bool debug, int alnMode)
@@ -27,6 +28,28 @@ msa::SequenceDB::SequenceInfo::SequenceInfo(int id_, const std::string &name_, s
     }
 }
 
+msa::SequenceDB::SequenceInfo::SequenceInfo(int id_, const char *name_, size_t nameLen, const char *seq_, size_t seqLen, int subtreeIdx_, float weight_, bool debug, int alnMode)
+{
+    this->id = id_;
+    this->name.assign(name_, nameLen);
+    this->len = static_cast<int>(seqLen);
+    this->subtreeIdx = subtreeIdx_;
+    this->storage = 0;
+    this->lowQuality = false;
+    this->allocate_and_store(seq_, seqLen);
+    this->weight = weight_;
+    if (debug) {
+        if (alnMode == 3) {
+            this->unalignedSeq.reserve(seqLen);
+            for (size_t i = 0; i < seqLen; ++i) {
+                if (seq_[i] != '-') this->unalignedSeq.push_back(seq_[i]);
+            }
+        } else {
+            this->unalignedSeq.assign(seq_, seqLen);
+        }
+    }
+}
+
 msa::SequenceDB::SequenceInfo::~SequenceInfo()
 {
     delete[] this->alnStorage[0];
@@ -36,15 +59,22 @@ msa::SequenceDB::SequenceInfo::~SequenceInfo()
 
 void msa::SequenceDB::SequenceInfo::allocate_and_store(const std::string &seq)
 {
-    int len = seq.length();
-    this->memLen = static_cast<int>(len * this->timesBigger);
+    this->allocate_and_store(seq.data(), seq.length());
+}
+
+void msa::SequenceDB::SequenceInfo::allocate_and_store(const char *seq, size_t seqLen)
+{
+    int len = static_cast<int>(seqLen);
+    this->memLen = std::max(2, static_cast<int>(len * this->timesBigger));
     this->alnStorage[0] = new char[this->memLen];
     this->alnStorage[1] = new char[this->memLen];
-    for (int i = 0; i < this->memLen; ++i)
-    {
-        this->alnStorage[0][i] = (i < len) ? seq[i] : '\0';
-        this->alnStorage[1][i] = '\0';
+    if (len > 0) {
+        std::memcpy(this->alnStorage[0], seq, len);
     }
+    if (this->memLen > len) {
+        std::memset(this->alnStorage[0] + len, 0, this->memLen - len);
+    }
+    std::memset(this->alnStorage[1], 0, this->memLen);
     return;
 }
 
@@ -84,6 +114,14 @@ void msa::SequenceDB::addSequence(int id, const std::string &name, std::string &
     return;
 }
 
+void msa::SequenceDB::addSequenceFromBuffer(int id, const char *name, size_t nameLen, const char *seq, size_t seqLen, int subtreeIdx, float weight, bool debug, int alnMode)
+{
+    SequenceInfo *newSeq = new SequenceInfo(id, name, nameLen, seq, seqLen, subtreeIdx, weight, debug, alnMode);
+    sequences.push_back(newSeq);
+    name_map[newSeq->name] = newSeq;
+    return;
+}
+
 void msa::SequenceDB::debug() {
     auto dbgStart = std::chrono::high_resolution_clock::now();
     int debugNum = 0;
@@ -104,18 +142,18 @@ void msa::SequenceDB::debug() {
             }
             if (theFirst) {alnLen = offset; theFirst = false;}
             else {
-                if (alnLen != offset) printf("%s: the sequence length (%d) did not match the MSA length(%d)\n", seqInfo->name.c_str(), offset, alnLen);
+                if (alnLen != offset) msg::warn("%s: the sequence length (%d) did not match the MSA length(%d)\n", seqInfo->name.c_str(), offset, alnLen);
             }
             if (r != seqInfo->unalignedSeq) {
-                printf("%s: after removing the gaps, the alignment did not match the original sequence.\n", seqInfo->name.c_str());    
-                std::cout << r << '\n' << seqInfo->unalignedSeq << '\n';  
+                msg::warn("%s: after removing the gaps, the alignment did not match the original sequence.\n", seqInfo->name.c_str());
+                msg::stream(LogLevel::WARNING) << r << '\n' << seqInfo->unalignedSeq << '\n';
             }
             ++debugNum;
         }
     }
     auto dbgEnd = std::chrono::high_resolution_clock::now();
     std::chrono::nanoseconds dbgTime = dbgEnd - dbgStart;
-    std::cerr << "Completed checking " << debugNum << " sequences in " << dbgTime.count() / 1000000 << " ms.\n";
+    msg::info("Completed checking %d sequences in %lld ms.\n", debugNum, static_cast<long long>(dbgTime.count() / 1000000));
     return;
 }
 
@@ -240,7 +278,7 @@ phylogeny::Tree* msa::SequenceDB::getPlacementTree(Tree* T) {
     
     // placement_T->showTree();
 
-    for (auto seq: this->sequences) if (seq->len <  seq->unalignedSeq.size()) std::cout << seq->name << ':' << seq->len << '\t' << seq->unalignedSeq.size() << '\n';
+    for (auto seq: this->sequences) if (seq->len <  seq->unalignedSeq.size()) msg::debug("%s:%d\t%zu\n", seq->name.c_str(), seq->len, seq->unalignedSeq.size());
     
     return placement_T;
 }
